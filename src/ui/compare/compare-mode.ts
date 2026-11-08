@@ -52,7 +52,7 @@ export class CompareMode {
   private shift: ShiftReport | null = null;
   private groups: GroupChoice | null = null;
   private rows: { filter: RowFilter; layout: GridLayout; changedColumnsOnly: boolean } = {
-    filter: { show: "all", pair: null },
+    filter: { show: "differences", pair: null },
     layout: "panes",
     changedColumnsOnly: false,
   };
@@ -271,7 +271,7 @@ export class CompareMode {
       this.report = { report: result.report, ms: result.ms, key: this.state.key, rules: this.state.rules };
       this.stage = "result";
       this.tab = "report";
-      this.rows = { ...this.rows, filter: { show: "all", pair: null } };
+      this.rows = { ...this.rows, filter: { show: "differences", pair: null } };
       this.shift = null;
       this.groups = null;
       this.render();

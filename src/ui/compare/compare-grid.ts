@@ -101,6 +101,8 @@ export class SideBySide {
     switch (show) {
       case "all":
         return rows.identical + rows.changed + rows.onlyA + rows.onlyB;
+      case "differences":
+        return rows.changed + rows.onlyA + rows.onlyB;
       case "changed":
         return rows.changed;
       case "onlyA":
@@ -117,6 +119,7 @@ export class SideBySide {
     const group = el("div", { class: "cmp-segment", role: "group", "aria-label": "Show" });
     const shows: [RowFilter["show"], string, string][] = [
       ["all", "All", ""],
+      ["differences", "Differences", "diff"],
       ["changed", "Changed", "changed"],
       ["onlyA", "Only in A", "only-a"],
       ["onlyB", "Only in B", "only-b"],

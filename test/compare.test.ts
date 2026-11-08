@@ -185,6 +185,7 @@ test("the side-by-side view filters aligned rows, cuts a window with both sides'
   assert.deepEqual([...filterPositions(match, { show: "onlyB", pair: null })], [4]);
   assert.deepEqual([...filterPositions(match, { show: "all", pair: 1 })], [3], "rows where name changed");
   assert.deepEqual([...filterPositions(match, { show: "identical", pair: null })], [0, 2]);
+  assert.deepEqual([...filterPositions(match, { show: "differences", pair: null })], [1, 3, 4], "changed, only in A and only in B together");
 
   const window = rowWindow(a, b, pairing, match, all, 1, 4);
   assert.equal(window.start, 1);

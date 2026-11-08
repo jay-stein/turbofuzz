@@ -15743,6 +15743,7 @@ button.cmp-change-name:hover {
   border-radius: 2px;
 }
 .cmp-seg-dot.changed { background: var(--cmp-changed); }
+.cmp-seg-dot.diff { background: linear-gradient(to right, var(--cmp-gone) 0 33%, var(--cmp-changed) 33% 66%, var(--cmp-added) 66%); }
 .cmp-seg-dot.only-a { background: var(--cmp-gone); }
 .cmp-seg-dot.only-b { background: var(--cmp-added); }
 .cmp-seg-dot.same { background: color-mix(in srgb, var(--text-dim) 55%, transparent); }

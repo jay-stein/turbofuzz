@@ -132,10 +132,17 @@ test("side by side: counts open their rows, the panes line up with gaps, n finds
   expect(await stats.evaluate((node) => node.closest("[inert]") !== null)).toBe(true);
   expect(await stats.evaluate((node) => { (node as HTMLElement).focus(); return document.activeElement === node; })).toBe(false);
 
+  const ids = (side: "a" | "b") => mode.locator(`.cmp-pane.cmp-side-${side} .cmp-row`).evaluateAll((rows) => rows.map((row) => (row.classList.contains("gap") ? "gap" : row.children[1]?.textContent ?? "")));
+  // The tab opens on Differences: every row that is not identical (2 only in A, 3 changed, 5 only in B).
+  await mode.getByRole("button", { name: "Side by side" }).click();
+  await expect(mode.getByRole("button", { name: /^Differences/ })).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => ids("a")).toEqual(["2", "3", "gap"]);
+  await expect.poll(() => ids("b")).toEqual(["gap", "3", "5"]);
+  await mode.getByRole("button", { name: "Report", exact: true }).click();
+
   // The Rows tile opens every aligned row: 1/1, 2/gap, 3/2, 4/3, gap/5.
   await mode.locator(".cmp-tile.rows").click();
   await expect(mode.getByRole("button", { name: "Side by side" })).toHaveAttribute("aria-current", "page");
-  const ids = (side: "a" | "b") => mode.locator(`.cmp-pane.cmp-side-${side} .cmp-row`).evaluateAll((rows) => rows.map((row) => (row.classList.contains("gap") ? "gap" : row.children[1]?.textContent ?? "")));
   await expect.poll(() => ids("a")).toEqual(["1", "2", "3", "4", "gap"]);
   await expect.poll(() => ids("b")).toEqual(["1", "gap", "3", "4", "5"]);
   await expect(mode.locator(".cmp-pane.cmp-side-b .cmp-cell.diff")).toHaveText(["31"]);
