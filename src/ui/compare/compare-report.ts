@@ -5,6 +5,7 @@ import { TYPE_LABELS } from "../../types.js";
 import type { CompareSetupMessage } from "../../worker/protocol.js";
 import { el } from "../dom.js";
 import type { KeyChoice } from "./compare-setup.js";
+import type { RowFilter } from "../../data/compare/view.js";
 
 export interface ReportInput {
   setup: CompareSetupMessage;
@@ -15,7 +16,8 @@ export interface ReportInput {
 }
 
 export interface ReportActions {
-  setup(): void;
+  /** Opens the side-by-side rows under a filter. */
+  rows(filter: RowFilter): void;
 }
 
 const nf = new Intl.NumberFormat("en");
@@ -54,12 +56,15 @@ export function describeRun(input: ReportInput): string {
   return parts.join(" · ");
 }
 
-function tile(label: string, value: string, sub: string, tone: string): HTMLElement {
-  return el("div", { class: `cmp-tile ${tone}` }, [
+/** A count that opens its rows on the side-by-side screen. */
+function tile(label: string, value: string, sub: string, tone: string, open: () => void): HTMLElement {
+  const button = el("button", { type: "button", class: `cmp-tile ${tone}`, title: "Show these rows side by side" }, [
     el("span", { class: "cmp-tile-label" }, [el("span", { class: "cmp-dot", "aria-hidden": "true" }), label]),
     el("span", { class: "cmp-tile-value" }, [value]),
     el("span", { class: "cmp-tile-sub" }, [sub]),
   ]);
+  button.addEventListener("click", open);
+  return button;
 }
 
 /** One bar for every aligned row: identical, changed, only in A, only in B. */
@@ -102,7 +107,7 @@ function card(title: string, aside?: string): HTMLElement {
 }
 
 /** Each changed column: how many rows, the share as a bar, and its most common old → new values. */
-function changesCard(input: ReportInput): HTMLElement {
+function changesCard(input: ReportInput, actions: ReportActions): HTMLElement {
   const { report, setup, key } = input;
   const box = card("Changes by column", report.rows.matched > 0 ? `share of the ${nf.format(report.rows.matched)} matched rows` : undefined);
   if (key.kind === "content") {
@@ -128,7 +133,11 @@ function changesCard(input: ReportInput): HTMLElement {
     }
     box.append(
       el("div", { class: "cmp-change" }, [
-        el("span", { class: "cmp-change-name", title: change.name }, [change.name]),
+        (() => {
+          const name = el("button", { type: "button", class: "cmp-change-name", title: `Show the rows where ${change.name} changed` }, [change.name]);
+          name.addEventListener("click", () => actions.rows({ show: "changed", pair: change.pair }));
+          return name;
+        })(),
         el("div", { class: "cmp-change-measure" }, [
           el("span", { class: "cmp-change-count" }, [nf.format(change.changed), el("span", { class: "cmp-change-share" }, [` · ${percent(change.changed, report.rows.matched)}`])]),
           el("span", { class: "cmp-meter", "aria-hidden": "true" }, [
@@ -217,21 +226,18 @@ function totalsCard(input: ReportInput): HTMLElement | null {
 export function renderReport(host: HTMLElement, input: ReportInput, actions: ReportActions): void {
   const { report } = input;
   const rows = report.rows;
-  const back = el("button", { class: "ghost small", type: "button" }, ["← Setup"]);
-  back.addEventListener("click", () => actions.setup());
   const share = (n: number): string => (rows.matched === 0 ? "" : `${percent(n, rows.matched)} of matched rows`);
   const page = el("div", { class: "cmp-page cmp-report" });
   page.append(
-    el("div", { class: "cmp-intro cmp-intro-row" }, [
-      el("div", {}, [el("h1", { tabindex: "-1" }, ["What changed"]), el("p", {}, [describeRun(input)])]),
-      back,
-    ]),
+    el("div", { class: "cmp-intro" }, [el("h1", { tabindex: "-1" }, ["What changed"]), el("p", {}, [describeRun(input)])]),
     el("div", { class: "cmp-tiles" }, [
-      tile("Identical", nf.format(rows.identical), share(rows.identical), "same"),
-      tile("Changed", nf.format(rows.changed), share(rows.changed), "changed"),
-      tile("Only in A (removed)", nf.format(rows.onlyA), "not in B", "only-a"),
-      tile("Only in B (added)", nf.format(rows.onlyB), "new in B", "only-b"),
-      tile("Rows", `${nf.format(rows.a)} → ${nf.format(rows.b)}`, `${signed(rows.b - rows.a)} · ${nf.format(rows.matched)} matched`, "rows"),
+      tile("Identical", nf.format(rows.identical), share(rows.identical), "same", () => actions.rows({ show: "identical", pair: null })),
+      tile("Changed", nf.format(rows.changed), share(rows.changed), "changed", () => actions.rows({ show: "changed", pair: null })),
+      tile("Only in A (removed)", nf.format(rows.onlyA), "not in B", "only-a", () => actions.rows({ show: "onlyA", pair: null })),
+      tile("Only in B (added)", nf.format(rows.onlyB), "new in B", "only-b", () => actions.rows({ show: "onlyB", pair: null })),
+      tile("Rows", `${nf.format(rows.a)} → ${nf.format(rows.b)}`, `${signed(rows.b - rows.a)} · ${nf.format(rows.matched)} matched`, "rows", () =>
+        actions.rows({ show: "all", pair: null }),
+      ),
     ]),
     composition(report),
   );
@@ -240,6 +246,6 @@ export function renderReport(host: HTMLElement, input: ReportInput, actions: Rep
   const side = el("div", { class: "cmp-report-side" }, [columnsCard(report)]);
   const totals = totalsCard(input);
   if (totals !== null) side.append(totals);
-  page.append(el("div", { class: "cmp-columns-layout" }, [el("div", { class: "cmp-main" }, [changesCard(input)]), side]));
+  page.append(el("div", { class: "cmp-columns-layout" }, [el("div", { class: "cmp-main" }, [changesCard(input, actions)]), side]));
   host.replaceChildren(page);
 }

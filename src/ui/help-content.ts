@@ -411,7 +411,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "Match rows on — a key column that is filled and unique on both sides is suggested (up to 1% of rows may have an empty or repeated key; they are counted and shown as warnings). Choose another column, or match whole rows when there is no key.",
         "Columns — pair by name, ignoring case, spaces and punctuation. A renamed column is paired by hand with Pair with…; the rest are listed as only in A or only in B.",
         "Values count as equal when — numbers within a tolerance (absolute or %), case ignored or not, extra spaces ignored or not, and whether an empty cell equals an empty cell. Dates must match exactly.",
-        "The result counts identical, changed, only-in-A and only-in-B rows, warns about repeated or empty keys, and lists the changes by column with the most common old → new values.",
+        "Report — identical, changed, only-in-A and only-in-B rows, warnings about repeated or empty keys, the changes by column with the most common old → new values, columns added, removed, renamed or retyped, and a totals check of each number column over all rows and over matched rows. Click a count or a column to see those rows.",
+        "Side by side — A and B in two panes that scroll together, rows lined up by the key, a hatched gap where a side has no row, changed cells boxed. Show all, changed, only in A, only in B or identical rows; tick Only columns with changes to hide the rest; n and p jump to the next and previous difference. One grid shows each changed cell's new value over the old one, struck through.",
       ),
       note(
         "Compare reads CSV, TSV, JSON and Parquet. Save a workbook sheet as CSV first. While comparing, the rest of the app is locked; Exit compare returns to your data exactly as it was.",

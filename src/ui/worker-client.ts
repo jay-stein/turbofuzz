@@ -7,6 +7,7 @@ import type { ModelKey } from "../data/timeseries/models.js";
 import type { HeaderLayout } from "../parse/header-detect.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { CompareRules } from "../data/compare/types.js";
+import type { RowFilter } from "../data/compare/view.js";
 import type { ChartExclusion } from "../data/chart-exclusions.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { TimeGrain, ViewDef } from "../data/aggregate.js";
@@ -66,6 +67,8 @@ import type {
   CompareClearedMessage,
   CompareResultMessage,
   CompareSetupMessage,
+  CompareRowsMessage,
+  CompareFoundMessage,
   RowsMessage,
   RowIdsMessage,
   RowPositionMessage,
@@ -202,6 +205,14 @@ export class SearchWorkerClient {
 
   compareRun(manual: { a: number; b: number }[], keyPairs: number[] | null, rules: CompareRules): Promise<CompareResultMessage> {
     return this.request<CompareResultMessage>({ type: "compareRun", manual, keyPairs, rules });
+  }
+
+  compareRows(filter: RowFilter, start: number, end: number): Promise<CompareRowsMessage> {
+    return this.request<CompareRowsMessage>({ type: "compareRows", filter, start, end });
+  }
+
+  compareFind(filter: RowFilter, from: number, dir: 1 | -1): Promise<CompareFoundMessage> {
+    return this.request<CompareFoundMessage>({ type: "compareFind", filter, from, dir });
   }
 
   compareClear(): Promise<CompareClearedMessage> {

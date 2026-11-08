@@ -56,8 +56,8 @@ const B = side("after.csv", {
 test("the report shows the rows, the key problems, the changes, the columns and the totals", () => {
   const document = setupDom();
   const host = document.createElement("div") as unknown as HTMLElement;
-  let backs = 0;
-  renderReport(host, input(A, B, { kind: "pairs", pairs: [0] }), { setup: () => backs++ });
+  const opened: string[] = [];
+  renderReport(host, input(A, B, { kind: "pairs", pairs: [0] }), { rows: (filter) => opened.push(`${filter.show}:${filter.pair}`) });
   const text = (selector: string): string[] => [...host.querySelectorAll(selector)].map((node) => node.textContent ?? "");
 
   assert.deepEqual(text(".cmp-tile-value"), ["1", "3", "1", "2", "5 → 6"]);
@@ -71,14 +71,16 @@ test("the report shows the rows, the key problems, the changes, the columns and 
   const totals = text(".cmp-totals-grid > span");
   assert.deepEqual(totals.slice(3), ["A", "150", "100", "B", "601", "100", "B − A", "+451 (+300.67%)", "0"]);
   assert.match(host.textContent ?? "", /Most of the change in amount comes from rows added or removed/);
-  (host.querySelector(".cmp-intro-row button") as unknown as { click(): void }).click();
-  assert.equal(backs, 1);
+  // Counts and column names open those rows side by side.
+  (host.querySelectorAll(".cmp-tile")[2] as unknown as { click(): void }).click();
+  (host.querySelector(".cmp-change-name") as unknown as { click(): void }).click();
+  assert.deepEqual(opened, ["onlyA:null", "changed:1"]);
 });
 
 test("matching on whole rows says why no cell changes are listed", () => {
   const document = setupDom();
   const host = document.createElement("div") as unknown as HTMLElement;
-  renderReport(host, input(A, B, { kind: "content" }), { setup: () => undefined });
+  renderReport(host, input(A, B, { kind: "content" }), { rows: () => undefined });
   assert.equal(host.querySelectorAll(".cmp-change").length, 0);
   assert.match(host.textContent ?? "", /a changed row counts as one removed and one added/);
   assert.equal(host.querySelector(".cmp-warn"), null, "no key, no key warnings");
@@ -91,7 +93,7 @@ test("an empty value shows as (empty), and the run line names the key and the ru
   const b = side("b", { id: ["1", "2"], shipped: ["2024-01-05", "2024-01-02"] });
   const rules = { ...DEFAULT_RULES, numberAbs: 0.5, ignoreCase: true };
   const run = input(a, b, { kind: "pairs", pairs: [0] }, rules);
-  renderReport(host, run, { setup: () => undefined });
+  renderReport(host, run, { rows: () => undefined });
   const old = host.querySelector(".cmp-old");
   assert.equal(old?.textContent, "(empty)");
   assert.ok(old?.classList.contains("cmp-blank"));

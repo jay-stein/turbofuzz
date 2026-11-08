@@ -3,6 +3,7 @@ import { pairColumns } from "../src/data/compare/columns.js";
 import { suggestKeys } from "../src/data/compare/keys.js";
 import { matchRows } from "../src/data/compare/match.js";
 import { buildReport } from "../src/data/compare/report.js";
+import { filterPositions, rowWindow } from "../src/data/compare/view.js";
 import { DEFAULT_RULES, compareColumn, type CompareSide } from "../src/data/compare/types.js";
 import { measure, ms } from "./bench-utils.js";
 
@@ -19,6 +20,8 @@ const BUDGET = {
   matchKey: Math.max(600, 2000 * scale),
   matchContent: Math.max(800, 4500 * scale),
   report: Math.max(100, 500 * scale),
+  // A screen of the side-by-side view: drawn on every scroll, so it must fit in a frame.
+  window: 16,
 };
 
 const cities = ["Sydney", "Melbourne", "Perth", "Hobart", "Darwin", "Adelaide", "Brisbane", "Canberra"];
@@ -88,6 +91,12 @@ gate(`match whole rows (no key), ${ROWS.toLocaleString()} rows`, BUDGET.matchCon
 gate(`report, ${ROWS.toLocaleString()} rows`, BUDGET.report, () => {
   buildReport(a, b, pairing, match);
 });
+
+const changedRows = filterPositions(match, { show: "changed", pair: null });
+const middle = Math.floor(changedRows.length / 2);
+gate(`side-by-side window of 100 changed rows, ${ROWS.toLocaleString()} rows`, BUDGET.window, () => {
+  rowWindow(a, b, pairing, match, changedRows, middle, middle + 100);
+}, 20);
 
 const expected = { onlyA: Math.ceil(ROWS / 100), onlyB: Math.floor(ROWS / 100) };
 if (match.counts.onlyA !== expected.onlyA || match.counts.onlyB !== expected.onlyB || match.counts.changed === 0) {

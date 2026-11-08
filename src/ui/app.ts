@@ -6823,6 +6823,7 @@ export class App {
         return this.lastLoaded === before || this.lastLoaded === null ? null : this.compareSideInfo();
       },
       onExit: () => {
+        for (const node of behind) node.inert = false;
         this.compareMode = null;
         document.body.classList.remove("compare-active");
         this.setAction("Left compare mode");
@@ -6830,6 +6831,9 @@ export class App {
     });
     this.compareMode = mode;
     document.body.classList.add("compare-active");
+    // Everything behind compare mode is out of reach: no Tab stops, nothing for a screen reader. Dialogs opened later stay usable.
+    const behind = [...document.body.children].filter((node): node is HTMLElement => node instanceof HTMLElement && !node.inert);
+    for (const node of behind) node.inert = true;
     document.body.append(mode.element);
     await mode.start(b);
   }

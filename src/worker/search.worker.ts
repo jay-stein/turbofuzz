@@ -74,7 +74,8 @@ import { columnNameKey, pairColumns } from "../data/compare/columns.js";
 import { suggestKeys } from "../data/compare/keys.js";
 import { matchRows } from "../data/compare/match.js";
 import { buildReport } from "../data/compare/report.js";
-import { DEFAULT_RULES, compareColumn, type ColumnPair, type CompareSide } from "../data/compare/types.js";
+import { DEFAULT_RULES, compareColumn, type ColumnPair, type ColumnPairing, type CompareSide, type MatchResult } from "../data/compare/types.js";
+import { filterPositions, findDifference, rowWindow, type RowFilter } from "../data/compare/view.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { orderFormat, parseDate, type DateOrder } from "../parse/dates.js";
 import { fuzzyScoreNormalized, normalizeForMatch } from "../search/fuzzy-match.js";
@@ -109,6 +110,8 @@ import type {
   FinalizeStatsRequest,
   CompareLoadRequest,
   CompareRunRequest,
+  CompareRowsRequest,
+  CompareFindRequest,
   CompareSetupRequest,
   CompareSideInfo,
   GetRowsRequest,
@@ -387,6 +390,12 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "compareRun":
       handleCompareRun(message);
+      break;
+    case "compareRows":
+      handleCompareRows(message);
+      break;
+    case "compareFind":
+      handleCompareFind(message);
       break;
     case "compareClear":
       compare = null;
@@ -1012,8 +1021,40 @@ async function appendToCurrent(current: Dataset, added: Dataset, addedName: stri
   return buildDatasetAsync(`${current.name} + ${addedName}`, headers, rows, () => undefined, "dot", { shouldCancel: cancelled });
 }
 
-/** Compare mode: B beside the loaded data (A), and the last match. */
-let compare: { b: Dataset; bSide: CompareSide } | null = null;
+/** Compare mode: B beside the loaded data (A), and the last match with its filtered row lists. */
+let compare: {
+  b: Dataset;
+  bSide: CompareSide;
+  run?: { a: CompareSide; pairing: ColumnPairing; match: MatchResult; filtered: Map<string, Int32Array> };
+} | null = null;
+
+function compareRun(): NonNullable<NonNullable<typeof compare>["run"]> {
+  const run = compare?.run;
+  if (run === undefined) throw new Error("Nothing compared yet");
+  return run;
+}
+
+function filteredRows(filter: RowFilter): Int32Array {
+  const run = compareRun();
+  const key = `${filter.show}:${filter.pair ?? ""}`;
+  let positions = run.filtered.get(key);
+  if (positions === undefined) {
+    positions = filterPositions(run.match, filter);
+    run.filtered.set(key, positions);
+  }
+  return positions;
+}
+
+function handleCompareRows(message: CompareRowsRequest): void {
+  const run = compareRun();
+  const window = rowWindow(run.a, compare!.bSide, run.pairing, run.match, filteredRows(message.filter), message.start, message.end);
+  post({ type: "compareRows", requestId: message.requestId, window });
+}
+
+function handleCompareFind(message: CompareFindRequest): void {
+  const run = compareRun();
+  post({ type: "compareFound", requestId: message.requestId, index: findDifference(run.match, filteredRows(message.filter), message.from, message.dir) });
+}
 
 /** A as compare mode sees it: the loaded data as it is now, without rows that were deleted. */
 function compareSideA(current: Dataset): CompareSide {
@@ -1093,6 +1134,7 @@ function handleCompareRun(message: CompareRunRequest): void {
   const pairing = pairColumns(a, compare.bSide, message.manual);
   const keyPairs = message.keyPairs === null ? null : message.keyPairs.map((index) => pairing.pairs[index]).filter((pair): pair is ColumnPair => pair !== undefined);
   const match = matchRows(a, compare.bSide, pairing, keyPairs, message.rules);
+  compare.run = { a, pairing, match, filtered: new Map() };
   post({
     type: "compareResult",
     requestId: message.requestId,

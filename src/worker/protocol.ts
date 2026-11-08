@@ -17,6 +17,7 @@ import type { DistributionChange } from "../data/distribution.js";
 import type { ColumnPairing, CompareRules } from "../data/compare/types.js";
 import type { KeySuggestion } from "../data/compare/keys.js";
 import type { CompareReport } from "../data/compare/report.js";
+import type { RowFilter, RowWindow } from "../data/compare/view.js";
 import type { SimilarClusterEntry } from "../data/similar-clusters.js";
 import type { AnimationResult } from "../data/chart-frames.js";
 import type { BootstrapProgress, IntervalKind } from "../data/error-bars.js";
@@ -1331,6 +1332,36 @@ export interface CompareResultMessage {
   ms: number;
 }
 
+/** Rows [start, end) of the last match under a filter, for the side-by-side view. */
+export interface CompareRowsRequest {
+  type: "compareRows";
+  requestId: number;
+  filter: RowFilter;
+  start: number;
+  end: number;
+}
+
+export interface CompareRowsMessage {
+  type: "compareRows";
+  requestId: number;
+  window: RowWindow;
+}
+
+/** The next or previous difference after `from` in the filtered rows (-1 when none). */
+export interface CompareFindRequest {
+  type: "compareFind";
+  requestId: number;
+  filter: RowFilter;
+  from: number;
+  dir: 1 | -1;
+}
+
+export interface CompareFoundMessage {
+  type: "compareFound";
+  requestId: number;
+  index: number;
+}
+
 /** Leaves compare mode: B and the match are dropped. */
 export interface CompareClearRequest {
   type: "compareClear";
@@ -1347,6 +1378,8 @@ export type WorkerRequest =
   | CompareSetupRequest
   | CompareRunRequest
   | CompareClearRequest
+  | CompareRowsRequest
+  | CompareFindRequest
   | LoadRequest
   | CancelLoadRequest
   | SetFilterRequest
@@ -1715,4 +1748,6 @@ export type WorkerResponse =
   | CompareSetupMessage
   | CompareResultMessage
   | CompareClearedMessage
+  | CompareRowsMessage
+  | CompareFoundMessage
   | ErrorMessage;

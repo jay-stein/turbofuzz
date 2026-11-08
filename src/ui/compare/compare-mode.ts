@@ -4,6 +4,8 @@ import type { CompareSetupMessage, CompareSideInfo } from "../../worker/protocol
 import { el, svgIcon } from "../dom.js";
 import type { SearchWorkerClient } from "../worker-client.js";
 import { renderReport } from "./compare-report.js";
+import { SideBySide, type GridLayout } from "./compare-grid.js";
+import type { RowFilter } from "../../data/compare/view.js";
 import { renderSetup, type KeyChoice, type SetupState } from "./compare-setup.js";
 
 export interface CompareModeOptions {
@@ -42,6 +44,14 @@ export class CompareMode {
   /** The last result, with the key and rules it was run with (setup may change them afterwards). */
   private report: { report: CompareReport; ms: number; key: KeyChoice; rules: CompareRules } | null = null;
   private readonly state: SetupState;
+  /** Which result tab is open, and how the side-by-side view was left. */
+  private tab: "report" | "rows" = "report";
+  private rows: { filter: RowFilter; layout: GridLayout; changedColumnsOnly: boolean } = {
+    filter: { show: "all", pair: null },
+    layout: "panes",
+    changedColumnsOnly: false,
+  };
+  private sideBySide: SideBySide | null = null;
   private closed = false;
 
   constructor(private readonly options: CompareModeOptions) {
@@ -96,12 +106,29 @@ export class CompareMode {
         el("span", { class: "cmp-file", title: setup.b.name }, [setup.b.name]),
       );
     }
+    this.sideBySide?.dispose();
+    this.sideBySide = null;
+    this.body.classList.toggle("cmp-body-rows", this.stage === "result" && this.tab === "rows");
     if (this.stage === "result" && this.report !== null && setup !== null) {
-      renderReport(
-        this.body,
-        { setup, report: this.report.report, ms: this.report.ms, key: this.report.key, rules: this.report.rules },
-        { setup: () => this.showSetup() },
-      );
+      const result = this.report;
+      const host = el("div", { class: "cmp-tab-host" });
+      this.body.replaceChildren(this.tabs(), host);
+      if (this.tab === "report") {
+        renderReport(host, { setup, report: result.report, ms: result.ms, key: result.key, rules: result.rules }, { rows: (filter) => this.openRows(filter) });
+      } else {
+        this.sideBySide = new SideBySide({
+          client: this.options.client,
+          setup,
+          report: result.report,
+          key: result.key,
+          ...this.rows,
+          onState: (state) => {
+            this.rows = state;
+          },
+        });
+        host.append(this.sideBySide.element);
+        this.sideBySide.focus();
+      }
     }
     else
       renderSetup(this.body, this.state, {
@@ -119,6 +146,31 @@ export class CompareMode {
         },
         run: () => void this.run(),
       });
+  }
+
+  /** Report | Side by side, and the way back to setup. */
+  private tabs(): HTMLElement {
+    const nav = el("nav", { class: "cmp-tabs", "aria-label": "Compare views" });
+    for (const [tab, label] of [["report", "Report"], ["rows", "Side by side"]] as const) {
+      const button = el("button", { type: "button", class: "cmp-tab" }, [label]);
+      if (this.tab === tab) button.setAttribute("aria-current", "page");
+      button.addEventListener("click", () => {
+        this.tab = tab;
+        this.render();
+      });
+      nav.append(button);
+    }
+    const back = el("button", { type: "button", class: "ghost small" }, ["← Setup"]);
+    back.addEventListener("click", () => this.showSetup());
+    nav.append(el("span", { class: "grow" }), back);
+    return nav;
+  }
+
+  /** From a count or a column in the report: those rows, side by side. */
+  private openRows(filter: RowFilter): void {
+    this.rows = { ...this.rows, filter };
+    this.tab = "rows";
+    this.render();
   }
 
   private applySetup(setup: CompareSetupMessage): void {
@@ -185,6 +237,8 @@ export class CompareMode {
       this.state.busy = null;
       this.report = { report: result.report, ms: result.ms, key: this.state.key, rules: this.state.rules };
       this.stage = "result";
+      this.tab = "report";
+      this.rows = { ...this.rows, filter: { show: "all", pair: null } };
       this.render();
       this.body.querySelector<HTMLElement>("h1")?.focus();
     } catch (error) {
@@ -206,6 +260,7 @@ export class CompareMode {
   private async exit(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.sideBySide?.dispose();
     await this.options.client.compareClear().catch(() => undefined);
     this.element.remove();
     this.options.onExit();
