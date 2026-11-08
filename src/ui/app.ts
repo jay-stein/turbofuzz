@@ -6676,6 +6676,13 @@ export class App {
           `${extraCellRows.toLocaleString()} row${extraCellRows === 1 ? "" : "s"} with ${extraCells.toLocaleString()} extra cell${extraCells === 1 ? "" : "s"} beyond ${loaded.columnCount} columns — trimmed`,
         );
       }
+      const stray = loaded.ragged.strayQuoteLines ?? [];
+      if (stray.length > 0) {
+        const lines = stray.slice(0, 5).join(", ") + (stray.length > 5 ? ` and ${stray.length - 5} more` : "");
+        parts.push(
+          `${stray.length === 1 ? "a quote that never closed" : `${stray.length} quotes that never closed`} on line${stray.length === 1 ? "" : "s"} ${lines} — dropped so the rows after read normally; check ${stray.length === 1 ? "that row" : "those rows"}`,
+        );
+      }
     }
 
     if (!fromFile && loaded.rowCount > LARGE_PASTE_ROWS) {

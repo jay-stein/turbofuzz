@@ -139,3 +139,27 @@ test("CRLF rows with a line break inside a quoted cell keep it in the cell", () 
   const parsed = parseDelimited('id,note\r\n1,"two\nlines"\r\n2,plain\r\n');
   assert.deepEqual(parsed.rows, [["1", "two\nlines"], ["2", "plain"]]);
 });
+
+test("line endings that change part way through a big file still split into rows", () => {
+  const start = "x,y\r\n" + "1,2\r\n".repeat(300_000);
+  const parsed = parseDelimited(start + "5,6\n7,8\n");
+  assert.equal(parsed.rows.length, 300_002);
+  assert.deepEqual(parsed.rows.at(-1), ["7", "8"]);
+});
+
+test("a quote that never closes is dropped, the rows after it read normally, and its line is reported", () => {
+  const parsed = parseDelimited('a,b\n1,"ok, fine"\n2,"oops\n3,4\n5,"x""y"\n');
+  assert.deepEqual(parsed.rows, [["1", "ok, fine"], ["2", "oops"], ["3", "4"], ["5", 'x"y']]);
+  assert.deepEqual(parsed.ragged.strayQuoteLines, [3]);
+  assert.equal(parseDelimited('a,b\n1,"fine"\n').ragged.strayQuoteLines, undefined);
+});
+
+test("a stray quote before a later quoted cell is repaired, and so is an inches mark that opens a cell", () => {
+  const parsed = parseDelimited('a,b\n1,"oops\n2,3\n4,"five, six"\n6,7\n');
+  assert.deepEqual(parsed.rows, [["1", "oops"], ["2", "3"], ["4", "five, six"], ["6", "7"]]);
+  assert.deepEqual(parsed.ragged.strayQuoteLines, [2]);
+  // Papaparse would read everything after "5" into one cell.
+  const inches = parseDelimited('a,b\n1,"5" long\n2,3\n');
+  assert.deepEqual(inches.rows, [["1", '5" long'], ["2", "3"]]);
+  assert.deepEqual(inches.ragged.strayQuoteLines, [2]);
+});

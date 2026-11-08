@@ -26,6 +26,8 @@ export interface RaggedInfo {
   extraCellRows: number;
   /** Total non-empty cells dropped past the width. */
   extraCells: number;
+  /** File lines where a quote never closed and was dropped so the rows after it read normally. */
+  strayQuoteLines?: number[];
 }
 
 export interface StructuredTable {
@@ -92,25 +94,28 @@ export function structureTable(
   return { headers, rows, ragged };
 }
 
-/** How far into a file line endings are checked: Papaparse guesses from its first chunk too. */
-const LINE_ENDING_SAMPLE = 1 << 20;
-
 /**
  * Papaparse picks one line ending from the start of the file, so a file whose
- * header ends in CRLF but whose rows end in LF (or the reverse) reads as a
- * single row. When the start mixes the two, CRLF becomes LF throughout;
- * quoted line breaks stay inside their cells either way.
+ * header ends in CRLF but whose rows end in LF (or the reverse, or a second
+ * export pasted on the end) reads rows together. When a file mixes the two
+ * anywhere, CRLF becomes LF throughout; quoted line breaks stay inside their
+ * cells either way. Files with one kind of ending pass through untouched.
  */
+const LONE_LF = /(?:^|[^\r])\n/;
+
 export function evenLineEndings(text: string): string {
-  const sample = text.length > LINE_ENDING_SAMPLE ? text.slice(0, LINE_ENDING_SAMPLE) : text;
-  let crlf = false;
-  let lf = false;
-  for (let at = sample.indexOf("\n"); at !== -1; at = sample.indexOf("\n", at + 1)) {
-    if (at > 0 && sample.charCodeAt(at - 1) === 13) crlf = true;
-    else lf = true;
-    if (crlf && lf) return text.replace(/\r\n/g, "\n");
-  }
-  return text;
+  // About 10 ms per 200 MB when there is no CRLF, 100 ms when every line has one.
+  if (text.indexOf("\r\n") === -1) return text;
+  return LONE_LF.test(text) ? text.replace(/\r\n/g, "\n") : text;
+}
+
+/** Re-reads after a stray quote at most this many times; each is a full pass. */
+const MAX_QUOTE_REPAIRS = 20;
+
+function lineOf(text: string, at: number): number {
+  let line = 1;
+  for (let next = text.indexOf("\n"); next !== -1 && next < at; next = text.indexOf("\n", next + 1)) line++;
+  return line;
 }
 
 export function parseDelimited(text: string, options: ParseOptions = {}): ParsedTable {  const delimiter =
@@ -118,16 +123,44 @@ export function parseDelimited(text: string, options: ParseOptions = {}): Parsed
       ? options.delimiter
       : detectDelimiter(text);
 
-  const result = Papa.parse<string[]>(evenLineEndings(text), {
+  const config = {
     delimiter,
-    skipEmptyLines: "greedy",
+    skipEmptyLines: "greedy" as const,
     ...(options.preview === undefined ? {} : { preview: options.preview }),
-  });
+  };
+  let input = evenLineEndings(text);
+  let result = Papa.parse<string[]>(input, config);
+  // A quote that never closes swallows the following rows into one cell, up to
+  // the end of the file or the next quote. Papaparse reports where it opened:
+  // drop that quote, read again, and say which line. A malformed quote that
+  // swallows no line break (`"5" long`) is left as Papaparse reads it.
+  const strayQuoteLines: number[] = [];
+  const strayAt = (error: Papa.ParseError): number => {
+    if (error.code !== "MissingQuotes" && error.code !== "InvalidQuotes") return -1;
+    const at = error.index === undefined ? -1 : error.index - 1;
+    if (at < 0 || input.charCodeAt(at) !== 34) return -1;
+    if (error.code === "MissingQuotes") return at;
+    const nextQuote = input.indexOf('"', at + 1);
+    const nextLine = input.indexOf("\n", at + 1);
+    return nextLine !== -1 && (nextQuote === -1 || nextLine < nextQuote) ? at : -1;
+  };
+  for (let repairs = 0; repairs < MAX_QUOTE_REPAIRS; repairs++) {
+    let at = -1;
+    for (const error of result.errors) {
+      at = strayAt(error);
+      if (at >= 0) break;
+    }
+    if (at < 0) break;
+    strayQuoteLines.push(lineOf(input, at));
+    input = input.slice(0, at) + input.slice(at + 1);
+    result = Papa.parse<string[]>(input, config);
+  }
 
   const data = result.data.filter((row) => Array.isArray(row) && row.length > 0);
   const hasHeaders = options.hasHeaders ?? true;
   const normalize = options.normalizeRows ?? true;
   const { headers, rows, ragged } = structureTable(data, hasHeaders, normalize);
+  if (strayQuoteLines.length > 0) ragged.strayQuoteLines = strayQuoteLines;
 
   return { headers, rows, delimiter, hasHeaders, ragged };
 }

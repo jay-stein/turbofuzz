@@ -169,7 +169,7 @@ function prepareGrid(options: IngestOptions): PreparedGrid {
         value.trim() === "" ? `Column ${index + 1}` : value,
       );
       rows = detected.rows;
-      ragged = measureRagged(rows, headers.length);
+      ragged = { ...measureRagged(rows, headers.length), ...(ragged.strayQuoteLines === undefined ? {} : { strayQuoteLines: ragged.strayQuoteLines }) };
     }
   }
 
@@ -314,6 +314,7 @@ export async function ingestFilesAsync(
       paddedRows: ragged.paddedRows + grid.ragged.paddedRows,
       extraCellRows: ragged.extraCellRows + grid.ragged.extraCellRows,
       extraCells: ragged.extraCells + grid.ragged.extraCells,
+      ...(grid.ragged.strayQuoteLines === undefined ? {} : { strayQuoteLines: [...(ragged.strayQuoteLines ?? []), ...grid.ragged.strayQuoteLines] }),
     };
     if (control.cancelled?.() === true) return null;
   }
