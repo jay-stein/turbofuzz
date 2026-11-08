@@ -6975,7 +6975,14 @@ export class App {
   }
 
   private clearData(): void {
-    void this.memory.refresh();
+    // The worker lets go of the table too, so its memory is released and the gauge empties.
+    void this.client.clearData().catch(() => undefined).then(() => this.memory.refresh());
+    // The top bar no longer names the file or scores it.
+    this.metaEl.textContent = "";
+    this.metaEl.title = "";
+    this.latestStats = null;
+    this.dqScore = null;
+    this.scoreTile.classList.add("hidden");
     this.importSource = null;
     this.overview?.setHeaderNote(null);
     this.headerRowButton.disabled = true;

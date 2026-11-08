@@ -385,6 +385,13 @@ async function dispatch(message: WorkerRequest): Promise<void> {
 
 async function handle(message: WorkerRequest): Promise<void> {
   switch (message.type) {
+    case "clearData":
+      // Clear data: drop the table, everything built on it and anything being compared, so the memory is released.
+      dataset = null;
+      resetWorkingState();
+      sortedIds = new Uint32Array(0);
+      post({ type: "dataCleared", requestId: message.requestId });
+      break;
     case "compareLoad":
       await handleCompareLoad(message);
       break;
@@ -939,26 +946,8 @@ async function handleLoad(message: LoadRequest): Promise<void> {
 
     const { dataset: next, encoding, ragged, delimiter } = ingested;
     dataset = next;
-    compare = null;
+    resetWorkingState();
     engine = new QueryEngine(next);
-    filters.clear();
-    rankColumn = -1;
-    rankAsc = null;
-    sortDir = 1;
-    exportIds = null;
-    duplicateRank = null;
-    specials.clear();
-    columnSpecials.clear();
-    clearExclusions();
-    histogramCache.clear();
-    cleanSource.clear();
-    cleanOpsApplied.clear();
-    resetChangedCells();
-    nullPolicies.clear();
-    numberLocales.clear();
-    typeOverrides.clear();
-    transformSource = null;
-    transformOps = [];
     datasetSource =
       message.append === true || (message.files !== undefined && message.files.length > 1)
         ? "multi"
@@ -1211,6 +1200,30 @@ function handleCompareRun(message: CompareRunRequest): void {
     report: buildReport(a, compare.bSide, pairing, match),
     ms: performance.now() - started,
   });
+}
+
+/** Everything built on the loaded table, reset when a new one loads or the data is cleared. */
+function resetWorkingState(): void {
+  compare = null;
+  engine = null;
+  filters.clear();
+  rankColumn = -1;
+  rankAsc = null;
+  sortDir = 1;
+  exportIds = null;
+  duplicateRank = null;
+  specials.clear();
+  columnSpecials.clear();
+  clearExclusions();
+  histogramCache.clear();
+  cleanSource.clear();
+  cleanOpsApplied.clear();
+  resetChangedCells();
+  nullPolicies.clear();
+  numberLocales.clear();
+  typeOverrides.clear();
+  transformSource = null;
+  transformOps = [];
 }
 
 function handleFinalizeStats(message: FinalizeStatsRequest): void {

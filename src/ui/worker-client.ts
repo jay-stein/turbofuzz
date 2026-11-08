@@ -73,6 +73,7 @@ import type {
   CompareGroupsMessage,
   CompareExportMessage,
   MemoryMessage,
+  DataClearedMessage,
   CompareFoundMessage,
   RowsMessage,
   RowIdsMessage,
@@ -230,6 +231,11 @@ export class SearchWorkerClient {
 
   compareExport(): Promise<CompareExportMessage> {
     return this.request<CompareExportMessage>({ type: "compareExport" });
+  }
+
+  /** Drops the loaded table and everything built on it in the worker. */
+  clearData(): Promise<DataClearedMessage> {
+    return this.request<DataClearedMessage>({ type: "clearData" });
   }
 
   /** The loaded data's (and B's) memory estimate. */

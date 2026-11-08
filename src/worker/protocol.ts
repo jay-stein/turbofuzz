@@ -1404,6 +1404,17 @@ export interface CompareExportMessage {
   tables: ChangeTables;
 }
 
+/** Clear data: the worker drops the table and everything built on it. */
+export interface ClearDataRequest {
+  type: "clearData";
+  requestId: number;
+}
+
+export interface DataClearedMessage {
+  type: "dataCleared";
+  requestId: number;
+}
+
 /** What the loaded data (and B, while comparing) holds in memory: an estimate in bytes. */
 export interface MemoryRequest {
   type: "memory";
@@ -1445,6 +1456,7 @@ export type WorkerRequest =
   | CompareGroupsRequest
   | CompareExportRequest
   | MemoryRequest
+  | ClearDataRequest
   | LoadRequest
   | CancelLoadRequest
   | SetFilterRequest
@@ -1819,4 +1831,5 @@ export type WorkerResponse =
   | CompareGroupsMessage
   | CompareExportMessage
   | MemoryMessage
+  | DataClearedMessage
   | ErrorMessage;
