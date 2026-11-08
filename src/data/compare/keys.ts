@@ -7,7 +7,12 @@ export interface KeySuggestion {
   pairs: number[];
   /** Share of B's keys that are also in A (0–1). */
   overlap: number;
+  /** Rows on each side with an empty key cell, and extra copies of a key. */
+  problems: { emptyA: number; emptyB: number; duplicateA: number; duplicateB: number };
 }
+
+/** A key may have up to this share of empty or repeated rows on a side: they are reported, not a reason to drop the key. */
+const PROBLEM_SHARE = 0.01;
 
 /** Rows read when screening candidates; survivors are verified on every row. */
 const SAMPLE = 20_000;
@@ -34,14 +39,19 @@ function tokensFor(side: CompareSide, other: CompareSide, pairing: ColumnPairing
   return out;
 }
 
-/** Every row filled and no token repeated. */
-function isUnique(tokens: readonly (string | null)[]): boolean {
+/** Empty and repeated rows, or null as soon as they pass the allowed share. */
+function keyProblems(tokens: readonly (string | null)[]): { empty: number; duplicate: number } | null {
+  const allowed = Math.floor(tokens.length * PROBLEM_SHARE);
   const seen = new Set<string>();
+  let empty = 0;
+  let duplicate = 0;
   for (const token of tokens) {
-    if (token === null || seen.has(token)) return false;
-    seen.add(token);
+    if (token === null) empty++;
+    else if (seen.has(token)) duplicate++;
+    else seen.add(token);
+    if (empty + duplicate > allowed) return null;
   }
-  return true;
+  return { empty, duplicate };
 }
 
 function overlapOf(aTokens: readonly (string | null)[], bTokens: readonly (string | null)[]): number {
@@ -59,28 +69,35 @@ function overlapOf(aTokens: readonly (string | null)[], bTokens: readonly (strin
 
 /**
  * Key columns for matching rows, best first: column pairs that are filled and
- * unique on both sides. Single columns are preferred, ranked by how many of
- * B's keys A shares, then by an id-like name; failing that, two columns
- * together. Candidates are screened on a sample and verified on every row.
- * Empty when nothing qualifies: rows then match on their whole content.
+ * unique on both sides, allowing up to 1% of rows with an empty or repeated
+ * key (reported in `problems`). Single columns are preferred, ranked by how
+ * many of B's keys A shares, then by an id-like name; failing that, two
+ * columns together. Candidates are screened on a sample and verified on every
+ * row. Empty when nothing qualifies: rows then match on their whole content.
  */
 export function suggestKeys(a: CompareSide, b: CompareSide, pairing: ColumnPairing, rules: CompareRules): KeySuggestion[] {
   const verify = (indexes: number[]): KeySuggestion | null => {
     const sampleA = tokensFor(a, b, pairing, indexes, true, rules, SAMPLE);
     const sampleB = tokensFor(b, a, pairing, indexes, false, rules, SAMPLE);
-    if (!isUnique(sampleA) || !isUnique(sampleB)) return null;
+    if (keyProblems(sampleA) === null || keyProblems(sampleB) === null) return null;
     const fullA = a.rowCount > SAMPLE ? tokensFor(a, b, pairing, indexes, true, rules, Infinity) : sampleA;
     const fullB = b.rowCount > SAMPLE ? tokensFor(b, a, pairing, indexes, false, rules, Infinity) : sampleB;
-    if (!isUnique(fullA) || !isUnique(fullB)) return null;
+    const inA = keyProblems(fullA);
+    const inB = keyProblems(fullB);
+    if (inA === null || inB === null) return null;
     const overlap = overlapOf(fullA, fullB);
-    return overlap > 0 ? { pairs: indexes, overlap } : null;
+    const problems = { emptyA: inA.empty, emptyB: inB.empty, duplicateA: inA.duplicate, duplicateB: inB.duplicate };
+    return overlap > 0 ? { pairs: indexes, overlap, problems } : null;
   };
   // Overlap ranks first; an id-like name, then a whole-number or text type, break near-ties (a unique price is a poor key).
   const score = (suggestion: KeySuggestion): number => {
     const column = a.columns[pairing.pairs[suggestion.pairs[0]].a];
     const named = suggestion.pairs.length === 1 && looksLikeIdName(column.name) ? 0.1 : 0;
     const keyType = column.type === "identifier" || column.type === "integer" || column.type === "string" ? 0.02 : 0;
-    return suggestion.overlap + named + keyType;
+    // A clean key edges out one with empty or repeated rows.
+    const p = suggestion.problems;
+    const flawed = p.emptyA + p.emptyB + p.duplicateA + p.duplicateB > 0 ? 0.005 : 0;
+    return suggestion.overlap + named + keyType - flawed;
   };
 
   const singles: KeySuggestion[] = [];

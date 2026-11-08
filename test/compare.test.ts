@@ -159,3 +159,16 @@ test("the report lists column changes and totals over all and matched rows", () 
   assert.deepEqual(amount.matched, { a: 30, b: 35 });
   assert.ok(!report.totals.some((total) => total.name === "code"), "a column that is text on one side has no totals");
 });
+
+test("a key with a few empty or repeated rows is still suggested, with the problems counted", () => {
+  const ids = Array.from({ length: 300 }, (_, i) => `K${i}`);
+  const bIds = [...ids.slice(0, 297), "", "K5", "K6"];
+  const a = side("a", { order_id: ids, v: ids.map((_, i) => String(i % 7)) });
+  const b = side("b", { order_id: bIds, v: bIds.map((_, i) => String(i % 7)) });
+  const keys = suggestKeys(a, b, pairColumns(a, b), DEFAULT_RULES);
+  assert.deepEqual(keys[0].pairs, [0]);
+  assert.deepEqual(keys[0].problems, { emptyA: 0, emptyB: 1, duplicateA: 0, duplicateB: 2 });
+  // Beyond 1% of the rows it is not a key.
+  const worse = side("w", { order_id: [...ids.slice(0, 290), ...Array(10).fill("")], v: ids.map((_, i) => String(i % 7)) });
+  assert.deepEqual(suggestKeys(a, worse, pairColumns(a, worse), DEFAULT_RULES), []);
+});
