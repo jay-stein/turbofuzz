@@ -16,6 +16,7 @@ import { valueLength } from "../parse/value-length.js";
 import { COLUMN_TYPES, TYPE_LABELS, type ColumnType } from "../types.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import type { ColumnFilter } from "../search/query-engine.js";
+import { TYPE_FAMILY, TYPE_GLYPHS } from "./type-glyphs.js";
 import { formatDurationMs, toDateTimeInputValue } from "../parse/dates.js";
 
 const ROW_HEIGHT = 28;
@@ -37,25 +38,6 @@ function columnFactsTitle(column: ColumnMeta): string {
   if (min !== null && max !== null) parts.unshift(`${min.toLocaleString()} to ${max.toLocaleString()}`);
   return parts.join(" · ");
 }
-
-const TYPE_GLYPHS: Partial<Record<ColumnType, string>> = {
-  string: "Aa",
-  category: "Cat",
-  integer: "123",
-  number: "1.5",
-  date: "Date",
-  datetime: "D+T",
-  time: "Time",
-  duration: "Dur",
-  boolean: "T/F",
-  identifier: "ID",
-};
-
-/** The colour family of a type: five hues, so the header can be scanned for a column of the wrong kind. */
-const TYPE_FAMILY: Record<ColumnType, string> = {
-  string: "text", identifier: "text", category: "category", integer: "number", number: "number",
-  date: "time", datetime: "time", time: "time", duration: "time", boolean: "boolean",
-};
 
 const DEFAULT_COL_WIDTH = 180;
 const MIN_COL_WIDTH = 56;
@@ -91,7 +73,7 @@ export type ColumnQaKind =
 
 export interface ResultTableOptions {
   onSort: (column: number, dir: 1 | -1 | 0) => void;
-  /** Clicking a column name opens the inspector anchored to it. */
+  /** Clicking a column name opens the (read-only) inspector anchored to it. */
   onColumnInspect: (column: number, anchor: HTMLElement) => void;
   onTypeChange: (column: number, type: ColumnType) => boolean | Promise<boolean>;
   /** The column's values that best fit what was typed in a filter (a few letters or a small typo). */
@@ -106,7 +88,8 @@ export interface ResultTableOptions {
   onColumnFilter?: (column: number, filter: ColumnFilter | null) => void;
   onColumnSpecial: (column: number, kind: ColumnQaKind) => void;
   onMergeSimilar: (column: number) => void;
-  onColumnContext: (column: number, x: number, y: number) => void;
+  /** Right-click (or Shift+F10 / the Menu key on a column name): every action on the column. */
+  onColumnContext: (column: number, x: number, y: number, anchor?: HTMLElement) => void;
   onToggleColumnDelete: (column: number) => void;
   onToggleRowDelete: (position: number) => void;
   /** Applies a one-click fix suggested for the column (sentinel, locale, ...). */
@@ -337,6 +320,11 @@ export class ResultTable {
     this.spacer.style.height = `${count * ROW_HEIGHT}px`;
     this.spacer.style.width = `${this.totalWidth()}px`;
     this.render();
+  }
+
+  /** The sort on one column: 1 or -1, or 0 when the table is not sorted by it. */
+  sortFor(column: number): 1 | -1 | 0 {
+    return column === this.sortColumn ? this.sortDir : 0;
   }
 
   setSort(column: number, dir: 1 | -1): void {
@@ -611,7 +599,14 @@ export class ResultTable {
       if (index === this.sortColumn) {
         label.classList.add(this.sortDir === 1 ? "sort-asc" : "sort-desc");
       }
+      label.setAttribute("aria-haspopup", "dialog");
       label.addEventListener("click", () => this.options.onColumnInspect(index, label));
+      label.addEventListener("keydown", (event) => {
+        if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return;
+        event.preventDefault();
+        const rect = label.getBoundingClientRect();
+        this.options.onColumnContext(index, rect.left, rect.bottom + 4, label);
+      });
       const sensitiveNote = this.sensitiveNotes.get(index);
 
       const grip = el("div", {
@@ -653,12 +648,12 @@ export class ResultTable {
       // so the column name keeps the width.
       const typeWrap = el("span", {
         class: "th-type-wrap",
-        "data-glyph": TYPE_GLYPHS[column.type] ?? "",
+        "data-glyph": TYPE_GLYPHS[column.type],
         "data-fam": TYPE_FAMILY[column.type] ?? "text",
       });
       typeWrap.append(typeSelect);
       typeSelect.addEventListener("change", () => {
-        typeWrap.dataset.glyph = TYPE_GLYPHS[typeSelect.value as ColumnType] ?? "";
+        typeWrap.dataset.glyph = TYPE_GLYPHS[typeSelect.value as ColumnType];
         typeWrap.dataset.fam = TYPE_FAMILY[typeSelect.value as ColumnType] ?? "text";
       });
       typeSelect.addEventListener("change", () => {
@@ -777,7 +772,11 @@ export class ResultTable {
       }
       cell.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        this.options.onColumnContext(index, event.clientX, event.clientY);
+        // The keyboard's Menu key arrives as a contextmenu event at 0,0: open under the name instead.
+        if (event.clientX === 0 && event.clientY === 0) {
+          const rect = label.getBoundingClientRect();
+          this.options.onColumnContext(index, rect.left, rect.bottom + 4, label);
+        } else this.options.onColumnContext(index, event.clientX, event.clientY, label);
       });
       this.header.append(cell);
     });

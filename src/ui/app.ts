@@ -205,6 +205,9 @@ import { remapViewDef, ViewsPanel, type ViewSource } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
 import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
 import { openColumnInspector } from "./column-inspector.js";
+import { columnActionSections } from "./column-actions.js";
+import { openActionMenu } from "./action-menu.js";
+import { TYPE_FAMILY, TYPE_GLYPHS } from "./type-glyphs.js";
 import { openSlickTable } from "./slick-table.js";
 import { chartKindFor } from "./chart-utils.js";
 import {
@@ -846,7 +849,7 @@ export class App {
       },
       {
         id: "column-menu",
-        text: "Click a column name to inspect it — profile, issues and one-click fixes. Right-click for the full menu.",
+        text: "Click a column name to see its profile: distribution, common values and findings. Right-click a header for every action on that column.",
         target: () =>
           this.tableHost.classList.contains("hidden")
             ? null
@@ -2834,7 +2837,7 @@ export class App {
         ),
       onColumnSpecial: (column, kind) => this.viewColumnSpecial(column, kind),
       onMergeSimilar: (column) => this.openMerge(column),
-      onColumnContext: (column, x, y) => this.openColumnMenu(column, x, y),
+      onColumnContext: (column, x, y, anchor) => this.openColumnMenu(column, x, y, anchor),
       onToggleColumnDelete: (column) => this.toggleColumnDelete(column),
       onToggleRowDelete: (position) => this.toggleRowDelete(position),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
@@ -7123,82 +7126,15 @@ export class App {
     });
   }
 
-  /** Header click: profile, issues and the verbs for one column. */
+  /** Header click: what is in one column (read only; the actions are on the right-click menu). */
   private openColumnInspector(column: number, anchor: HTMLElement): void {
     const meta = this.metas[column];
     if (meta === undefined) return;
     openColumnInspector(anchor, meta, column, {
+      rowCount: this.rowCount,
       displayFormat: this.displayFormats.get(column) ?? null,
       displayGrouping: this.displayGrouping.has(column),
-      sensitiveWhy: this.sensitiveNotes.has(column)
-        ? [this.sensitiveNotes.get(column) ?? ""]
-        : [],
-      onSort: (dir) => this.changeSort(column, dir),
-      onFilter: () => this.focusFilterColumn(column),
-      onChart: () => {
-        this.ensureCharts();
-        this.setView("chart");
-        this.chartsPanel?.addChart({ kind: chartKindFor(meta.type) ?? "histogram", column });
-      },
-      onQuickClean: (op) => this.applyQuickClean(column, op),
-      onOpenClean: (tab) => this.openClean(column, tab),
-      onOpenTransform: (preset) => this.openTransform(preset),
-      onSuggestion: (suggestion) => this.applySuggestion(column, suggestion),
-      onMerge: () => this.openMerge(column),
-      onAllowedValues: (values) => this.checkAllowedValues(column, values),
-      onCompare: (target, operator, tolerance) =>
-        this.checkPair(column, target, operator, tolerance),
-      onCheckFreshness: (days) => this.checkFreshness(column, days),
-      columns: () => this.metas,
-      onRename: () => void this.renameColumn(column),
-      onDelete: () => void this.confirmDeleteColumn(column),
-      onRound: (decimals) =>
-        this.applyTransform(
-          [...this.transformOps, { kind: "round", column, decimals }],
-          `Rounded “${meta.name}” to ${decimals} decimal place${decimals === 1 ? "" : "s"}`,
-        ),
-      onFillMissing: (strategy) =>
-        this.applyTransform(
-          [...this.transformOps, { kind: "impute", column, strategy, groupColumn: null }],
-          `Filled missing values in “${meta.name}”`,
-        ),
-      onDedupe: (keep) => this.dropDuplicates(keep),
-      onSplit: (pattern, regex) =>
-        this.applyTransform(
-          [
-            ...this.transformOps,
-            {
-              kind: "splitColumn",
-              column,
-              pattern,
-              regex,
-              dropEmpty: true,
-              dropOriginal: false,
-              prefix: meta.name,
-            },
-          ],
-          `Split “${meta.name}” on ${regex ? `/${pattern}/` : `“${pattern}”`}`,
-        ),
-      onDisplayFormat: (decimals) => {
-        if (decimals === null) this.displayFormats.delete(column);
-        else this.displayFormats.set(column, decimals);
-        this.table?.setFormats(this.displayFormats);
-        this.setAction(
-          decimals === null
-            ? `“${meta.name}”: automatic display`
-            : `“${meta.name}”: ${decimals} decimal place${decimals === 1 ? "" : "s"}`,
-        );
-      },
-      onDisplayGrouping: (on) => {
-        if (on) this.displayGrouping.add(column);
-        else this.displayGrouping.delete(column);
-        this.table?.setGrouping(this.displayGrouping);
-        this.setAction(
-          on
-            ? `“${meta.name}”: thousands separators shown (values unchanged)`
-            : `“${meta.name}”: thousands separators off`,
-        );
-      },
+      sensitiveWhy: this.sensitiveNotes.has(column) ? [this.sensitiveNotes.get(column) ?? ""] : [],
     });
   }
 
@@ -7324,172 +7260,78 @@ export class App {
     );
   }
 
-  /** Right-click column menu: quick actions without leaving the table. */
-  private openColumnMenu(column: number, x: number, y: number): void {
+  /** Right-click column menu: every operation on one column, grouped, with submenus and search. */
+  private openColumnMenu(column: number, x: number, y: number, returnFocus?: HTMLElement): void {
     const meta = this.metas[column];
     if (meta === undefined) return;
-
-    const menu = el("div", { class: "context-menu", role: "menu" });
-    let closed = false;
-    const close = (): void => {
-      if (closed) return;
-      closed = true;
-      menu.remove();
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKey);
-    };
-    const onPointerDown = (event: PointerEvent): void => {
-      if (!menu.contains(event.target as Node)) close();
-    };
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") close();
-    };
-
-    const addItem = (
-      label: string,
-      action: () => void,
-      options: { danger?: boolean; instant?: boolean } = {},
-    ): void => {
-      const item = el(
-        "button",
-        {
-          class: `context-item${options.danger === true ? " danger" : ""}${
-            options.instant === true ? " instant" : ""
-          }`,
-          type: "button",
-          role: "menuitem",
-        },
-        [label],
-      ) as HTMLButtonElement;
-      if (options.instant === true) {
-        item.title = "Applies immediately — Undo is offered in the toast";
-      }
-      item.addEventListener("click", () => {
-        close();
-        action();
-      });
-      menu.append(item);
-    };
-
-    const addHeader = (label: string): void => {
-      menu.append(el("div", { class: "context-header" }, [label]));
-    };
-
-    // Type to narrow the menu: items (and their section headings) that do not match hide.
-    const search = el("input", { class: "text-input context-search", type: "search", placeholder: "Find an action…", "aria-label": "Find an action" }) as HTMLInputElement;
-    search.addEventListener("input", () => {
-      const q = search.value.trim().toLowerCase();
-      let header: HTMLElement | null = null, shown = 0;
-      const settle = (): void => { if (header) header.classList.toggle("hidden", shown === 0 && q !== ""); };
-      for (const child of Array.from(menu.children) as HTMLElement[]) {
-        if (child === search) continue;
-        if (child.classList.contains("context-header")) { settle(); header = child; shown = 0; continue; }
-        const match = q === "" || (child.textContent ?? "").toLowerCase().includes(q);
-        child.classList.toggle("hidden", !match);
-        if (match) shown++;
-      }
-      settle();
+    const sections = columnActionSections({
+      meta,
+      column,
+      columns: this.metas,
+      sort: this.table?.sortFor(column) ?? 0,
+      frozen: this.frozenThrough === column,
+      displayFormat: this.displayFormats.get(column) ?? null,
+      displayGrouping: this.displayGrouping.has(column),
+      fillItems: meta.stats.nulls > 0 ? this.fillMenuItems([column]) : [],
+      outlierItems: meta.anomalyCounts.values > 0 ? this.outlierMenuItems([column]) : [],
+      onSort: (dir) => this.changeSort(column, dir),
+      onFilter: () => this.focusFilterColumn(column),
+      onChart: () => {
+        this.ensureCharts();
+        this.setView("chart");
+        this.chartsPanel?.addChart({ kind: chartKindFor(meta.type) ?? "histogram", column });
+      },
+      onHide: () => this.setHiddenColumns(new Set([...this.hiddenColumns, column])),
+      onToggleFreeze: () => {
+        this.frozenThrough = this.frozenThrough === column ? -1 : column;
+        this.table?.setFrozen(this.frozenThrough);
+        this.setAction(this.frozenThrough < 0 ? "Columns no longer frozen" : `Columns up to ${meta.name} stay in place when scrolling sideways`);
+      },
+      onDisplayFormat: (decimals) => {
+        if (decimals === null) this.displayFormats.delete(column);
+        else this.displayFormats.set(column, decimals);
+        this.table?.setFormats(this.displayFormats);
+        this.setAction(
+          decimals === null
+            ? `“${meta.name}”: automatic display`
+            : `“${meta.name}”: ${decimals} decimal place${decimals === 1 ? "" : "s"}`,
+        );
+      },
+      onDisplayGrouping: (on) => {
+        if (on) this.displayGrouping.add(column);
+        else this.displayGrouping.delete(column);
+        this.table?.setGrouping(this.displayGrouping);
+        this.setAction(
+          on
+            ? `“${meta.name}”: thousands separators shown (values unchanged)`
+            : `“${meta.name}”: thousands separators off`,
+        );
+      },
+      onNumberLocale: (locale) => {
+        if (locale !== meta.numberLocale) this.changeNumberLocale(column, locale);
+      },
+      onRename: () => void this.renameColumn(column),
+      onChangeType: (type) => void this.changeType(column, type),
+      onInsert: (at) => void this.openNewColumn(at),
+      onDelete: () => void this.confirmDeleteColumn(column),
+      onQuickClean: (op) => this.applyQuickClean(column, op),
+      onOpenClean: (tab, preset) => this.openClean(column, tab, preset),
+      onSuggestion: (suggestion) => this.applySuggestion(column, suggestion),
+      onConvertTokens: (tokens) => this.convertToken(column, tokens),
+      onMerge: () => this.openMerge(column),
+      onOpenTransform: (preset) => this.openTransform(preset),
+      onDedupe: (keep) => this.dropDuplicates(keep),
+      onMelt: () => void this.openMelt(),
+      onAllowedValues: (values) => this.checkAllowedValues(column, values),
+      onCompare: (target, operator, tolerance) => this.checkPair(column, target, operator, tolerance),
+      onCheckFreshness: (days) => this.checkFreshness(column, days),
     });
-    search.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") (menu.querySelector(".context-item:not(.hidden)") as HTMLButtonElement | null)?.click();
-    });
-    menu.append(search);
-    window.setTimeout(() => search.focus(), 0);
-    addItem("Filter this column", () => this.focusFilterColumn(column));
-
-    addHeader("Column");
-    addItem("Hide column", () => this.setHiddenColumns(new Set([...this.hiddenColumns, column])));
-    addItem(this.frozenThrough === column ? "Unfreeze columns" : "Freeze columns up to here", () => {
-      this.frozenThrough = this.frozenThrough === column ? -1 : column;
-      this.table?.setFrozen(this.frozenThrough);
-      this.setAction(this.frozenThrough < 0 ? "Columns no longer frozen" : `Columns up to ${meta.name} stay in place when scrolling sideways`);
-    });
-    addItem("Insert column left…", () => void this.openNewColumn(column));
-    addItem("Insert column right…", () => void this.openNewColumn(column + 1));
-    addItem("Rename column…", () => void this.renameColumn(column));
-    if (meta.type === "integer" || meta.type === "number") {
-      const next: NumberLocale = meta.numberLocale === "comma" ? "dot" : "comma";
-      const current = meta.numberLocale === "comma" ? "1.234,56" : "1,234.56";
-      addItem(`Number format: ${current} — switch`, () =>
-        this.changeNumberLocale(column, next),
-      );
-    }
-    if (meta.type === "category") {
-      addItem("Merge similar values…", () => this.openMerge(column));
-    }
-    addItem("Delete column…", () => void this.confirmDeleteColumn(column), { danger: true });
-
-    addHeader("Clean");
-    addItem(
-      "Trim whitespace",
-      () => this.applyQuickClean(column, { kind: "trim" }),
-      { instant: true },
+    openActionMenu(
+      sections,
+      { x, y },
+      { title: meta.name, subtitle: `${TYPE_LABELS[meta.type]} · column ${column + 1}`, glyph: TYPE_GLYPHS[meta.type], family: TYPE_FAMILY[meta.type] },
+      returnFocus,
     );
-    addItem(
-      "UPPERCASE",
-      () => this.applyQuickClean(column, { kind: "case", style: "upper" }),
-      { instant: true },
-    );
-    addItem(
-      "lowercase",
-      () => this.applyQuickClean(column, { kind: "case", style: "lower" }),
-      { instant: true },
-    );
-    addItem(
-      "Title Case",
-      () => this.applyQuickClean(column, { kind: "case", style: "title" }),
-      { instant: true },
-    );
-    addItem(
-      "Convert to number",
-      () => this.applyQuickClean(column, { kind: "toNumber", locale: meta.numberLocale }),
-      { instant: true },
-    );
-    addItem(
-      "Convert to date",
-      () => this.applyQuickClean(column, { kind: "toDate", order: meta.dateOrder }),
-      { instant: true },
-    );
-    addItem(
-      "Convert to date & time",
-      () => this.applyQuickClean(column, { kind: "toDateTime", order: meta.dateOrder }),
-      { instant: true },
-    );
-    addItem(
-      "Escape formula-like cells",
-      () => this.applyQuickClean(column, { kind: "escapeFormulas" }),
-      { instant: true },
-    );
-    addItem("Find & replace…", () =>
-      this.openClean(column, "values", {
-        kind: "replace",
-        find: "",
-        replacement: "",
-        ignoreCase: false,
-      }),
-    );
-    addItem("Clean values…", () => this.openClean(column, "values"));
-    addItem("Missing values…", () => this.openClean(column, "nulls"));
-
-    addHeader("Transform");
-    addItem("Remove duplicate rows", () => this.openTransform({ type: "dedupe" }));
-    addItem("Round…", () => this.openTransform({ type: "round", column }));
-    addItem("Group by & aggregate…", () => this.openTransform({ type: "groupBy", column }));
-    addItem("Fill missing values…", () => this.openTransform({ type: "impute", column }));
-    addItem("Fill from similar rows (k nearest neighbours)…", () => this.openTransform({ type: "knn", column }));
-    addItem("Melt: pivot longer (wide → long)…", () => void this.openMelt());
-    addItem("Combine date/time columns…", () =>
-      this.openTransform({ type: "combineDate", column }),
-    );
-    addItem("Split a column…", () => this.openTransform({ type: "splitColumn", column }));
-    addItem("Transform dataset…", () => this.openTransform());
-
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKey);
-    document.body.append(menu);
-    menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8))}px`;
-    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8))}px`;
-    menu.scrollTop = 0;
   }
 
   /** Right-click rename: prompts for a new header name and applies it. */

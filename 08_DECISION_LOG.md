@@ -23,6 +23,16 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-08-01 — Column header: left click informs, right click acts
+
+- **Status:** Accepted (owner request, 2026-11-08)
+- **Context:** Clicking a column name opened an inspector that held about 20 of the same verbs as the right-click menu (sort, filter, chart, trim, case, convert, fill, dedupe, round, split, rename, delete). It was hard to know which surface to use.
+- **Decision:** Clicking a column name opens a read-only profile: completeness, profile tiles, a distribution or the most common values, format, findings, and a pointer to the menu. It has no buttons. Right-click (or Shift+F10 / the Menu key on the name) opens one menu with every action, grouped Fix / View / Column / Clean / Transform / Check / Delete. The menu has flyout submenus, a search box that also finds submenu actions, and counts on the fixes. The header's own controls stay: type chip, filter button, issue chips, resize, insert.
+- **Trade-offs:** Actions take a right-click instead of a left click on the name. The inspector's quick Split and Round prompts are gone; the menu opens the Transform panel for them, which has a preview.
+- **Acceptance criteria:** test/column-inspector.test.ts (the inspector holds no buttons; the menu runs each group, submenus and search); the table-usability, new-column and a11y e2e specs.
+- **Revisit trigger:** People don't find actions, for example they keep left-clicking the name looking for verbs.
+- **Date / owner:** 2026-11-08 / owner
+
 ### DEC-2026-11-04-01 — One JSON workspace file recreates a session; the data stays outside
 
 - **Status:** Accepted (owner, 2026-11-04)

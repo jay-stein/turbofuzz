@@ -1,97 +1,87 @@
-import type { CleanOp } from "../data/clean-ops.js";
-import type { PairOperator } from "../data/pair-checks.js";
-import type { ColumnSuggestion } from "../data/suggestions.js";
-import type { DedupeKeep, ImputeStrategy } from "../data/transform-ops.js";
+import { describeSuggestion } from "../data/suggestions.js";
 import {
   formatDurationMs,
   toDateInputValue,
   toDateTimeInputValue,
   toTimeInputValue,
 } from "../parse/dates.js";
-import { isNumericLikeType, isTemporalType } from "../types.js";
+import { TYPE_LABELS, isNumericLikeType, isTemporalType } from "../types.js";
 import type { ColumnMeta } from "../worker/protocol.js";
-import { openPrompt } from "./dialog.js";
 import { el } from "./dom.js";
-import { chipText } from "./chips.js";
-import { openMenu, type MenuItem } from "./menu.js";
+import { TYPE_FAMILY, TYPE_GLYPHS } from "./type-glyphs.js";
 
-export interface ColumnInspectorCallbacks {
-  onSort(dir: 1 | -1): void;
-  onFilter(): void;
-  onChart(): void;
-  onQuickClean(op: CleanOp): void;
-  onOpenClean(tab: "values" | "nulls"): void;
-  onOpenTransform(preset?: { type: string; column?: number }): void;
-  onSuggestion(suggestion: ColumnSuggestion): void;
-  onMerge(): void;
-  /** Allowed-values check: flags values outside the user's list (filter only). */
-  onAllowedValues(values: string[]): void;
-  /** Pair check: compare this column with another (filter to failures). */
-  onCompare(targetColumn: number, operator: PairOperator, tolerance: number): void;
-  /** Freshness rule: max acceptable age in days (scores Timeliness). */
-  onCheckFreshness(days: number): void;
-  /** All columns, so the compare menu can offer other numeric/date columns. */
-  columns?: () => readonly ColumnMeta[];
-  onRename(): void;
-  onDelete(): void;
-  /** Fixed decimals for display; null = Auto. */
-  onDisplayFormat(decimals: number | null): void;
-  displayFormat: number | null;
+export interface ColumnInspectorInfo {
+  /** Rows in the data, so counts can be read as shares. */
+  rowCount?: number;
   /** Why this column is flagged as possibly sensitive (one line per reason), or empty. */
   sensitiveWhy?: readonly string[];
-  /** Thousands separators for display; the stored values are never changed. */
-  onDisplayGrouping(on: boolean): void;
-  displayGrouping: boolean;
-  /** Quick structural verbs that apply immediately (tracked in the Recipe). */
-  onRound(decimals: number): void;
-  onFillMissing(strategy: ImputeStrategy): void;
-  onDedupe(keep: DedupeKeep): void;
-  onSplit(pattern: string, regex: boolean): void;
+  /** Fixed decimals chosen for display, or null for automatic. */
+  displayFormat?: number | null;
+  displayGrouping?: boolean;
 }
 
-function statLine(label: string, value: string | null): HTMLElement | null {
-  if (value === null) return null;
-  const row = el("div", { class: "inspector-stat" });
-  row.append(
-    el("span", { class: "inspector-stat-label" }, [label]),
-    el("span", { class: "inspector-stat-value" }, [value]),
-  );
-  return row;
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function section(title: string, aside?: string): HTMLElement {
+  const head = el("div", { class: "inspector-section-title" }, [title]);
+  if (aside !== undefined) head.append(el("span", { class: "inspector-section-aside" }, [aside]));
+  return el("div", { class: "inspector-section" }, [head]);
 }
 
-function section(title: string): HTMLElement {
-  return el("div", { class: "inspector-section" }, [
-    el("div", { class: "inspector-section-title" }, [title]),
+function tile(label: string, value: string, title?: string): HTMLElement {
+  const node = el("div", { class: "inspector-tile" }, [
+    el("span", { class: "inspector-tile-label" }, [label]),
+    el("span", { class: "inspector-tile-value" }, [value]),
   ]);
+  if (title !== undefined) node.title = title;
+  return node;
 }
 
-function action(
-  label: string,
-  title: string,
-  run: () => void,
-  className = "inspector-action",
-): HTMLButtonElement {
-  const button = el("button", { class: className, type: "button", title }, [
-    label,
-  ]) as HTMLButtonElement;
-  button.addEventListener("click", () => run());
-  return button;
+function share(part: number, whole: number): string {
+  if (whole <= 0) return "";
+  const pct = (part / whole) * 100;
+  if (pct > 0 && pct < 0.1) return "<0.1%";
+  return `${pct >= 10 || pct === 0 ? pct.toFixed(0) : pct.toFixed(1)}%`;
+}
+
+/** A small bar chart of the column's histogram bins. */
+function histogramSvg(bins: readonly number[]): SVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", "inspector-hist");
+  svg.setAttribute("viewBox", `0 0 ${bins.length * 4} 40`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("aria-hidden", "true");
+  const peak = Math.max(1, ...bins);
+  bins.forEach((value, index) => {
+    const height = value === 0 ? 0 : Math.max(1.5, (value / peak) * 40);
+    const bar = document.createElementNS(SVG_NS, "rect");
+    bar.setAttribute("x", String(index * 4 + 0.4));
+    bar.setAttribute("y", String(40 - height));
+    bar.setAttribute("width", "3.2");
+    bar.setAttribute("height", String(height));
+    bar.setAttribute("rx", "0.6");
+    svg.append(bar);
+  });
+  return svg;
 }
 
 /**
- * Column inspector: click a header to see the profile, the issues and the
- * verbs in context (sort, filter, chart, trim, case, convert, split, round,
- * fill missing, format, merge, rename, delete). Structural ops open the
- * Transform panel with this column preselected; parameter-free cleans apply
- * immediately with Undo in the Recipe.
+ * Column inspector: click a header name to read about the column — its
+ * profile, distribution, most common values and what looks wrong. It only
+ * reports; every action on the column is on the header's right-click menu.
  */
 export function openColumnInspector(
   anchor: HTMLElement,
   meta: ColumnMeta,
   column: number,
-  callbacks: ColumnInspectorCallbacks,
+  info: ColumnInspectorInfo = {},
 ): void {
-  const panel = el("div", { class: "column-inspector", role: "dialog" });
+  for (const stale of document.querySelectorAll(".column-inspector")) stale.remove();
+  const panel = el("div", {
+    class: "column-inspector",
+    role: "dialog",
+    "aria-label": `About column “${meta.name}”`,
+  });
   let closed = false;
   const close = (): void => {
     if (closed) return;
@@ -103,30 +93,14 @@ export function openColumnInspector(
     anchor.classList.remove("inspecting");
   };
   const onPointerDown = (event: PointerEvent): void => {
-    if (!panel.contains(event.target as Node) && !anchor.contains(event.target as Node)) {
-      close();
-    }
+    if (!panel.contains(event.target as Node) && !anchor.contains(event.target as Node)) close();
   };
   const onKey = (event: KeyboardEvent): void => {
     if (event.key === "Escape") close();
   };
 
-  // Head: name, type, rename.
-  const head = el("div", { class: "inspector-head" });
-  head.append(
-    el("span", { class: "inspector-name", title: meta.name }, [meta.name]),
-    el("span", { class: "inspector-type" }, [meta.type]),
-  );
-  head.append(
-    action("Rename…", "Rename this column", () => {
-      close();
-      callbacks.onRename();
-    }, "link inspector-link"),
-  );
-  panel.append(head);
-
-  // Profile.
-  const profile = section("Profile");
+  const rows = info.rowCount ?? 0;
+  const filled = Math.max(0, rows - meta.stats.nulls);
   const numeric = isNumericLikeType(meta.type);
   const formatValue = (value: number): string =>
     meta.type === "datetime"
@@ -138,437 +112,170 @@ export function openColumnInspector(
           : meta.type === "duration"
             ? formatDurationMs(value)
             : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
-  const stats: (HTMLElement | null)[] = [
-    statLine("Empty", meta.stats.nulls > 0 ? meta.stats.nulls.toLocaleString() : "0"),
-    statLine("Distinct", meta.stats.distinct.toLocaleString()),
-  ];
-  if (numeric && meta.stats.min !== null && meta.stats.max !== null) {
-    stats.push(
-      statLine("Min", formatValue(meta.stats.min)),
-      statLine("Max", formatValue(meta.stats.max)),
-      statLine("Mean", meta.stats.mean === null ? null : formatValue(meta.stats.mean)),
-      statLine(
-        "Median",
-        meta.valueFence === null || isTemporalType(meta.type)
-          ? null
-          : formatValue(meta.valueFence.center),
-      ),
+
+  // Head: type chip, name, type and position.
+  const head = el("div", { class: "inspector-head" });
+  head.append(
+    el("span", { class: "inspector-glyph", "data-fam": TYPE_FAMILY[meta.type] }, [TYPE_GLYPHS[meta.type]]),
+    el("div", { class: "inspector-titles" }, [
+      el("div", { class: "inspector-name", title: meta.name }, [meta.name]),
+      el("div", { class: "inspector-type" }, [`${TYPE_LABELS[meta.type]} · column ${column + 1}`]),
+    ]),
+  );
+  panel.append(head);
+
+  // Completeness: how much of the column holds a value.
+  if (rows > 0) {
+    const complete = section("Completeness", `${share(filled, rows)} filled`);
+    const bar = el("div", { class: "inspector-meter", role: "img", "aria-label": `${share(filled, rows)} of rows have a value` });
+    bar.append(el("span", { class: "inspector-meter-fill", style: `width: ${(filled / rows) * 100}%` }));
+    complete.append(
+      bar,
+      el("div", { class: "inspector-meter-legend" }, [
+        el("span", {}, [`${filled.toLocaleString()} values`]),
+        el("span", { class: meta.stats.nulls > 0 ? "warn" : "" }, [`${meta.stats.nulls.toLocaleString()} empty`]),
+      ]),
     );
-  } else if (meta.stats.avgLength !== null) {
-    stats.push(
-      statLine("Length avg", meta.stats.avgLength.toFixed(1)),
-      statLine("Length max", meta.stats.maxLength === null ? null : String(meta.stats.maxLength)),
-    );
-    if (meta.stats.topValues.length > 0) {
-      stats.push(
-        statLine(
-          "Top values",
-          meta.stats.topValues
-            .slice(0, 3)
-            .map((entry) => `${entry.label} (${entry.count.toLocaleString()})`)
-            .join(", "),
-        ),
-      );
-    }
+    panel.append(complete);
   }
-  for (const row of stats) if (row !== null) profile.append(row);
+
+  // Profile tiles.
+  const profile = section("Profile");
+  const grid = el("div", { class: "inspector-grid" });
+  const unique = filled > 0 && meta.stats.distinct === filled;
+  grid.append(
+    tile("Distinct", meta.stats.distinct.toLocaleString(), unique ? "Every filled cell holds a different value" : undefined),
+  );
+  // Completeness already shows the empty count when the row count is known.
+  if (rows === 0) grid.append(tile("Empty", meta.stats.nulls.toLocaleString()));
+  if (numeric && meta.stats.min !== null && meta.stats.max !== null) {
+    grid.append(tile("Min", formatValue(meta.stats.min)), tile("Max", formatValue(meta.stats.max)));
+    if (meta.stats.mean !== null) grid.append(tile("Mean", formatValue(meta.stats.mean)));
+    if (meta.valueFence !== null && !isTemporalType(meta.type)) grid.append(tile("Median", formatValue(meta.valueFence.center)));
+    if (meta.stats.stddev !== null && !isTemporalType(meta.type)) {
+      grid.append(tile("Std dev", meta.stats.stddev.toLocaleString(undefined, { maximumFractionDigits: 2 })));
+    }
+  } else if (meta.stats.avgLength !== null) {
+    grid.append(tile("Avg length", meta.stats.avgLength.toFixed(1)));
+    if (meta.stats.maxLength !== null) grid.append(tile("Max length", String(meta.stats.maxLength)));
+  }
+  profile.append(grid);
   panel.append(profile);
 
-  if (callbacks.sensitiveWhy !== undefined && callbacks.sensitiveWhy.length > 0) {
+  // Distribution, for numbers and dates.
+  const histogram = meta.histogram;
+  if (numeric && histogram !== null && histogram.bins.length > 1 && histogram.bins.some((bin) => bin > 0)) {
+    const dist = section("Distribution", histogram.symlog ? "log scale" : undefined);
+    dist.append(
+      histogramSvg(histogram.bins),
+      el("div", { class: "inspector-axis" }, [
+        el("span", {}, [formatValue(histogram.min)]),
+        el("span", {}, [formatValue(histogram.max)]),
+      ]),
+    );
+    panel.append(dist);
+  }
+
+  // Most common values, for text and categories.
+  const top = meta.stats.topValues.slice(0, 5);
+  if (!numeric && top.length > 0 && meta.stats.distinct > 1) {
+    const common = section("Most common");
+    const peak = Math.max(1, ...top.map((entry) => entry.count));
+    const list = el("div", { class: "inspector-values" });
+    for (const entry of top) {
+      const row = el("div", { class: "inspector-value", title: `${entry.label} — ${entry.count.toLocaleString()}` });
+      row.append(
+        el("span", { class: "inspector-value-bar", style: `width: ${(entry.count / peak) * 100}%` }),
+        el("span", { class: "inspector-value-label" }, [entry.label === "" ? "(blank)" : entry.label]),
+        el("span", { class: "inspector-value-count" }, [rows > 0 ? share(entry.count, rows) : entry.count.toLocaleString()]),
+      );
+      list.append(row);
+    }
+    common.append(list);
+    panel.append(common);
+  }
+
+  // Format: the dominant shape of the values.
+  const pattern = meta.pattern ?? null;
+  if (pattern !== null) {
+    const format = section("Format");
+    format.append(
+      el("div", { class: "inspector-pattern" }, [
+        el("code", {}, [pattern.mask]),
+        el("span", {}, [`${Math.round(pattern.share * 100)}% of values`]),
+      ]),
+    );
+    panel.append(format);
+  }
+
+  // What looks wrong: a read-only list.
+  const findings: { text: string; level: "warn" | "info"; title?: string }[] = [];
+  const tokens = meta.nullTokens.filter((token) => token.label !== "" && token.count > 0);
+  if (tokens.length > 0) {
+    findings.push({
+      level: "warn",
+      text: `${tokens.reduce((sum, token) => sum + token.count, 0).toLocaleString()} cells hold placeholder text (${tokens
+        .slice(0, 3)
+        .map((token) => `“${token.label}”`)
+        .join(", ")})`,
+    });
+  }
+  if (meta.anomalyCounts.values > 0) {
+    findings.push({ level: "warn", text: `${meta.anomalyCounts.values.toLocaleString()} value outlier${meta.anomalyCounts.values === 1 ? "" : "s"}, outside the robust fence` });
+  }
+  if (meta.anomalyCounts.lengths > 0) {
+    findings.push({ level: "warn", text: `${meta.anomalyCounts.lengths.toLocaleString()} unusually long value${meta.anomalyCounts.lengths === 1 ? "" : "s"}` });
+  }
+  if (pattern !== null && pattern.offCount > 0) {
+    findings.push({ level: "warn", text: `${pattern.offCount.toLocaleString()} value${pattern.offCount === 1 ? " doesn't" : "s don't"} match ${pattern.mask}` });
+  }
+  if (meta.similarGroups > 0) {
+    findings.push({ level: "info", text: `${meta.similarGroups.toLocaleString()} pair${meta.similarGroups === 1 ? "" : "s"} of near-identical values` });
+  }
+  if (meta.stats.distinct === 1) findings.push({ level: "info", text: "Every filled cell has the same value" });
+  for (const suggestion of meta.suggestions) {
+    const text = describeSuggestion(suggestion)
+      .replace(/\.\s*Exports can.*$/, ".")
+      .replace(/[;:.]?\s*click to[^.]*\.?\s*$/i, ".");
+    findings.push({ level: "info", text, title: describeSuggestion(suggestion) });
+  }
+  const issues = section("Findings", findings.length > 0 ? String(findings.length) : undefined);
+  if (findings.length === 0) {
+    issues.append(el("div", { class: "inspector-none" }, ["No issues found in this column."]));
+  } else {
+    const list = el("ul", { class: "inspector-findings" });
+    for (const finding of findings) {
+      const item = el("li", { class: `inspector-finding ${finding.level}` }, [finding.text]);
+      if (finding.title !== undefined) item.title = finding.title;
+      list.append(item);
+    }
+    issues.append(list);
+  }
+  panel.append(issues);
+
+  if (info.sensitiveWhy !== undefined && info.sensitiveWhy.length > 0) {
     const sensitive = section("Possibly sensitive");
     sensitive.append(
-      el("div", { class: "inspector-stat" }, [
-        el("span", { class: "inspector-stat-label" }, ["Why"]),
-        el("span", { class: "inspector-stat-value" }, [callbacks.sensitiveWhy.join("; ")]),
-      ]),
-      el("div", { class: "inspector-stat" }, [
-        el("span", { class: "inspector-stat-label" }, ["Note"]),
-        el("span", { class: "inspector-stat-value" }, ["Advisory only; not counted in the score."]),
-      ]),
+      el("div", { class: "inspector-note" }, [`${info.sensitiveWhy.join("; ")}. Advisory only; not counted in the score.`]),
     );
     panel.append(sensitive);
   }
 
-  // Issues: suggestions, placeholder text, anomalies, similar values.
-  const issues = section("Issues");
-  let issueCount = 0;
-  for (const suggestion of meta.suggestions) {
-    issues.append(
-      action(
-        chipText("fix", suggestionLabel(suggestion)),
-        "Apply this fix — undo is offered in the Recipe",
-        () => {
-          close();
-          callbacks.onSuggestion(suggestion);
-        },
-        "inspector-issue",
-      ),
-    );
-    issueCount++;
-  }
-  const tokens = meta.nullTokens.filter((token) => token.label !== "" && token.count > 0);
-  if (tokens.length > 0) {
-    issues.append(
-      action(
-        chipText("fix", `${tokens.reduce((sum, token) => sum + token.count, 0).toLocaleString()} placeholder cells`),
-        `Values like ${tokens
-          .slice(0, 3)
-          .map((token) => `“${token.label}”`)
-          .join(", ")} are missing but stored as text`,
-        () => {
-          close();
-          callbacks.onOpenClean("nulls");
-        },
-        "inspector-issue warn",
-      ),
-    );
-    issueCount++;
-  }
-  if (meta.anomalyCounts.values > 0) {
-    issues.append(
-      action(
-        chipText("filter", `${meta.anomalyCounts.values.toLocaleString()} value outliers`),
-        "Show the rows outside this column's robust fence",
-        () => {
-          close();
-          callbacks.onFilter();
-        },
-        "inspector-issue warn",
-      ),
-    );
-    issueCount++;
-  }
-  if (meta.anomalyCounts.lengths > 0) {
-    issues.append(
-      action(
-        chipText("filter", `${meta.anomalyCounts.lengths.toLocaleString()} overlong values`),
-        "Show the rows with unusually long text",
-        () => {
-          close();
-          callbacks.onFilter();
-        },
-        "inspector-issue warn",
-      ),
-    );
-    issueCount++;
-  }
-  if (meta.similarGroups > 0) {
-    issues.append(
-      action(
-        chipText("fix", `${meta.similarGroups.toLocaleString()} similar pair${meta.similarGroups === 1 ? "" : "s"}`),
-        "Review and merge near-identical values",
-        () => {
-          close();
-          callbacks.onMerge();
-        },
-        "inspector-issue",
-      ),
-    );
-    issueCount++;
-  }
-  if (issueCount === 0) {
-    issues.append(el("div", { class: "inspector-none" }, ["✓ No issues found in this column."]));
-  } else {
-    issues.append(
-      action("Review missing values…", "Open the missing-value review", () => {
-        close();
-        callbacks.onOpenClean("nulls");
-      }, "link inspector-link"),
-    );
-  }
-  panel.append(issues);
-
-  // Navigate.
-  const navigate = section("Go to");
-  navigate.append(
-    action("Sort ascending", "Sort the table by this column", () => {
-      close();
-      callbacks.onSort(1);
-    }),
-    action("Sort descending", "Sort the table by this column", () => {
-      close();
-      callbacks.onSort(-1);
-    }),
-    action("Filter", "Open this column in the filters sidebar", () => {
-      close();
-      callbacks.onFilter();
-    }),
-    action("Chart", "Add a chart of this column", () => {
-      close();
-      callbacks.onChart();
-    }),
-  );
-  panel.append(navigate);
-
-  // Clean verbs in context (parameter-free ones apply immediately).
-  const clean = section("Clean");
-  // Other numeric/date columns for the "Compare with…" check.
-  const comparableColumns =
-    callbacks.columns?.()
-      .map((entry, index) => ({ entry, index }))
-      .filter(
-        (candidate) =>
-          candidate.index !== column &&
-          (candidate.entry.type === "integer" ||
-            candidate.entry.type === "number" ||
-            candidate.entry.type === "date" ||
-            candidate.entry.type === "datetime"),
-      ) ?? [];
-  const canCompare =
-    comparableColumns.length > 0 &&
-    (meta.type === "integer" ||
-      meta.type === "number" ||
-      meta.type === "date" ||
-      meta.type === "datetime");
-  clean.append(
-    action("Trim", "Trim whitespace (applies immediately)", () => {
-      close();
-      callbacks.onQuickClean({ kind: "trim" });
-    }),
-    action("UPPERCASE", "Apply immediately", () => {
-      close();
-      callbacks.onQuickClean({ kind: "case", style: "upper" });
-    }),
-    action("lowercase", "Apply immediately", () => {
-      close();
-      callbacks.onQuickClean({ kind: "case", style: "lower" });
-    }),
-    action("Title Case", "Apply immediately", () => {
-      close();
-      callbacks.onQuickClean({ kind: "case", style: "title" });
-    }),
-    action("Convert to number", "Apply immediately", () => {
-      close();
-      callbacks.onQuickClean({ kind: "toNumber", locale: meta.numberLocale });
-    }),
-    action("Convert to date", "Apply immediately", () => {
-      close();
-      callbacks.onQuickClean({ kind: "toDate", order: meta.dateOrder });
-    }),
-    action("Convert to date & time", "Apply immediately — keeps the clock, stored as UTC", () => {
-      close();
-      callbacks.onQuickClean({ kind: "toDateTime", order: meta.dateOrder });
-    }),
-    action("Escape formulas", "Prefix formula-like cells so spreadsheets keep them as text", () => {
-      close();
-      callbacks.onQuickClean({ kind: "escapeFormulas" });
-    }),
-    action("Split…", "Split this column without leaving the table", () => {
-      void promptSplit(close, callbacks);
-    }),
-    action("Round…", "Round this column to N decimal places", () => {
-      void promptRound(close, callbacks);
-    }),
-    (() => {
-      const items: MenuItem[] = [
-        { label: "Mean", action: () => { close(); callbacks.onFillMissing({ kind: "mean" }); } },
-        { label: "Median", action: () => { close(); callbacks.onFillMissing({ kind: "median" }); } },
-        { label: "Mode (most frequent)", action: () => { close(); callbacks.onFillMissing({ kind: "mode" }); } },
-        { label: "Previous value", action: () => { close(); callbacks.onFillMissing({ kind: "forward" }); } },
-        { label: "Next value", action: () => { close(); callbacks.onFillMissing({ kind: "backward" }); } },
-        {
-          label: "Constant value…",
-          action: () => {
-            void (async () => {
-              const value = await openPrompt({
-                title: `Fill “${meta.name}” with a constant`,
-                label: "Value",
-                placeholder: "0",
-                confirmLabel: "Fill",
-              });
-              close();
-              if (value !== null && value.trim() !== "") {
-                callbacks.onFillMissing({ kind: "constant", value });
-              }
-            })();
-          },
-        },
-        {
-          label: "Fill from similar rows (k nearest neighbours)…",
-          action: () => {
-            close();
-            callbacks.onOpenTransform({ type: "knn", column });
-          },
-        },
-        { label: "More options…", action: () => { close(); callbacks.onOpenTransform({ type: "impute", column }); } },
-      ];
-      const button = action("Fill missing ▾", "Choose how missing values are filled", () =>
-        openMenu(button, items),
-      );
-      return button;
-    })(),
-    (() => {
-      const items: MenuItem[] = [
-        { label: "Keep first copy", action: () => { close(); callbacks.onDedupe("first"); } },
-        { label: "Keep last copy", action: () => { close(); callbacks.onDedupe("last"); } },
-        { label: "Remove all copies", action: () => { close(); callbacks.onDedupe("none"); } },
-      ];
-      const button = action(
-        "Remove duplicates ▾",
-        "Drop identical rows, keeping the first, last or none",
-        () => openMenu(button, items),
-      );
-      return button;
-    })(),
-    ...(meta.type === "date" || meta.type === "datetime"
-      ? meta.stats.max !== null
-        ? [
-            action("Check freshness…", "Score timeliness: how old is the newest value?", () => {
-              void (async () => {
-                const input = await openPrompt({
-                  title: `Freshness for “${meta.name}”`,
-                  label: "Maximum acceptable age in days",
-                  value: "30",
-                  confirmLabel: "Check",
-                });
-                close();
-                if (input === null) return;
-                const days = Number(input.trim());
-                if (Number.isFinite(days) && days > 0) callbacks.onCheckFreshness(days);
-              })();
-            }),
-          ]
-        : []
-      : []),
-    ...(canCompare
-      ? [
-          (() => {
-            const finish = (
-              target: number,
-              operator: PairOperator,
-              tolerance: number,
-            ): void => {
-              close();
-              callbacks.onCompare(target, operator, tolerance);
-            };
-            const button = action(
-              "Compare with…",
-              "Flag rows that break a rule against another column",
-              () => {
-                const columnsMenu: MenuItem[] = comparableColumns.map((candidate) => ({
-                  label: candidate.entry.name,
-                  title: `Compare “${meta.name}” with “${candidate.entry.name}”`,
-                  action: () => {
-                    const target = candidate.index;
-                    const targetName = candidate.entry.name;
-                    const operators: MenuItem[] = [
-                      { label: "≥ (at least)", action: () => finish(target, "gte", 0) },
-                      { label: "> (more than)", action: () => finish(target, "gt", 0) },
-                      { label: "= (equal)", action: () => finish(target, "eq", 0) },
-                      {
-                        label: "≈ within tolerance…",
-                        action: () => {
-                          void (async () => {
-                            const input = await openPrompt({
-                              title: `Tolerance for “${meta.name}” ≈ “${targetName}”`,
-                              label: "Maximum allowed difference",
-                              placeholder: "0.01",
-                              confirmLabel: "Check",
-                            });
-                            if (input === null) return;
-                            const tolerance = Number(input.trim());
-                            if (!Number.isFinite(tolerance) || tolerance < 0) return;
-                            finish(target, "approx", tolerance);
-                          })();
-                        },
-                      },
-                    ];
-                    openMenu(button, operators);
-                  },
-                }));
-                openMenu(button, columnsMenu);
-              },
-            );
-            return button;
-          })(),
-        ]
-      : []),
-    ...(meta.categories !== null
-      ? [
-          action("Allowed values…", "Flag values outside a list you define (filters to them)", () => {
-            void (async () => {
-              const input = await openPrompt({
-                title: `Allowed values for “${meta.name}”`,
-                label: "Comma-separated allowed values",
-                placeholder: meta.categories?.labels.slice(0, 3).join(", ") ?? "",
-                confirmLabel: "Check",
-              });
-              close();
-              if (input === null) return;
-              const values = input
-                .split(",")
-                .map((part) => part.trim())
-                .filter((part) => part !== "");
-              if (values.length > 0) callbacks.onAllowedValues(values);
-            })();
-          }),
-        ]
-      : []),
-    action("Group by…", "Aggregate rows by this column", () => {
-      close();
-      callbacks.onOpenTransform({ type: "groupBy", column });
-    }),
-    action("All clean options…", "Open the Clean panel on this column", () => {
-      close();
-      callbacks.onOpenClean("values");
-    }),
-  );
-  panel.append(clean);
-
-  // Display format (numeric columns): fixed decimals for reading.
-  if (numeric && !isTemporalType(meta.type)) {
+  if (info.displayFormat != null || info.displayGrouping === true) {
+    const parts: string[] = [];
+    if (info.displayFormat != null) parts.push(`${info.displayFormat} decimal${info.displayFormat === 1 ? "" : "s"}`);
+    if (info.displayGrouping === true) parts.push("thousands separators");
     const display = section("Display");
-    // Decimal places only make sense for real-number columns; integers show
-    // whole values and keep just the separators toggle below.
-    const options: readonly { label: string; value: number | null }[] =
-      meta.type === "integer"
-        ? []
-        : [
-            { label: "Auto", value: null },
-            { label: "0 dp", value: 0 },
-            { label: "1 dp", value: 1 },
-            { label: "2 dp", value: 2 },
-          ];
-    for (const option of options) {
-      const active = callbacks.displayFormat === option.value;
-      display.append(
-        action(
-          `${active ? "● " : ""}${option.label}`,
-          "How numbers in this column are displayed (values are not changed)",
-          () => {
-            close();
-            callbacks.onDisplayFormat(option.value);
-          },
-        ),
-      );
-    }
-    const grouped = callbacks.displayGrouping;
-    display.append(
-      action(
-        `${grouped ? "● " : ""}Thousands separators (1,234,567)`,
-        "Show , between thousands of digits — display only, the stored values never change",
-        () => {
-          close();
-          callbacks.onDisplayGrouping(!grouped);
-        },
-      ),
-    );
+    display.append(el("div", { class: "inspector-note" }, [`Shown with ${parts.join(" and ")} — the stored values are unchanged.`]));
     panel.append(display);
   }
 
-  const danger = section("Danger zone");
-  danger.append(
-    action(
-      "Delete column…",
-      "Remove this column — tracked in the Recipe and undoable",
-      () => {
-        close();
-        callbacks.onDelete();
-      },
-      "inspector-action danger",
-    ),
+  panel.append(
+    el("div", { class: "inspector-foot" }, [
+      "Right-click the header for every action",
+      el("kbd", {}, ["Shift F10"]),
+    ]),
   );
-  panel.append(danger);
 
   document.addEventListener("pointerdown", onPointerDown, true);
   document.addEventListener("keydown", onKey);
@@ -577,75 +284,5 @@ export function openColumnInspector(
   anchor.classList.add("inspecting");
   const rect = anchor.getBoundingClientRect();
   panel.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 8))}px`;
-  panel.style.top = `${Math.max(
-    8,
-    Math.min(rect.bottom + 6, window.innerHeight - panel.offsetHeight - 8),
-  )}px`;
-}
-
-/** Decimal-places prompt for the quick Round verb. */
-async function promptRound(
-  close: () => void,
-  callbacks: ColumnInspectorCallbacks,
-): Promise<void> {
-  const value = await openPrompt({
-    title: "Round column",
-    label: "Decimal places — negative rounds left (-1 = nearest 10)",
-    value: "0",
-    confirmLabel: "Round",
-  });
-  close();
-  if (value === null) return;
-  const decimals = Number(value.trim());
-  if (Number.isFinite(decimals) && Math.abs(decimals) <= 12) {
-    callbacks.onRound(Math.round(decimals));
-  }
-}
-
-/** Delimiter or /regex/ prompt for the quick Split verb. */
-async function promptSplit(
-  close: () => void,
-  callbacks: ColumnInspectorCallbacks,
-): Promise<void> {
-  const value = await openPrompt({
-    title: "Split column",
-    label: "Delimiter (comma, space, tab or text), or /regex/ between slashes",
-    placeholder: "comma",
-    confirmLabel: "Split",
-  });
-  close();
-  if (value === null || value.trim() === "") return;
-  let pattern = value.trim();
-  let regex = false;
-  if (pattern.startsWith("/") && pattern.endsWith("/") && pattern.length > 2) {
-    pattern = pattern.slice(1, -1);
-    regex = true;
-  } else if (pattern === "comma") pattern = ",";
-  else if (pattern === "space") pattern = " ";
-  else if (pattern === "tab") pattern = "\t";
-  callbacks.onSplit(pattern, regex);
-}
-
-/** Short chip text for one suggestion (mirrors the header chip wording). */
-function suggestionLabel(suggestion: ColumnSuggestion): string {
-  switch (suggestion.kind) {
-    case "sentinel":
-      return `treat “${suggestion.value}” as missing (${suggestion.count.toLocaleString()})`;
-    case "mixedNumber":
-      return `repair ${suggestion.count.toLocaleString()} mixed decimals`;
-    case "typeConflict":
-      return `treat as text (${suggestion.count.toLocaleString()} don't parse)`;
-    case "formula":
-      return `escape ${suggestion.count.toLocaleString()} formula-like cells`;
-    case "number":
-      return "convert formatted numbers";
-    case "date":
-      return "convert text to dates";
-    case "time":
-      return "convert text to times of day";
-    case "duration":
-      return "convert text to durations";
-    case "boolean":
-      return "normalise boolean values";
-  }
+  panel.style.top = `${Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - panel.offsetHeight - 8))}px`;
 }
