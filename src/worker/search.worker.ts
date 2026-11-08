@@ -70,6 +70,11 @@ import {
   type NullPolicy,
 } from "../parse/null-tokens.js";
 import { isParquetName, readParquetGrid } from "../parse/parquet.js";
+import { pairColumns } from "../data/compare/columns.js";
+import { suggestKeys } from "../data/compare/keys.js";
+import { matchRows } from "../data/compare/match.js";
+import { buildReport } from "../data/compare/report.js";
+import { DEFAULT_RULES, compareColumn, type ColumnPair, type CompareSide } from "../data/compare/types.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { orderFormat, parseDate, type DateOrder } from "../parse/dates.js";
 import { fuzzyScoreNormalized, normalizeForMatch } from "../search/fuzzy-match.js";
@@ -102,6 +107,10 @@ import type {
   FileImportMeta,
   DropRowsRequest,
   FinalizeStatsRequest,
+  CompareLoadRequest,
+  CompareRunRequest,
+  CompareSetupRequest,
+  CompareSideInfo,
   GetRowsRequest,
   GetRowIdsRequest,
   FindRowRequest,
@@ -370,6 +379,19 @@ async function dispatch(message: WorkerRequest): Promise<void> {
 
 async function handle(message: WorkerRequest): Promise<void> {
   switch (message.type) {
+    case "compareLoad":
+      await handleCompareLoad(message);
+      break;
+    case "compareSetup":
+      handleCompareSetup(message);
+      break;
+    case "compareRun":
+      handleCompareRun(message);
+      break;
+    case "compareClear":
+      compare = null;
+      post({ type: "compareCleared", requestId: message.requestId });
+      break;
     case "load":
       await handleLoad(message);
       break;
@@ -875,6 +897,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
 
     const { dataset: next, encoding, ragged, delimiter } = ingested;
     dataset = next;
+    compare = null;
     engine = new QueryEngine(next);
     filters.clear();
     rankColumn = -1;
@@ -930,6 +953,95 @@ async function handleLoad(message: LoadRequest): Promise<void> {
   } finally {
     if (activeLoad === active) activeLoad = null;
   }
+}
+
+/** Compare mode: B beside the loaded data (A), and the last match. */
+let compare: { b: Dataset; bSide: CompareSide } | null = null;
+
+/** A as compare mode sees it: the loaded data as it is now, without rows that were deleted. */
+function compareSideA(current: Dataset): CompareSide {
+  const columns = current.columns.map(compareColumn);
+  if (excludedIds.size === 0) return { name: current.name, rowCount: current.rowCount, columns };
+  const keep: number[] = [];
+  for (let row = 0; row < current.rowCount; row++) if (!excludedIds.has(row)) keep.push(row);
+  return {
+    name: current.name,
+    rowCount: keep.length,
+    columns: columns.map((column) => {
+      const raw = keep.map((row) => column.raw[row]);
+      let nums: Float64Array | null = null;
+      return {
+        name: column.name,
+        type: column.type,
+        raw,
+        isEmpty: (row: number) => column.isEmpty(keep[row]),
+        numbers: () => {
+          if (nums === null) {
+            const all = column.numbers();
+            nums = Float64Array.from(keep, (row) => all[row]);
+          }
+          return nums;
+        },
+      };
+    }),
+  };
+}
+
+function sideInfo(side: CompareSide): CompareSideInfo {
+  return { name: side.name, rowCount: side.rowCount, columns: side.columns.map((column) => ({ name: column.name, type: column.type })) };
+}
+
+async function handleCompareLoad(message: CompareLoadRequest): Promise<void> {
+  let b: Dataset | null;
+  if (message.buffer !== undefined && isParquetName(message.name)) {
+    const grid = await readParquetGrid(message.buffer);
+    b = await buildDatasetAsync(message.name, grid.headers, grid.rows, () => undefined, "dot", {});
+  } else {
+    const ingested = await ingestDatasetAsync({
+      name: message.name,
+      delimiter: message.delimiter,
+      hasHeaders: message.hasHeaders,
+      text: message.text,
+      buffer: message.buffer,
+    });
+    b = ingested?.dataset ?? null;
+  }
+  if (b === null) throw new Error(`Could not read ${message.name}`);
+  compare = { b, bSide: { name: b.name, rowCount: b.rowCount, columns: b.columns.map(compareColumn) } };
+  handleCompareSetup({ type: "compareSetup", requestId: message.requestId, manual: [], rules: DEFAULT_RULES });
+}
+
+function handleCompareSetup(message: CompareSetupRequest): void {
+  const started = performance.now();
+  const { dataset: current } = state();
+  if (compare === null) throw new Error("No dataset to compare with");
+  const a = compareSideA(current);
+  const pairing = pairColumns(a, compare.bSide, message.manual);
+  post({
+    type: "compareSetup",
+    requestId: message.requestId,
+    a: sideInfo(a),
+    b: sideInfo(compare.bSide),
+    pairing,
+    keys: suggestKeys(a, compare.bSide, pairing, message.rules),
+    ms: performance.now() - started,
+  });
+}
+
+function handleCompareRun(message: CompareRunRequest): void {
+  const started = performance.now();
+  const { dataset: current } = state();
+  if (compare === null) throw new Error("No dataset to compare with");
+  const a = compareSideA(current);
+  const pairing = pairColumns(a, compare.bSide, message.manual);
+  const keyPairs = message.keyPairs === null ? null : message.keyPairs.map((index) => pairing.pairs[index]).filter((pair): pair is ColumnPair => pair !== undefined);
+  const match = matchRows(a, compare.bSide, pairing, keyPairs, message.rules);
+  post({
+    type: "compareResult",
+    requestId: message.requestId,
+    report: buildReport(a, compare.bSide, pairing, match),
+    ms: performance.now() - started,
+  });
 }
 
 function handleFinalizeStats(message: FinalizeStatsRequest): void {

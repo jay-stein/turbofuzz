@@ -85,6 +85,7 @@ import type {
   PivotMessage,
   CorrelationMessage,
   ExportScope,
+  CompareSideInfo,
   LoadedMessage,
   ProgressMessage,
   ResultsMessage,
@@ -205,6 +206,8 @@ import { remapViewDef, ViewsPanel, type ViewSource } from "./views-panel.js";
 import { openCommandBar, type ParsedCommand } from "./command-bar.js";
 import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
 import { openColumnInspector } from "./column-inspector.js";
+import { CompareMode } from "./compare/compare-mode.js";
+import { FILE_TYPES as COMPARE_FILE_TYPES } from "./compare/compare-setup.js";
 import { columnActionSections } from "./column-actions.js";
 import { openActionMenu } from "./action-menu.js";
 import { TYPE_FAMILY, TYPE_GLYPHS } from "./type-glyphs.js";
@@ -676,6 +679,10 @@ export class App {
   private copyButton!: HTMLButtonElement;
   private exportButton!: HTMLButtonElement;
   private newButton!: HTMLButtonElement;
+  /** "Load more ▾" beside Clear data: compare the loaded data with another file. */
+  private loadMoreButton!: HTMLButtonElement;
+  /** Compare mode while it is open: everything else is locked until it closes. */
+  private compareMode: CompareMode | null = null;
   private stepsButton!: HTMLButtonElement;
   private undoButton!: HTMLButtonElement;
   /**
@@ -944,6 +951,20 @@ export class App {
     this.newButton = el("button", { class: "ghost small topbar-wide", type: "button" }, ["New data"]);
     this.newButton.title = "Load a CSV, Excel, JSON or Parquet file";
     this.newButton.addEventListener("click", () => this.onNewDataClick());
+    this.loadMoreButton = el(
+      "button",
+      { class: "ghost small topbar-wide load-more-button hidden", type: "button", "aria-haspopup": "menu", title: "Add another dataset: compare it with this one" },
+      [svgIcon('<path d="M12 5v14M5 12h14"/>', "new-data-icon"), el("span", {}, ["Load more ▾"])],
+    ) as HTMLButtonElement;
+    this.loadMoreButton.addEventListener("click", () =>
+      openMenu(this.loadMoreButton, [
+        {
+          label: "Compare with a file…",
+          title: "Line up this data with another file and see what changed (the data here stays as it is)",
+          action: () => this.pickCompareFile(),
+        },
+      ]),
+    );
     const overflowButton = el(
       "button",
       { class: "ghost small topbar-overflow", type: "button", title: "Theme, help and data", "aria-label": "More" },
@@ -954,10 +975,11 @@ export class App {
         { label: this.themeButton.textContent ?? "Theme", action: () => this.themeButton.click() },
         { label: "Settings", action: () => this.openSettings() },
         { label: "Help", action: () => openHelpDrawer() },
+        ...(this.lastLoaded === null ? [] : [{ label: "Compare with a file…", action: () => this.pickCompareFile() }]),
         { label: this.newButton.textContent ?? "New data", action: () => this.newButton.click() },
       ]),
     );
-    topbar.append(this.newButton, overflowButton);
+    topbar.append(this.loadMoreButton, this.newButton, overflowButton);
 
     this.pasteView = this.buildPasteView();
     this.workspace = this.buildWorkspace();
@@ -1038,7 +1060,11 @@ export class App {
         "0 bytes uploaded · 0 network requests — files are parsed in this browser",
       ]),
     ]);
-    card.append(dropzone, privacy);
+    const compareStart = el("button", { class: "ghost small compare-start", type: "button", title: "Choose two files and see what changed between them" }, [
+      "Compare two datasets…",
+    ]);
+    compareStart.addEventListener("click", () => void this.openCompare());
+    card.append(dropzone, privacy, compareStart);
 
     this.loadPanel = el("div", {
       class: "load-progress hidden",
@@ -1578,6 +1604,8 @@ export class App {
       }
     });
     document.addEventListener("keydown", (event) => {
+      // Compare mode locks the rest of the app, its shortcuts included.
+      if (this.compareMode !== null) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         if (this.workspace.classList.contains("hidden")) return;
         event.preventDefault();
@@ -6725,8 +6753,51 @@ export class App {
     }
   }
 
+  /** The loaded data as compare mode's A card shows it. */
+  private compareSideInfo(): CompareSideInfo {
+    return { name: this.datasetName, rowCount: this.rowCount, columns: this.metas.map((meta) => ({ name: meta.name, type: meta.type })) };
+  }
+
+  /** Load more → Compare with a file: choose B, then compare mode opens with the loaded data as A. */
+  private pickCompareFile(): void {
+    const input = el("input", { type: "file", accept: COMPARE_FILE_TYPES }) as HTMLInputElement;
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (file !== undefined) void this.openCompare(file);
+    });
+    input.click();
+  }
+
+  /**
+   * Opens compare mode over the app. With data loaded it is A; from the
+   * start screen both files are chosen inside, and A loads as the app's data,
+   * so after Exit the work carries on with A.
+   */
+  private async openCompare(b?: File): Promise<void> {
+    if (this.compareMode !== null || this.loading) return;
+    const mode = new CompareMode({
+      client: this.client,
+      loaded: this.lastLoaded === null ? null : this.compareSideInfo(),
+      loadA: async (file) => {
+        const before = this.lastLoaded;
+        await this.loadFile(file);
+        return this.lastLoaded === before || this.lastLoaded === null ? null : this.compareSideInfo();
+      },
+      onExit: () => {
+        this.compareMode = null;
+        document.body.classList.remove("compare-active");
+        this.setAction("Left compare mode");
+      },
+    });
+    this.compareMode = mode;
+    document.body.classList.add("compare-active");
+    document.body.append(mode.element);
+    await mode.start(b);
+  }
+
   private updateNewButton(): void {
     const hasData = this.lastLoaded !== null;
+    this.loadMoreButton.classList.toggle("hidden", !hasData);
     this.newButton.replaceChildren(
       svgIcon(hasData ? '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>' : '<path d="M12 5v14M5 12h14"/>', "new-data-icon"),
       el("span", {}, [hasData ? "Clear data" : "New data"]),

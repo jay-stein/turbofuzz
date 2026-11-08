@@ -14,6 +14,9 @@ import type { ColumnNetworkResult } from "../data/column-network.js";
 import type { RelationshipData } from "../data/relationships.js";
 import type { TextProfile } from "../data/text-profile.js";
 import type { DistributionChange } from "../data/distribution.js";
+import type { ColumnPairing, CompareRules } from "../data/compare/types.js";
+import type { KeySuggestion } from "../data/compare/keys.js";
+import type { CompareReport } from "../data/compare/report.js";
 import type { SimilarClusterEntry } from "../data/similar-clusters.js";
 import type { AnimationResult } from "../data/chart-frames.js";
 import type { BootstrapProgress, IntervalKind } from "../data/error-bars.js";
@@ -1269,7 +1272,79 @@ export interface DistributionChangesMessage {
   ms: number;
 }
 
+/** One side's columns, as compare mode's setup lists them. */
+export interface CompareColumnInfo {
+  name: string;
+  type: ColumnType;
+}
+
+export interface CompareSideInfo {
+  name: string;
+  rowCount: number;
+  columns: CompareColumnInfo[];
+}
+
+/** Reads B for compare mode; A is the data already loaded, which stays as it is. */
+export interface CompareLoadRequest {
+  type: "compareLoad";
+  requestId: number;
+  name: string;
+  buffer?: ArrayBuffer;
+  text?: string;
+  delimiter: Delimiter | "auto";
+  hasHeaders: boolean;
+}
+
+/** Pairs the columns (with any made by hand) and suggests key columns. */
+export interface CompareSetupRequest {
+  type: "compareSetup";
+  requestId: number;
+  manual: { a: number; b: number }[];
+  rules: CompareRules;
+}
+
+export interface CompareSetupMessage {
+  type: "compareSetup";
+  requestId: number;
+  a: CompareSideInfo;
+  b: CompareSideInfo;
+  pairing: ColumnPairing;
+  keys: KeySuggestion[];
+  ms: number;
+}
+
+/** Matches the rows: on these column pairs (indexes into the pairing), or on whole rows when null. */
+export interface CompareRunRequest {
+  type: "compareRun";
+  requestId: number;
+  manual: { a: number; b: number }[];
+  keyPairs: number[] | null;
+  rules: CompareRules;
+}
+
+export interface CompareResultMessage {
+  type: "compareResult";
+  requestId: number;
+  report: CompareReport;
+  ms: number;
+}
+
+/** Leaves compare mode: B and the match are dropped. */
+export interface CompareClearRequest {
+  type: "compareClear";
+  requestId: number;
+}
+
+export interface CompareClearedMessage {
+  type: "compareCleared";
+  requestId: number;
+}
+
 export type WorkerRequest =
+  | CompareLoadRequest
+  | CompareSetupRequest
+  | CompareRunRequest
+  | CompareClearRequest
   | LoadRequest
   | CancelLoadRequest
   | SetFilterRequest
@@ -1635,4 +1710,7 @@ export type WorkerResponse =
   | KnnEvaluationMessage
   | ExcludedRowsMessage
   | CleanPreviewMessage
+  | CompareSetupMessage
+  | CompareResultMessage
+  | CompareClearedMessage
   | ErrorMessage;

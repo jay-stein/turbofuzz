@@ -5,8 +5,10 @@ import type { ColumnPairing, CompareRules, CompareSide } from "./types.js";
 export interface KeySuggestion {
   /** Indexes into pairing.pairs. */
   pairs: number[];
-  /** Share of B's keys that are also in A (0–1). */
+  /** Share of B's keys that are also in A (0–1): `shared` of B's `filled` key rows. */
   overlap: number;
+  shared: number;
+  filled: number;
   /** Rows on each side with an empty key cell, and extra copies of a key. */
   problems: { emptyA: number; emptyB: number; duplicateA: number; duplicateB: number };
 }
@@ -54,7 +56,7 @@ function keyProblems(tokens: readonly (string | null)[]): { empty: number; dupli
   return { empty, duplicate };
 }
 
-function overlapOf(aTokens: readonly (string | null)[], bTokens: readonly (string | null)[]): number {
+function overlapOf(aTokens: readonly (string | null)[], bTokens: readonly (string | null)[]): { shared: number; filled: number } {
   const inA = new Set<string>();
   for (const token of aTokens) if (token !== null) inA.add(token);
   let hits = 0;
@@ -64,7 +66,7 @@ function overlapOf(aTokens: readonly (string | null)[], bTokens: readonly (strin
     total++;
     if (inA.has(token)) hits++;
   }
-  return total === 0 ? 0 : hits / total;
+  return { shared: hits, filled: total };
 }
 
 /**
@@ -85,9 +87,9 @@ export function suggestKeys(a: CompareSide, b: CompareSide, pairing: ColumnPairi
     const inA = keyProblems(fullA);
     const inB = keyProblems(fullB);
     if (inA === null || inB === null) return null;
-    const overlap = overlapOf(fullA, fullB);
+    const { shared, filled } = overlapOf(fullA, fullB);
     const problems = { emptyA: inA.empty, emptyB: inB.empty, duplicateA: inA.duplicate, duplicateB: inB.duplicate };
-    return overlap > 0 ? { pairs: indexes, overlap, problems } : null;
+    return shared > 0 ? { pairs: indexes, overlap: shared / filled, shared, filled, problems } : null;
   };
   // Overlap ranks first; an id-like name, then a whole-number or text type, break near-ties (a unique price is a poor key).
   const score = (suggestion: KeySuggestion): number => {

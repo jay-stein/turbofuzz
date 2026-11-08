@@ -400,6 +400,25 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     ],
   },
   {
+    id: "compare",
+    title: "Compare two datasets",
+    summary: "Line up two versions of a table and see what changed.",
+    blocks: [
+      p(
+        "With data loaded, Load more ▾ → Compare with a file… compares it (as it is now, cleans included, deleted rows left out) with another file. From the start screen, Compare two datasets… lets you choose both files; the first one loads as your data, so after Exit you carry on with it.",
+      ),
+      list(
+        "Match rows on — a key column that is filled and unique on both sides is suggested (up to 1% of rows may have an empty or repeated key; they are counted and shown as warnings). Choose another column, or match whole rows when there is no key.",
+        "Columns — pair by name, ignoring case, spaces and punctuation. A renamed column is paired by hand with Pair with…; the rest are listed as only in A or only in B.",
+        "Values count as equal when — numbers within a tolerance (absolute or %), case ignored or not, extra spaces ignored or not, and whether an empty cell equals an empty cell. Dates must match exactly.",
+        "The result counts identical, changed, only-in-A and only-in-B rows, warns about repeated or empty keys, and lists the changes by column with the most common old → new values.",
+      ),
+      note(
+        "Compare reads CSV, TSV, JSON and Parquet. Save a workbook sheet as CSV first. While comparing, the rest of the app is locked; Exit compare returns to your data exactly as it was.",
+      ),
+    ],
+  },
+  {
     id: "privacy",
     title: "Privacy and security",
     summary: "Nothing leaves this tab — enforced by the browser.",

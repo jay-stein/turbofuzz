@@ -34,8 +34,9 @@ Owner scope, agreed 2026-11-08 (DEC-2026-11-08-02). A separate mode with two scr
 
 ## Architecture
 
-- **`compare.worker.ts`**, separate from `search.worker.ts`. It holds both datasets and the match result, so the main dataset is untouched and the lockdown is structural.
-- Parsing reuses `src/parse` and `src/data/build.ts`. "Loaded data vs a file": the main worker hands over the current (cleaned) columns; A is never re-read from disk.
+- **In the main worker** (`search.worker.ts`), not a separate one (changed in M2): A is the loaded dataset as it is now (cleans, transforms, without deleted rows), used in place with no copy; B is ingested beside it with the same parser and dropped on Exit or on any new load. This saves copying A between workers. The lockdown is the full-screen compare layer, which also mutes the app's shortcuts.
+- From the start screen, A is chosen inside compare mode and loads as the app's data, so after Exit the person carries on with A.
+- B reads CSV/TSV/JSON/Parquet; workbooks and archives are explained (save as CSV) until their pickers are reused.
 - **Matching** (`src/data/compare/`, pure and unit-tested): normalise key values → hash map from key to row in A → probe with B. Output: a row-pair index (`aRow`, `bRow`, -1 for a gap) in display order, plus per-pair status and a changed-cell bitset. No-key mode hashes whole normalised rows into a multiset.
 - **Rendering**: windows of rows are requested by pair position, like the table today. Both panes are thin `ResultTable`-style virtual grids driven from one scroll position.
 - **UI** in `src/ui/compare/` (mode shell, setup, report, side-by-side), mounted over the workspace, not inside `app.ts`.

@@ -6,6 +6,7 @@ import type { TsConfig, TsMode } from "../data/timeseries/aggregate.js";
 import type { ModelKey } from "../data/timeseries/models.js";
 import type { HeaderLayout } from "../parse/header-detect.js";
 import type { Delimiter } from "../parse/delimiter.js";
+import type { CompareRules } from "../data/compare/types.js";
 import type { ChartExclusion } from "../data/chart-exclusions.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { TimeGrain, ViewDef } from "../data/aggregate.js";
@@ -62,6 +63,9 @@ import type {
   RelationshipsMessage,
   TimeSeriesMessage,
   ResultsMessage,
+  CompareClearedMessage,
+  CompareResultMessage,
+  CompareSetupMessage,
   RowsMessage,
   RowIdsMessage,
   RowPositionMessage,
@@ -183,6 +187,23 @@ export class SearchWorkerClient {
       const settings = readSettings();
       this.worker.postMessage({ type: "load", conventions: { dateOrder: settings.dateOrder === "" ? null : settings.dateOrder, numberFormat: settings.numberFormat }, ...options, requestId } as WorkerRequest, transfer);
     });
+  }
+
+  /** Compare mode: reads B beside the loaded data, then pairs columns and suggests keys. */
+  compareLoad(options: { name: string; buffer?: ArrayBuffer; text?: string; delimiter: Delimiter | "auto"; hasHeaders: boolean }): Promise<CompareSetupMessage> {
+    return this.request<CompareSetupMessage>({ type: "compareLoad", ...options }, options.buffer === undefined ? [] : [options.buffer]);
+  }
+
+  compareSetup(manual: { a: number; b: number }[], rules: CompareRules): Promise<CompareSetupMessage> {
+    return this.request<CompareSetupMessage>({ type: "compareSetup", manual, rules });
+  }
+
+  compareRun(manual: { a: number; b: number }[], keyPairs: number[] | null, rules: CompareRules): Promise<CompareResultMessage> {
+    return this.request<CompareResultMessage>({ type: "compareRun", manual, keyPairs, rules });
+  }
+
+  compareClear(): Promise<CompareClearedMessage> {
+    return this.request<CompareClearedMessage>({ type: "compareClear" });
   }
 
   /** Stops the in-flight load at its next checkpoint; the dataset is unchanged. */
