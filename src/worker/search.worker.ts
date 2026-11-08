@@ -77,6 +77,7 @@ import { buildReport } from "../data/compare/report.js";
 import { DEFAULT_RULES, compareColumn, type ColumnPair, type ColumnPairing, type CompareSide, type MatchResult } from "../data/compare/types.js";
 import { filterPositions, findDifference, rowWindow, type RowFilter } from "../data/compare/view.js";
 import { columnShifts, groupShift, type ShiftReport } from "../data/compare/shift.js";
+import { changeTables } from "../data/compare/export.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { orderFormat, parseDate, type DateOrder } from "../parse/dates.js";
 import { fuzzyScoreNormalized, normalizeForMatch } from "../search/fuzzy-match.js";
@@ -403,6 +404,12 @@ async function handle(message: WorkerRequest): Promise<void> {
       const started = performance.now();
       run.shift ??= columnShifts(run.a, compare!.bSide, run.pairing, new Set(run.keyPairs));
       post({ type: "compareShift", requestId: message.requestId, shift: run.shift, ms: performance.now() - started });
+      break;
+    }
+    case "compareExport": {
+      const run = compareRun();
+      const keyPairs = run.match.mode === "key" ? run.keyPairs : null;
+      post({ type: "compareExport", requestId: message.requestId, tables: changeTables(run.a, compare!.bSide, run.pairing, run.match, keyPairs) });
       break;
     }
     case "compareGroups": {

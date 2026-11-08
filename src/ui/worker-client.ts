@@ -71,6 +71,7 @@ import type {
   CompareRowsMessage,
   CompareShiftMessage,
   CompareGroupsMessage,
+  CompareExportMessage,
   CompareFoundMessage,
   RowsMessage,
   RowIdsMessage,
@@ -224,6 +225,10 @@ export class SearchWorkerClient {
 
   compareGroups(group: number, measure: number | null, agg: GroupMeasure): Promise<CompareGroupsMessage> {
     return this.request<CompareGroupsMessage>({ type: "compareGroups", group, measure, agg });
+  }
+
+  compareExport(): Promise<CompareExportMessage> {
+    return this.request<CompareExportMessage>({ type: "compareExport" });
   }
 
   compareClear(): Promise<CompareClearedMessage> {

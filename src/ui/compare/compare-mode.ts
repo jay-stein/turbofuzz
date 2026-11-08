@@ -8,6 +8,8 @@ import { SideBySide, type GridLayout } from "./compare-grid.js";
 import type { RowFilter } from "../../data/compare/view.js";
 import type { ShiftReport } from "../../data/compare/shift.js";
 import { ShiftView, type GroupChoice } from "./compare-shift.js";
+import { changesWorkbook, download, exportBaseName, reportHtml, tableCsv } from "./compare-export.js";
+import { openMenu } from "../menu.js";
 import { renderSetup, type KeyChoice, type SetupState } from "./compare-setup.js";
 
 export interface CompareModeOptions {
@@ -57,6 +59,8 @@ export class CompareMode {
     changedColumnsOnly: false,
   };
   private sideBySide: SideBySide | null = null;
+  /** Says when an export could not be saved. */
+  private readonly exportNote = el("span", { class: "cmp-export-note", role: "status" });
   private closed = false;
 
   constructor(private readonly options: CompareModeOptions) {
@@ -169,7 +173,15 @@ export class CompareMode {
     }
     const back = el("button", { type: "button", class: "ghost small" }, ["← Setup"]);
     back.addEventListener("click", () => this.showSetup());
-    nav.append(el("span", { class: "grow" }), back);
+    const exportButton = el("button", { type: "button", class: "ghost small", "aria-haspopup": "menu" }, ["Export ▾"]);
+    exportButton.addEventListener("click", () =>
+      openMenu(exportButton, [
+        { label: "Report (HTML page)", title: "The report and what shifted, as one page to share or print: counts and summaries, not the rows", action: () => void this.exportAs("html") },
+        { label: "Changes (CSV)", title: "One line per changed cell (key, rows, column, value in A and in B), and one per row only one side has", action: () => void this.exportAs("csv") },
+        { label: "Changes and rows (Excel)", title: "Summary, Changes, Only in A, Only in B and What shifted as sheets of one workbook", action: () => void this.exportAs("xlsx") },
+      ]),
+    );
+    nav.append(el("span", { class: "grow" }), this.exportNote, exportButton, back);
     return nav;
   }
 
@@ -197,6 +209,28 @@ export class CompareMode {
       },
     });
     host.replaceChildren(view.element);
+  }
+
+  /** Saves the comparison: the HTML report, the changes as CSV, or a workbook with the rows. */
+  private async exportAs(kind: "html" | "csv" | "xlsx"): Promise<void> {
+    const setup = this.state.setup;
+    const result = this.report;
+    if (setup === null || result === null) return;
+    const input = { setup, report: result.report, ms: result.ms, key: result.key, rules: result.rules };
+    const base = exportBaseName(input);
+    try {
+      if (kind !== "csv" && this.shift === null) this.shift = (await this.options.client.compareShift()).shift;
+      if (kind === "html") {
+        download(reportHtml(input, this.shift), "text/html", `${base}_report.html`);
+        return;
+      }
+      const { tables } = await this.options.client.compareExport();
+      if (kind === "csv") download(tableCsv(tables.changes), "text/csv", `${base}_changes.csv`);
+      else download((await changesWorkbook(input, tables, this.shift)) as BlobPart, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", `${base}.xlsx`);
+      this.exportNote.textContent = "";
+    } catch (error) {
+      this.exportNote.textContent = error instanceof Error ? `Export failed: ${error.message}` : "Export failed.";
+    }
   }
 
   /** From a count or a column in the report: those rows, side by side. */

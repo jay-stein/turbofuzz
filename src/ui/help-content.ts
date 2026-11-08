@@ -415,6 +415,9 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         "What shifted — A and B compared as whole populations, so no key is needed. Each column is ranked by how far its values moved: numbers and dates by their distribution (mean, median, percentiles, an overlaid histogram; Population Stability Index and the mean difference in standard deviations), categories by their mix of values (shares side by side, values new in B or gone; Cramér's V). Verdicts are no real shift, mild or large, measuring size, not statistical significance. By group shows a measure per group (mean or sum of a number column, or the row count) for A and B with the change, biggest moves first.",
         "Side by side — A and B in two panes that scroll together, rows lined up by the key, a hatched gap where a side has no row, changed cells boxed. It opens on Differences: every row that changed, or is only in A or only in B. Or show all, changed, only in A, only in B or identical rows; tick Only columns with changes to hide the rest; n and p jump to the next and previous difference. One grid shows each changed cell's new value over the old one, struck through.",
       ),
+      p(
+        "Export ▾ saves the comparison: Report (HTML page) holds the report and what shifted as one page to share or print, with counts and summaries but not the rows; Changes (CSV) has one line per changed cell (key, row numbers, column, value in A and in B) and one per row only one side has, with formula-like cells escaped; Changes and rows (Excel) is a workbook with Summary, Changes, Only in A, Only in B and What shifted sheets, every value kept as text so codes like 007 stay as they are.",
+      ),
       note(
         "Compare reads CSV, TSV, JSON and Parquet. Save a workbook sheet as CSV first. While comparing, the rest of the app is locked; Exit compare returns to your data exactly as it was.",
       ),

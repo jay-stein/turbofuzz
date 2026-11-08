@@ -215,3 +215,35 @@ test("what shifted: no key needed, columns ranked by how far they moved, and a m
     expect(axe.violations.map((v) => `${scheme} ${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
   }
 });
+
+test("Export saves the HTML report, the changes as CSV and a workbook with every table", async ({ page }) => {
+  await loadA(page);
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: /Load more/ }).click();
+  await page.getByRole("menuitem", { name: "Compare with a file…" }).click();
+  await (await chooser).setFiles(file("after.csv", B));
+  const mode = page.getByRole("region", { name: "Compare two datasets" });
+  await mode.getByRole("button", { name: "Compare", exact: true }).click();
+  const save = async (label: string) => {
+    const wait = page.waitForEvent("download");
+    await mode.getByRole("button", { name: "Export ▾" }).click();
+    await page.getByRole("menuitem", { name: label }).click();
+    const download = await wait;
+    const path = await download.path();
+    return { name: download.suggestedFilename(), bytes: (await import("node:fs")).readFileSync(path!) };
+  };
+  const html = await save("Report (HTML page)");
+  expect(html.name).toBe("compare_before_vs_after_report.html");
+  expect(html.bytes.toString("utf8")).toContain("<h1>before.csv → after.csv</h1>");
+  const csv = await save("Changes (CSV)");
+  expect(csv.name).toBe("compare_before_vs_after_changes.csv");
+  expect(csv.bytes.toString("utf8").replace(/^﻿/, "").split("\r\n").slice(0, 4)).toEqual([
+    "id,A row,B row,status,column,value in A,value in B",
+    "2,2,,only in A,,,",
+    "3,3,2,changed,amount,30,31",
+    "5,,4,only in B,,,",
+  ]);
+  const xlsx = await save("Changes and rows (Excel)");
+  expect(xlsx.name).toBe("compare_before_vs_after.xlsx");
+  expect(xlsx.bytes.subarray(0, 2).toString("latin1")).toBe("PK");
+});

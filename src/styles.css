@@ -15657,6 +15657,10 @@ button.qp-tile:hover {
   font-weight: 600;
   border-bottom-color: var(--accent);
 }
+.cmp-export-note {
+  font-size: var(--fs-sm);
+  color: var(--danger);
+}
 .cmp-body.cmp-body-rows {
   display: flex;
   flex-direction: column;

@@ -19,6 +19,7 @@ import type { KeySuggestion } from "../data/compare/keys.js";
 import type { CompareReport } from "../data/compare/report.js";
 import type { RowFilter, RowWindow } from "../data/compare/view.js";
 import type { GroupMeasure, GroupShift, ShiftReport } from "../data/compare/shift.js";
+import type { ChangeTables } from "../data/compare/export.js";
 import type { SimilarClusterEntry } from "../data/similar-clusters.js";
 import type { AnimationResult } from "../data/chart-frames.js";
 import type { BootstrapProgress, IntervalKind } from "../data/error-bars.js";
@@ -1391,6 +1392,18 @@ export interface CompareGroupsMessage {
   groups: GroupShift;
 }
 
+/** The differences as tables to save: changed cells, rows only in A, rows only in B. */
+export interface CompareExportRequest {
+  type: "compareExport";
+  requestId: number;
+}
+
+export interface CompareExportMessage {
+  type: "compareExport";
+  requestId: number;
+  tables: ChangeTables;
+}
+
 /** Leaves compare mode: B and the match are dropped. */
 export interface CompareClearRequest {
   type: "compareClear";
@@ -1411,6 +1424,7 @@ export type WorkerRequest =
   | CompareFindRequest
   | CompareShiftRequest
   | CompareGroupsRequest
+  | CompareExportRequest
   | LoadRequest
   | CancelLoadRequest
   | SetFilterRequest
@@ -1783,4 +1797,5 @@ export type WorkerResponse =
   | CompareFoundMessage
   | CompareShiftMessage
   | CompareGroupsMessage
+  | CompareExportMessage
   | ErrorMessage;
