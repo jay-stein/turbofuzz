@@ -23,6 +23,16 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-08-02 — Compare two datasets is a separate, locked-down mode
+
+- **Status:** Accepted (owner, 2026-11-08); plan in plan-compare.md
+- **Context:** People need to see what changed between two versions of a dataset (this month vs last, my cleaned copy vs the supplier's).
+- **Decision:** A separate mode with two screens, a comparison report and a side-by-side table; everything else is locked until Exit. A and B are two files, or the loaded (cleaned) data vs a file. Rows match on key columns (suggested, overridable, composite allowed); with no key, by whole-row content. The side-by-side screen has two synced panes with a toggle to one grid. v1 exports the report (HTML) and the changes (CSV/Excel).
+- **Alternatives considered:** Two files only; also loaded data vs its own original; matching rows by position; requiring a key; one merged grid only; no exports.
+- **Trade-offs:** Whole-row matching without a key cannot show cell-level changes, only added and removed rows. Two datasets in memory roughly double the memory used.
+- **Revisit trigger:** People often compare data with no key and need cell-level changes (then consider similarity matching).
+- **Date / owner:** 2026-11-08 / owner
+
 ### DEC-2026-11-08-01 — Column header: left click informs, right click acts
 
 - **Status:** Accepted (owner request, 2026-11-08)
