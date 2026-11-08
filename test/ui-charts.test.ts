@@ -1859,7 +1859,7 @@ test("the Animate button sits in the toolbar and reveals the setup row", async (
   assert.equal(button.getAttribute("aria-disabled"), "false");
   const setup = host.querySelector(".chart-animate-setup") as HTMLElement;
   assert.equal(setup.classList.contains("hidden"), true, "setup starts collapsed");
-  assert.ok(setup.querySelector('select[aria-label="Animate over time"]') !== null);
+  assert.ok(setup.querySelector('select[aria-label="Animate over"]') !== null);
   assert.match(setup.textContent ?? "", /Animate/);
   button.click();
   await tick();
@@ -1886,12 +1886,12 @@ test("the Animate button stays visible and grey, and says why, whenever it canno
   assert.equal(button.disabled, false, "not truly disabled, so hover and focus reach the reason");
   assert.equal(button.getAttribute("aria-disabled"), "true");
   assert.equal(button.classList.contains("hidden"), false);
-  assert.match(button.title, /needs a date or datetime column.*Convert types/);
+  assert.match(button.title, /needs a date or number column.*Convert types/);
   button.click();
   await tick();
   const setup = host.querySelector(".chart-animate-setup") as HTMLElement;
   assert.equal(setup.classList.contains("hidden"), true, "a grey click opens nothing");
-  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /needs a date or datetime column/);
+  assert.match(host.querySelector(".chart-note")?.textContent ?? "", /needs a date or number column/);
 
   card.setColumns([
     meta({ name: "status", type: "category", categories: { labels: ["open"], counts: [1] } }),

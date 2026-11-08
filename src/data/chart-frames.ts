@@ -1,4 +1,42 @@
 import { timeBucket, timeLabel, type TimeGrain } from "./aggregate.js";
+
+/**
+ * How rows group into frames: a time grain for a date column, or for a
+ * number column each distinct value, or equal steps of a width. Frames play
+ * in ascending order either way.
+ */
+export type FrameStep = TimeGrain | { kind: "value" } | { kind: "range"; width: number };
+
+/** At most this many frames: beyond it the animation would be unwatchable and costly, so steps are asked for. */
+export const MAX_FRAMES = 1_000;
+
+/** Up to six significant decimals, so 0.1 + 0.2 reads 0.3 and a frame's label matches its rows. */
+function tidy(value: number): number {
+  return Number(value.toPrecision(12));
+}
+
+function formatNumber(value: number, decimals: number): string {
+  return value.toLocaleString("en", { maximumFractionDigits: decimals });
+}
+
+/** Decimals a step width needs (0 for whole steps, 1 for 0.5, 2 for 0.25). */
+function decimalsOf(width: number): number {
+  const text = String(tidy(width));
+  const dot = text.indexOf(".");
+  return dot < 0 ? 0 : Math.min(6, text.length - dot - 1);
+}
+
+/** The bucket a value falls in, and how a bucket is labelled, for a frame step. */
+export function frameKey(step: FrameStep): { bucket(value: number): number; label(bucket: number): string } {
+  if (typeof step === "string") return { bucket: (value) => timeBucket(value, step), label: (bucket) => timeLabel(bucket, step) };
+  if (step.kind === "value") return { bucket: (value) => value, label: (bucket) => formatNumber(bucket, 6) };
+  const width = step.width > 0 ? step.width : 1;
+  const decimals = decimalsOf(width);
+  return {
+    bucket: (value) => tidy(Math.floor(tidy(value / width)) * width),
+    label: (bucket) => `${formatNumber(bucket, decimals)} – ${formatNumber(tidy(bucket + width), decimals)}`,
+  };
+}
 import type { GridMeasure } from "./chart-stats.js";
 import { robustRange } from "./dot-size.js";
 
@@ -121,12 +159,13 @@ export function computePlaceFrames(
   x: Float64Array,
   y: Float64Array,
   ids: Uint32Array,
-  grain: TimeGrain,
+  grain: FrameStep,
   limit: number,
   size?: GridMeasure,
   color?: { values: Float64Array; agg: FrameAgg },
 ): AnimationResult {
   const { frames, index, missing } = frameTimes(times, ids, grain);
+  const key = frameKey(grain);
   const places = new Map<number, number>();
   const px: number[] = [];
   const py: number[] = [];
@@ -175,7 +214,7 @@ export function computePlaceFrames(
     const at = slot[place]!;
     if (at < 0) continue;
     const row = ids[position]!;
-    const cell = index.get(timeBucket(times[row]!, grain))! * shown + at;
+    const cell = index.get(key.bucket(times[row]!))! * shown + at;
     counts[cell]!++;
     sizeMeasure?.add(cell, row);
     colorMeasure?.add(cell, row);
@@ -214,8 +253,9 @@ export function computePlaceFrames(
 function frameTimes(
   times: Float64Array,
   ids: Uint32Array,
-  grain: TimeGrain,
+  grain: FrameStep,
 ): { frames: AnimationFrame[]; index: Map<number, number>; missing: number } {
+  const key = frameKey(grain);
   const seen = new Map<number, number>();
   let missing = 0;
   for (let position = 0; position < ids.length; position++) {
@@ -225,14 +265,19 @@ function frameTimes(
       missing++;
       continue;
     }
-    const bucket = timeBucket(value, grain);
-    if (!seen.has(bucket)) seen.set(bucket, 0);
+    const bucket = key.bucket(value);
+    if (!seen.has(bucket)) {
+      seen.set(bucket, 0);
+      if (seen.size > MAX_FRAMES) {
+        throw new Error(`More than ${MAX_FRAMES.toLocaleString("en")} frames: choose larger steps to animate by`);
+      }
+    }
   }
   const sorted = [...seen.keys()].sort((a, b) => a - b);
   const index = new Map<number, number>();
   const frames = sorted.map((time, frameIndex) => {
     index.set(time, frameIndex);
-    return { time, label: timeLabel(time, grain) };
+    return { time, label: key.label(time) };
   });
   return { frames, index, missing };
 }
@@ -246,10 +291,11 @@ export function computeBarFrames(
   codes: Uint16Array,
   labels: readonly string[],
   ids: Uint32Array,
-  grain: TimeGrain,
+  grain: FrameStep,
   topN: number,
 ): AnimationResult {
   const { frames, index, missing } = frameTimes(times, ids, grain);
+  const key = frameKey(grain);
   const totals = new Uint32Array(labels.length);
   for (let position = 0; position < ids.length; position++) {
     const code = codes[ids[position]];
@@ -275,7 +321,7 @@ export function computeBarFrames(
     const row = ids[position];
     const time = times[row];
     if (!Number.isFinite(time)) continue;
-    const frame = index.get(timeBucket(time, grain));
+    const frame = index.get(key.bucket(time));
     const code = codes[row];
     const slot = outIndex.get(code);
     if (frame === undefined || slot === undefined) continue;
@@ -291,10 +337,11 @@ export function computeHistogramFrames(
   times: Float64Array,
   values: Float64Array,
   ids: Uint32Array,
-  grain: TimeGrain,
+  grain: FrameStep,
   binCount: number,
 ): AnimationResult {
   const { frames, index, missing } = frameTimes(times, ids, grain);
+  const key = frameKey(grain);
   const bins = Math.max(4, Math.min(256, Math.floor(binCount) || 32));
   let min = Infinity;
   let max = -Infinity;
@@ -323,7 +370,7 @@ export function computeHistogramFrames(
     const time = times[row];
     const value = values[row];
     if (!Number.isFinite(value) || !Number.isFinite(time)) continue;
-    const frame = index.get(timeBucket(time, grain));
+    const frame = index.get(key.bucket(time));
     if (frame === undefined) continue;
     const bin = Math.min(bins - 1, Math.floor(((value - min) / span) * bins));
     const cell = ++counts[frame * bins + bin];
@@ -338,12 +385,13 @@ export function computeBubbleFrames(
   xValues: Float64Array,
   yValues: Float64Array,
   ids: Uint32Array,
-  grain: TimeGrain,
+  grain: FrameStep,
   bins: number,
   measure?: GridMeasure,
   groups?: { codes: Uint16Array; labels: string[] },
 ): AnimationResult {
   const { frames, index, missing } = frameTimes(times, ids, grain);
+  const key = frameKey(grain);
   const size = Math.max(4, Math.min(120, Math.floor(bins) || 40));
   let xMin = Infinity;
   let xMax = -Infinity;
@@ -380,7 +428,7 @@ export function computeBubbleFrames(
       const y = yValues[row];
       const time = times[row];
       if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(time)) continue;
-      const frame = index.get(timeBucket(time, grain));
+      const frame = index.get(key.bucket(time));
       if (frame === undefined) continue;
       const group = groups === undefined ? 0 : Math.min(groupCount - 1, groups.codes[row] ?? 0);
       const bx = Math.min(size - 1, Math.floor(((x - xMin) / xSpan) * size));

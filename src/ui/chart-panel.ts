@@ -1,3 +1,4 @@
+import type { FrameStep } from "../data/chart-frames.js";
 import type { ChartBinOptions } from "../data/chart-bins.js";
 import {
   exclusionsFromNames,
@@ -139,7 +140,7 @@ export interface ChartsPanelOptions {
   ): { done: Promise<ErrorBarsMessage>; cancel: () => void };
   requestAnimation?(input: {
     timeColumn: number;
-    grain: TimeGrain;
+    grain: FrameStep;
     chart: "bar" | "bubble" | "histogram" | "places";
     column: number;
     yColumn: number;

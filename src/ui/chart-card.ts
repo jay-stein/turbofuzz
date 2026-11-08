@@ -37,6 +37,7 @@ import {
   samplePalette,
 } from "../data/palettes.js";
 import type { Aggregate, MeasureSpec, TimeGrain, ViewDef } from "../data/aggregate.js";
+import { MAX_FRAMES, type FrameStep } from "../data/chart-frames.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import { isNumericLikeType, TYPE_LABELS } from "../types.js";
 import {
@@ -502,7 +503,7 @@ export interface ChartCardOptions {
   ): { done: Promise<ErrorBarsMessage>; cancel: () => void };
   requestAnimation?(input: {
     timeColumn: number;
-    grain: TimeGrain;
+    grain: FrameStep;
     chart: "bar" | "bubble" | "histogram" | "places";
     column: number;
     yColumn: number;
@@ -713,9 +714,12 @@ export interface ChartCardConfig {
   fitR2?: boolean;
   /** Card width in the grid: normal cell or the whole row. */
   span?: "auto" | "full";
-  /** Time column for frame animation (-1 = off). */
+  /** The column frames step through, a date or a number column (-1 = off). */
   animationTimeColumn?: number;
+  /** Frame length when that column holds dates. */
   animationGrain?: TimeGrain;
+  /** Frames when it holds numbers: each distinct value, or equal steps of this width. */
+  animationStep?: "value" | number;
   /** Playback/export speed multiplier (0.5, 1, 2, 4). */
   animationSpeed?: number;
   /** "Suggested: …" reason shown in the note for rule-picked default cards. */
@@ -1383,6 +1387,8 @@ export class ChartCard {
   private itemWindow: { start: number; count: number } | null = null;
   private readonly animationTimeSelect: HTMLSelectElement;
   private readonly animationGrainSelect: HTMLSelectElement;
+  /** "every" before a time grain, "by" before each value / steps of N. */
+  private readonly animationStepLabel = el("span", { class: "chart-field-label" }, ["every"]);
   private readonly animationBar: HTMLElement;
   private readonly animationPlayButton: HTMLButtonElement;
   private readonly animationSlider: HTMLInputElement;
@@ -2784,8 +2790,8 @@ export class ChartCard {
     // Frames over time: step and loop a bar or bubble chart, export one loop.
     this.animationTimeSelect = el("select", {
       class: "chart-picker chart-picker-small",
-      "aria-label": "Animate over time",
-      title: "Step this chart through a date column, one frame per period",
+      "aria-label": "Animate over",
+      title: "Step this chart through a date column (one frame per period) or a number column (in order, one frame per value or step)",
     }) as HTMLSelectElement;
     this.animationTimeSelect.addEventListener("change", () => {
       const value = Number(this.animationTimeSelect.value);
@@ -2794,16 +2800,14 @@ export class ChartCard {
     this.animationGrainSelect = el("select", {
       class: "chart-picker chart-picker-small",
       "aria-label": "Frame length",
-      title: "How much time each frame covers",
+      title: "How much each frame covers",
     }) as HTMLSelectElement;
-    (["hour", "day", "week", "month", "quarter", "year"] as TimeGrain[]).forEach((grain) => {
-      this.animationGrainSelect.append(
-        el("option", { value: grain }, [grain.charAt(0).toUpperCase() + grain.slice(1)]) as HTMLOptionElement,
-      );
-    });
-    this.animationGrainSelect.value = this.config.animationGrain ?? "day";
+    this.syncFrameOptions();
     this.animationGrainSelect.addEventListener("change", () => {
-      this.config.animationGrain = this.animationGrainSelect.value as TimeGrain;
+      const value = this.animationGrainSelect.value;
+      if (value === "value") this.config.animationStep = "value";
+      else if (value.startsWith("step:")) this.config.animationStep = Number(value.slice(5));
+      else this.config.animationGrain = value as TimeGrain;
       this.stopAnimation();
       this.generation++;
       this.refreshAnimation();
@@ -2815,7 +2819,7 @@ export class ChartCard {
       el("span", { class: "chart-animate-title" }, [movieIcon(), "Animate"]),
       el("span", { class: "chart-field-label" }, ["over"]),
       this.animationTimeSelect,
-      el("span", { class: "chart-field-label" }, ["every"]),
+      this.animationStepLabel,
       this.animationGrainSelect,
       el("span", { class: "chart-animate-hint" }, [
         "Playback appears under the chart; export one loop as a GIF.",
@@ -5453,17 +5457,90 @@ export class ChartCard {
     this.chartFilterRow.classList.toggle("hidden", !aggregateBacked);
   }
 
-  /** Date and datetime columns available as animation time axes. */
+  /** Columns to animate over: dates, then numbers (shaded regions step through dates only). */
   private syncAnimationOptions(): void {
     const dates = this.allowedIndexes((meta) => this.isDateLike(meta));
+    const numbers = this.regionsOn() ? [] : this.allowedIndexes((meta) => this.isFrameNumber(meta));
     const current = this.config.animationTimeColumn ?? -1;
-    if (current >= 0 && !dates.includes(current)) this.config.animationTimeColumn = -1;
+    if (current >= 0 && !dates.includes(current) && !numbers.includes(current)) this.config.animationTimeColumn = -1;
     this.animationTimeSelect.replaceChildren(this.option("-1", "Off"));
-    dates.forEach((index) => {
-      const meta = this.columns[index];
-      this.animationTimeSelect.append(this.option(String(index), meta.name));
-    });
+    const group = (label: string, indexes: number[]): void => {
+      if (indexes.length === 0) return;
+      const optgroup = el("optgroup", { label }) as HTMLOptGroupElement;
+      for (const index of indexes) optgroup.append(this.option(String(index), this.columns[index]!.name));
+      this.animationTimeSelect.append(optgroup);
+    };
+    group("Dates", dates);
+    group("Numbers", numbers);
     this.animationTimeSelect.value = String(this.config.animationTimeColumn ?? -1);
+    this.syncFrameOptions();
+  }
+
+  /** A number column frames can step through in order: integers and decimals (dates are offered on their own). */
+  private isFrameNumber(meta: ColumnMeta | undefined): boolean {
+    return meta !== undefined && (meta.type === "integer" || meta.type === "number") && meta.stats.min !== null && meta.stats.max !== null;
+  }
+
+  /**
+   * Step widths for a number column that give roughly 10, 20 and 50 frames
+   * over its range, rounded to 1, 2 or 5 times a power of ten.
+   */
+  private frameWidths(meta: ColumnMeta): number[] {
+    const span = (meta.stats.max ?? 0) - (meta.stats.min ?? 0);
+    if (!(span > 0)) return [1];
+    const nice = (raw: number): number => {
+      const power = 10 ** Math.floor(Math.log10(raw));
+      const unit = raw / power;
+      return Number(((unit < 1.5 ? 1 : unit < 3.5 ? 2 : unit < 7.5 ? 5 : 10) * power).toPrecision(12));
+    };
+    const widths = [...new Set([10, 20, 50].map((frames) => nice(span / frames)))];
+    // Whole numbers step by at least 1.
+    return (meta.type === "integer" ? widths.map((width) => Math.max(1, Math.round(width))) : widths).filter((width, i, all) => all.indexOf(width) === i).sort((a, b) => b - a);
+  }
+
+  /** Each value when a number column has few enough of them to watch, else steps for about 20 frames. */
+  private defaultFrameStep(meta: ColumnMeta): "value" | number {
+    if (meta.stats.distinct <= 60) return "value";
+    const widths = this.frameWidths(meta);
+    return widths[Math.min(1, widths.length - 1)]!;
+  }
+
+  /** The frame dropdown for the chosen column: time grains for dates, each value or steps for numbers. */
+  private syncFrameOptions(): void {
+    const meta = this.meta(this.config.animationTimeColumn ?? -1);
+    const select = this.animationGrainSelect;
+    select.replaceChildren();
+    if (meta !== undefined && this.isFrameNumber(meta)) {
+      this.animationStepLabel.textContent = "by";
+      select.title = "Frames in the column's numeric order: one per value, or one per step";
+      if (meta.stats.distinct <= MAX_FRAMES) select.append(el("option", { value: "value" }, ["each value"]) as HTMLOptionElement);
+      for (const width of this.frameWidths(meta)) {
+        select.append(el("option", { value: `step:${width}` }, [`steps of ${width.toLocaleString("en", { maximumFractionDigits: 6 })}`]) as HTMLOptionElement);
+      }
+      const step = this.config.animationStep ?? this.defaultFrameStep(meta);
+      const wanted = step === "value" ? "value" : `step:${step}`;
+      if (![...select.options].some((option) => option.value === wanted)) {
+        select.append(el("option", { value: wanted }, [step === "value" ? "each value" : `steps of ${step}`]) as HTMLOptionElement);
+      }
+      select.value = wanted;
+      return;
+    }
+    this.animationStepLabel.textContent = "every";
+    select.title = "How much time each frame covers";
+    for (const grain of ["hour", "day", "week", "month", "quarter", "year"] as TimeGrain[]) {
+      select.append(el("option", { value: grain }, [grain.charAt(0).toUpperCase() + grain.slice(1)]) as HTMLOptionElement);
+    }
+    select.value = this.config.animationGrain ?? "day";
+  }
+
+  /** The frames to ask the worker for: the time grain for a date column, each value or steps for a number column. */
+  private frameStep(): FrameStep {
+    const meta = this.meta(this.config.animationTimeColumn ?? -1);
+    if (meta !== undefined && this.isFrameNumber(meta)) {
+      const step = this.config.animationStep ?? this.defaultFrameStep(meta);
+      return step === "value" ? { kind: "value" } : { kind: "range", width: step };
+    }
+    return this.config.animationGrain ?? "day";
   }
 
   /** A slopegraph compares whole periods, so it buckets coarser than a time series. */
@@ -6997,7 +7074,7 @@ export class ChartCard {
     if (this.regionsOn()) {
       // The regions work out their own values per period; onFrames brings the periods back.
       if (timeColumn < 0) this.animationResult = null;
-      this.regions?.setTime(timeColumn < 0 ? null : { column: timeColumn, grain: this.config.animationGrain ?? "day" });
+      this.regions?.setTime(timeColumn < 0 || !this.isDateLike(this.meta(timeColumn)) ? null : { column: timeColumn, grain: this.config.animationGrain ?? "day" });
       return;
     }
     this.regions?.setTime(null);
@@ -7020,7 +7097,7 @@ export class ChartCard {
       return;
     }
     const timeMeta = this.meta(timeColumn);
-    if (!this.isDateLike(timeMeta)) {
+    if (!this.isDateLike(timeMeta) && !this.isFrameNumber(timeMeta)) {
       this.animationResult = null;
       return;
     }
@@ -7067,7 +7144,7 @@ export class ChartCard {
       32;
     void request({
       timeColumn,
-      grain: this.config.animationGrain ?? "day",
+      grain: this.frameStep(),
       chart,
       column: isPair ? this.config.x : this.config.column,
       yColumn: isPair ? this.config.y : -1,
@@ -7398,8 +7475,8 @@ export class ChartCard {
       return `${CHART_KIND_LABELS[kind]} charts can't animate. Bar, Bubble, Histogram, Treemap, Density and Map can`;
     }
     if (this.config.source !== "") return "Charts from a Pivot View can't animate: set Source to Table";
-    if (!this.columns.some((meta) => this.isDateLike(meta))) {
-      return "Animating needs a date or datetime column. If yours was read as text, use Convert types";
+    if (!this.columns.some((meta) => this.isDateLike(meta) || this.isFrameNumber(meta))) {
+      return "Animating needs a date or number column to step through. If yours was read as text, use Convert types";
     }
     if (kind === "bubble" || kind === "density" || kind === "map") {
       const x = this.meta(this.config.x);
@@ -7416,10 +7493,10 @@ export class ChartCard {
 
   private setAnimationTime(column: number): void {
     this.config.animationTimeColumn = column;
-    if (column >= 0) {
-      this.config.animationGrain = this.defaultGrainFor(column);
-      this.animationGrainSelect.value = this.config.animationGrain;
-    }
+    const meta = this.meta(column);
+    if (meta !== undefined && this.isFrameNumber(meta)) this.config.animationStep = this.defaultFrameStep(meta);
+    else if (column >= 0) this.config.animationGrain = this.defaultGrainFor(column);
+    this.syncFrameOptions();
     this.animationTimeSelect.value = String(column);
     this.stopAnimation();
     this.generation++;
@@ -7435,9 +7512,10 @@ export class ChartCard {
     }
     this.animationSetupOpen = !this.animationSetupOpen;
     this.renderControls();
-    // One click starts it: the first date column is ready to play, and the row beside it can change that or turn it off.
+    // One click starts it: the first date column (else the first number column) is ready to play; the row beside it can change that or turn it off.
     if (this.animationSetupOpen && (this.config.animationTimeColumn ?? -1) < 0) {
-      const first = this.columns.findIndex((meta) => this.isDateLike(meta));
+      let first = this.columns.findIndex((meta) => this.isDateLike(meta));
+      if (first < 0 && !this.regionsOn()) first = this.columns.findIndex((meta) => this.isFrameNumber(meta));
       if (first >= 0) this.setAnimationTime(first);
     }
   }

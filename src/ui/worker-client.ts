@@ -1,3 +1,4 @@
+import type { FrameStep } from "../data/chart-frames.js";
 import { readSettings } from "./settings.js";
 import type { GeoWorkerReply, GeoWorkerRequest } from "../worker/geo.worker.js";
 import type { IntervalKind } from "../data/error-bars.js";
@@ -602,7 +603,7 @@ export class SearchWorkerClient {
 
   getAnimation(input: {
     timeColumn: number;
-    grain: TimeGrain;
+    grain: FrameStep;
     chart: AnimationChart;
     column: number;
     yColumn: number;

@@ -107,7 +107,7 @@ test("one dot per place can be coloured by the average of a number, blue to red,
 
   // One click: the first date column, by the day, ready to play.
   await card.locator(".chart-animate-btn").click();
-  await expect(card.getByRole("combobox", { name: "Animate over time" }).locator("option:checked")).toHaveText("starttime");
+  await expect(card.getByRole("combobox", { name: "Animate over" }).locator("option:checked")).toHaveText("starttime");
   await expect(card.getByRole("combobox", { name: "Frame length" })).toHaveValue("day");
   await expect(card.getByRole("button", { name: /Play/ })).toBeVisible();
   await expect(notes).toContainText("12 places");

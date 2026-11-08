@@ -213,3 +213,26 @@ test("place frames keep the busiest places when frames times places would be too
   assert.equal(result.places!.x[0], 1, "the busiest stays");
 });
 
+
+test("a number column animates in numeric order: one frame per value, or per step", async () => {
+  const { frameKey, computeHistogramFrames } = await import("../src/data/chart-frames.js");
+  // Ages out of order, with a gap and a decimal.
+  const ages = Float64Array.from([30, 10, 20, 10, 30, 25.5]);
+  const values = Float64Array.from([1, 2, 3, 4, 5, 6]);
+  const each = computeHistogramFrames(ages, values, allIds(6), { kind: "value" }, 8);
+  assert.deepEqual(each.frames.map((f) => f.label), ["10", "20", "25.5", "30"]);
+  const stepped = computeHistogramFrames(ages, values, allIds(6), { kind: "range", width: 10 }, 8);
+  assert.deepEqual(stepped.frames.map((f) => f.label), ["10 – 20", "20 – 30", "30 – 40"]);
+  // Negative values and decimal steps land in the right bucket, with no floating-point noise in the labels.
+  const key = frameKey({ kind: "range", width: 0.1 });
+  assert.deepEqual([key.bucket(0.3), key.bucket(-0.05), key.bucket(0.29999)], [0.3, -0.1, 0.2]);
+  assert.equal(key.label(0.3), "0.3 – 0.4");
+  // Dates still step by their grain.
+  assert.equal(frameKey("month").label(Date.UTC(2024, 2, 15)), "2024-03");
+});
+
+test("too many frames is refused with a way out", async () => {
+  const { computeHistogramFrames } = await import("../src/data/chart-frames.js");
+  const many = Float64Array.from({ length: 1500 }, (_, i) => i);
+  assert.throws(() => computeHistogramFrames(many, many, allIds(1500), { kind: "value" }, 8), /More than 1,000 frames: choose larger steps/);
+});

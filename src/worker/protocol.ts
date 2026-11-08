@@ -21,7 +21,7 @@ import type { RowFilter, RowWindow } from "../data/compare/view.js";
 import type { GroupMeasure, GroupShift, ShiftReport } from "../data/compare/shift.js";
 import type { ChangeTables } from "../data/compare/export.js";
 import type { SimilarClusterEntry } from "../data/similar-clusters.js";
-import type { AnimationResult } from "../data/chart-frames.js";
+import type { AnimationResult, FrameStep } from "../data/chart-frames.js";
 import type { BootstrapProgress, IntervalKind } from "../data/error-bars.js";
 import type { GeoDataset, GeoFeature } from "../data/geo-file.js";
 import type { JoinSuggestion, RegionAgg, RegionShape, RegionValues } from "../data/regions.js";
@@ -1140,8 +1140,9 @@ export type AnimationChart = "bar" | "bubble" | "histogram" | "places";
 export type GetAnimationRequest = {
   type: "getAnimation";
   requestId: number;
+  /** The column the frames step through: a date column (by `grain` as a time grain) or a number column (each value or equal steps). */
   timeColumn: number;
-  grain: TimeGrain;
+  grain: FrameStep;
   chart: AnimationChart;
   /** bar/histogram: the value column; bubble: the x column. */
   column: number;
