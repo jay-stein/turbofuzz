@@ -27,6 +27,11 @@ const OVERSCAN = 12;
 /** Rows fetched per request: a few screens, so scrolling rarely waits on the worker. */
 const BLOCK = 240;
 
+/** Header class: ignored columns are struck through, one-sided columns are tinted. */
+function columnClass(column: { ignored?: boolean; only?: "a" | "b" }): string {
+  return column.ignored === true ? "cmp-ignored-col" : column.only === undefined ? "" : `cmp-only-col only-${column.only}`;
+}
+
 interface Column {
   /** Index into the window's cells for each side, or -1 when that side has no such column. */
   a: number;
@@ -38,6 +43,8 @@ interface Column {
   width: number;
   /** Left out of the comparison: shown greyed and struck through, never marked as changed. */
   ignored?: boolean;
+  /** A column only one side has: tinted on every row, even where the rows match. */
+  only?: "a" | "b";
 }
 
 function widthFor(name: string): number {
@@ -253,11 +260,11 @@ export class SideBySide {
     if (!this.changedOnly) {
       setup.pairing.onlyA.forEach((column, i) => {
         const name = setup.a.columns[column]?.name ?? "";
-        columns.push({ a: pairs.length + i, b: -1, pair: -1, nameA: name, nameB: "", width: widthFor(name) });
+        columns.push({ a: pairs.length + i, b: -1, pair: -1, nameA: name, nameB: "", width: widthFor(name), only: "a" });
       });
       setup.pairing.onlyB.forEach((column, i) => {
         const name = setup.b.columns[column]?.name ?? "";
-        columns.push({ a: -1, b: pairs.length + i, pair: -1, nameA: "", nameB: name, width: widthFor(name) });
+        columns.push({ a: -1, b: pairs.length + i, pair: -1, nameA: "", nameB: name, width: widthFor(name), only: "b" });
       });
       // Ignored columns stay in view (after the others, in the order the window holds them), but are not compared.
       let ignoredA = pairs.length + setup.pairing.onlyA.length;
@@ -305,7 +312,7 @@ export class SideBySide {
         const head = el("div", { class: "cmp-grid-head", style: `grid-template-columns: ${template}` }, [
           el("span", {}),
           ...cols.map((column) =>
-            el("span", { class: column.ignored === true ? "cmp-ignored-col" : "", title: (side === "a" ? column.nameA : column.nameB) + (column.ignored === true ? " (ignored: not compared)" : "") }, [
+            el("span", { class: columnClass(column), title: (side === "a" ? column.nameA : column.nameB) + (column.ignored === true ? " (ignored: not compared)" : "") }, [
               side === "a" ? column.nameA : column.nameB,
             ]),
           ),
@@ -345,7 +352,7 @@ export class SideBySide {
         ...columns.map((column) => {
           const name = column.b >= 0 ? column.nameB : column.nameA;
           const renamed = column.pair >= 0 && column.nameA !== column.nameB;
-          return el("span", { class: column.ignored === true ? "cmp-ignored-col" : "", title: (renamed ? `${column.nameA} → ${column.nameB}` : name) + (column.ignored === true ? " (ignored: not compared)" : "") }, [
+          return el("span", { class: columnClass(column), title: (renamed ? `${column.nameA} → ${column.nameB}` : name) + (column.ignored === true ? " (ignored: not compared)" : "") }, [
             name,
             column.ignored === true
               ? el("span", { class: "cmp-head-tag" }, [" ignored"])
@@ -444,7 +451,7 @@ export class SideBySide {
         const cellIndex = side === "a" ? column.a : column.b;
         const value = cells === null ? "" : cells[cellIndex] ?? "";
         const diff = cells !== null && column.pair >= 0 && block.changed[at * pairs + column.pair] === 1;
-        row.append(el("span", { class: `cmp-cell${diff ? " diff" : ""}${value === "" ? " blank" : ""}${column.ignored === true ? " ignored" : ""}`, title: value }, [value]));
+        row.append(el("span", { class: `cmp-cell${diff ? " diff" : ""}${value === "" ? " blank" : ""}${column.ignored === true ? " ignored" : ""}${column.only === undefined ? "" : ` only-${column.only}`}`, title: value }, [value]));
       }
       fragment.append(row);
     }
@@ -469,7 +476,7 @@ export class SideBySide {
         const newValue = b !== null && column.b >= 0 ? b[column.b] ?? "" : null;
         const oldValue = a !== null && column.a >= 0 ? a[column.a] ?? "" : null;
         const diff = column.pair >= 0 && block.changed[at * pairs + column.pair] === 1;
-        const cell = el("span", { class: `cmp-cell${diff ? " diff" : ""}${column.ignored === true ? " ignored" : ""}` });
+        const cell = el("span", { class: `cmp-cell${diff ? " diff" : ""}${column.ignored === true ? " ignored" : ""}${column.only === undefined ? "" : ` only-${column.only}`}` });
         if (newValue !== null) cell.append(el("span", { class: `cmp-cell-main${newValue === "" ? " blank" : ""}`, title: newValue }, [newValue === "" && diff ? "(empty)" : newValue]));
         else if (oldValue !== null) cell.append(el("span", { class: `cmp-cell-main gone${oldValue === "" ? " blank" : ""}`, title: oldValue }, [oldValue]));
         if (diff && oldValue !== null) cell.append(el("span", { class: `cmp-cell-old${oldValue === "" ? " blank" : ""}`, title: oldValue }, [oldValue === "" ? "(empty)" : oldValue]));

@@ -359,3 +359,28 @@ test("columns can be ignored: a row-number column differing everywhere stops mat
   await expect(mode.locator(".cmp-cell.ignored").first()).toHaveCSS("text-decoration-line", "line-through");
   await expect(mode.locator(".cmp-cell.diff")).toHaveCount(0);
 });
+
+test("steps run setup, report, side by side, what shifted; a column only A has is tinted on every row", async ({ page }) => {
+  await loadA(page);
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: /Load more/ }).click();
+  await page.getByRole("menuitem", { name: "Compare with a file…" }).click();
+  await (await chooser).setFiles(file("after.csv", B));
+  const mode = page.getByRole("region", { name: "Compare two datasets" });
+  const steps = mode.getByRole("navigation", { name: "Comparison steps" });
+  await expect(steps.getByRole("button")).toHaveText([/Comparison setup/, /Report/, /Side by side/, /What shifted/]);
+  await expect(steps.getByRole("button", { name: "Comparison setup" })).toHaveAttribute("aria-current", "page");
+  // Nothing to show until Compare is pressed.
+  await expect(steps.getByRole("button", { name: "Report" })).toHaveAttribute("aria-disabled", "true");
+  await mode.getByRole("button", { name: "Compare", exact: true }).click();
+  await expect(steps.getByRole("button", { name: "Report" })).toHaveAttribute("aria-current", "page");
+  await steps.getByRole("button", { name: "Side by side" }).click();
+  await mode.getByRole("button", { name: /^All/ }).click();
+  // "old" is only in A: tinted on the rows that are otherwise identical too.
+  await expect(mode.locator(".cmp-cell.only-a").first()).toBeVisible();
+  await expect(mode.locator(".cmp-only-col.only-a", { hasText: "old" }).first()).toBeVisible();
+  // Back to setup and a change there makes the result steps wait for another Compare.
+  await steps.getByRole("button", { name: "Comparison setup" }).click();
+  await mode.getByRole("checkbox", { name: "Compare amount", exact: true }).uncheck();
+  await expect(steps.getByRole("button", { name: "Report" })).toHaveAttribute("aria-disabled", "true");
+});

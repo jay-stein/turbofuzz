@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-08-12 — Compare: one row of steps, and columns only one side has are tinted
+
+- **Status:** Verified (e2e with axe, browser)
+- **Related issue / decision:** owner: navigation was annoying (tabs plus a Setup button); a column only in A or B should stand out even where rows match.
+- **What changed:** a step bar sits on top of every compare screen in the Time Series card style (accent top edge, numbered steps): 1 Comparison setup, 2 Report, 3 Side by side, 4 What shifted. The last three wait, with a reason on hover, until Compare has been pressed for the setup as it stands; changing the setup makes them wait again. Export sits on the right once there is a result. In side by side, a column only A has is tinted red (header with a red underline) and one only B has green, on every row, including identical rows.
+- **Files / components changed:** src/ui/compare/compare-mode.ts, compare-grid.ts; src/styles.css; test/e2e/compare.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-08
+
 ### CHG-2026-11-08-11 — Compare: ignore columns
 
 - **Status:** Verified (unit, e2e with axe)

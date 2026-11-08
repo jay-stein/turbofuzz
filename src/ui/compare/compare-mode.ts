@@ -61,6 +61,8 @@ export class CompareMode {
   /** Says when an export could not be saved. */
   private readonly exportNote = el("span", { class: "cmp-export-note", role: "status" });
   private closed = false;
+  /** The setup changed after the last comparison, so the result steps wait for another Compare. */
+  private stale = false;
 
   constructor(private readonly options: CompareModeOptions) {
     this.state = {
@@ -122,7 +124,7 @@ export class CompareMode {
     if (this.stage === "result" && this.report !== null && setup !== null) {
       const result = this.report;
       const host = el("div", { class: "cmp-tab-host" });
-      this.body.replaceChildren(this.tabs(), host);
+      this.body.replaceChildren(this.steps(), host);
       if (this.tab === "shift") {
         void this.showShift(host);
       } else if (this.tab === "report") {
@@ -151,30 +153,47 @@ export class CompareMode {
         setIgnore: (ignore) => void this.setIgnore(ignore),
         setKey: (key) => {
           this.state.key = key;
+          this.stale = true;
           this.render();
         },
         setRules: (rules) => {
           this.state.rules = rules;
+          this.stale = true;
           this.render();
         },
         run: () => void this.run(),
       });
+    if (!(this.stage === "result" && this.report !== null && setup !== null)) this.body.prepend(this.steps());
   }
 
-  /** Report | Side by side, and the way back to setup. */
-  private tabs(): HTMLElement {
-    const nav = el("nav", { class: "cmp-tabs", "aria-label": "Compare views" });
-    for (const [tab, label] of [["report", "Report"], ["rows", "Side by side"], ["shift", "What shifted"]] as const) {
-      const button = el("button", { type: "button", class: "cmp-tab" }, [label]);
-      if (this.tab === tab) button.setAttribute("aria-current", "page");
+  /**
+   * The way through a comparison, always on top: Comparison setup, Report,
+   * Side by side, What shifted. The last three wait for a Compare that matches
+   * the setup as it stands; Export joins them once there is a result.
+   */
+  private steps(): HTMLElement {
+    const ready = this.report !== null && !this.stale && this.state.setup !== null;
+    const current = this.stage === "setup" ? "setup" : this.tab;
+    const nav = el("nav", { class: "cmp-steps", "aria-label": "Comparison steps" });
+    const list = [["setup", "Comparison setup"], ["report", "Report"], ["rows", "Side by side"], ["shift", "What shifted"]] as const;
+    list.forEach(([step, label], index) => {
+      const waiting = step !== "setup" && !ready;
+      const button = el("button", { type: "button", class: "cmp-step", title: waiting ? "Press Compare in the setup first" : "" }, [
+        el("span", { class: "cmp-step-num", "aria-hidden": "true" }, [String(index + 1)]),
+        label,
+      ]);
+      if (current === step) button.setAttribute("aria-current", "page");
+      if (waiting) button.setAttribute("aria-disabled", "true");
       button.addEventListener("click", () => {
-        this.tab = tab;
+        if (waiting || current === step) return;
+        if (step === "setup") return this.showSetup();
+        this.stage = "result";
+        this.tab = step;
         this.render();
       });
       nav.append(button);
-    }
-    const back = el("button", { type: "button", class: "ghost small" }, ["← Setup"]);
-    back.addEventListener("click", () => this.showSetup());
+      if (index < list.length - 1) nav.append(el("span", { class: "cmp-step-sep", "aria-hidden": "true" }, ["›"]));
+    });
     const exportButton = el("button", { type: "button", class: "ghost small", "aria-haspopup": "menu" }, ["Export ▾"]);
     exportButton.addEventListener("click", () =>
       openMenu(exportButton, [
@@ -183,7 +202,8 @@ export class CompareMode {
         { label: "Changes and rows (Excel)", title: "Summary, Changes, Only in A, Only in B and What shifted as sheets of one workbook", action: () => void this.exportAs("xlsx") },
       ]),
     );
-    nav.append(el("span", { class: "grow" }), this.exportNote, exportButton, back);
+    nav.append(el("span", { class: "grow" }), this.exportNote);
+    if (ready) nav.append(exportButton);
     return nav;
   }
 
@@ -306,6 +326,7 @@ export class CompareMode {
 
   private async setManual(manual: { a: number; b: number }[]): Promise<void> {
     this.state.manual = manual;
+    this.stale = true;
     try {
       this.applySetup(await this.options.client.compareSetup(manual, this.state.rules, this.state.ignore));
       this.render();
@@ -317,6 +338,7 @@ export class CompareMode {
   /** Leave columns out of the comparison (or put them back); pairs and key suggestions are worked out again without them. */
   private async setIgnore(ignore: { a: number[]; b: number[] }): Promise<void> {
     this.state.ignore = ignore;
+    this.stale = true;
     try {
       this.applySetup(await this.options.client.compareSetup(this.state.manual, this.state.rules, ignore));
       this.render();
@@ -334,6 +356,7 @@ export class CompareMode {
       const result = await this.options.client.compareRun(this.state.manual, keyPairs, this.state.rules, this.state.ignore);
       this.state.busy = null;
       this.report = { report: result.report, ms: result.ms, key: this.state.key, rules: this.state.rules };
+      this.stale = false;
       this.stage = "result";
       this.tab = "report";
       this.rows = { ...this.rows, filter: { show: "differences", pairs: [] } };
