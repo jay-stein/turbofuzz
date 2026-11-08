@@ -400,6 +400,45 @@ For each journey, capture a baseline before redesigning it. Record the starting 
 - Large-load cancellation.
 - Recipe replay file picker and mapping dialog.
 
+## J8 — Compare two datasets
+
+**User goal:** See what changed between two versions of a dataset (this month vs last, a cleaned copy vs the supplier's), and hand the differences on.
+
+**Current starting state:** Nothing loaded, or a dataset loaded (and possibly cleaned).
+
+**Actual entry points (source-verified):**
+- Start screen “Compare two datasets” → drop zones for A (before) and B (after).
+- Topbar Load more ▾ → Compare with a file (A is the data as it is now).
+
+**Expected steps:**
+1. Drop or choose A and B.
+2. Accept the suggested key columns, pick others, or match by whole-row content; fix column pairs and value rules if needed.
+3. Press Compare (under Match rows on).
+4. Read the Report; follow a count to those rows in Side by side.
+5. Narrow with Show, Differences and Changed in; step with next/previous difference; switch to one grid if preferred.
+6. Read What shifted for distributions and groups.
+7. Export the HTML report, the changes CSV or the Excel workbook.
+8. Exit (confirming when A carried Recipe steps); both datasets are cleared.
+
+**Expected outcome:**
+- Every other feature is locked while compare is open; the background cannot be reached.
+- Counts in the Report match the rows Side by side shows.
+- Whole-row matching shows added and removed rows only, never cell changes.
+- Exit returns to the start screen with nothing loaded.
+
+**Failure states to test:**
+- Duplicate or empty keys on either side (warned and counted).
+- No columns in common; columns renamed or retyped.
+- A key suggested by coincidence (rejected below 10% overlap).
+- B in an unsupported format (workbook, archive): explained.
+- Two large datasets near the memory limit (the gauge and load warning).
+
+**Existing automated coverage:**
+- test/compare.test.ts, compare-report.test.ts, compare-export.test.ts; test/e2e/compare.spec.ts (journey, lockdown, exports, axe); bench/compare.ts in the gate.
+
+**Browser verification required (manual until automated):**
+- Downloads of the three exports open correctly (Excel in Excel, HTML offline).
+
 ---
 
 ## Journey scoring
@@ -415,6 +454,7 @@ Record this after a browser baseline and after UX changes. The current status is
 | J5 Analyse/visualise | Not browser-tested | Strong logic/component, mocked canvas | None | Real rendering, interactions, exports, Reports panel |
 | J6 Export/recipe | Not browser-tested | Strong generators/dialog/worker chunks | None | Downloads, clipboard, File System Access, full export |
 | J7 Recovery | Not browser-tested | Partial: steps/recipe/load-cancel logic | None | Undo toast, Recipe wiring, delete restore, Clear data, OOM, replay |
+| J8 Compare | e2e journey passes | Strong engine, report, export; bench in the gate | e2e (Playwright, axe) | Exports opened in real apps |
 
 For each future run, record:
 

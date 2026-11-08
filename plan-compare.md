@@ -55,6 +55,8 @@ Owner scope, agreed 2026-11-08 (DEC-2026-11-08-02). A separate mode with two scr
 
 ## Milestones (one commit per feature)
 
+All six shipped on 2026-11-08 (CHG-2026-11-08-05).
+
 1. **Engine.** `src/data/compare/` matching (key, composite key, whole-row), column pairing, value rules, report numbers. Unit tests, plus a bench with budgets.
 2. **Mode shell + setup.** Entry point (start screen and workspace menu), choose A and B, key and column suggestions with overrides, the lockdown, Exit.
 3. **Report screen.** Every section above, with the links into screen 2.
@@ -62,7 +64,12 @@ Owner scope, agreed 2026-11-08 (DEC-2026-11-08-02). A separate mode with two scr
 5. **Exports.** HTML report and the changes file.
 6. **E2E + a11y** specs for the journey; docs (feature inventory, journeys, help).
 
-## Open questions
+## Open questions (resolved)
 
-- Where the entry point lives: a third card on the start screen, a toolbar button in the workspace, or both (proposed: both).
-- Row-count ceiling for compare (two datasets in memory) and the warning wording.
+- Entry point: both, the start screen and Load more ▾ → Compare with a file (DEC-2026-11-08-03).
+- Row-count ceiling: none fixed; the memory gauge and the load warning say when two datasets will not fit.
+
+## Later
+
+- Mix vs real change in What shifted.
+- B from a workbook or an archive (reuse their pickers).

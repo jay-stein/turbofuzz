@@ -4,6 +4,86 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-08-09 — CSV reading hardened: mixed line endings, UTF-16, quotes that never close
+
+- **Status:** Verified (unit, e2e; the owner's telemetry file loads as 70,505 rows)
+- **Related issue / decision:** owner: "Telemetry Traffic Counts and Classification November 2026.csv" loaded as one row with 493,236 extra cells. Its header ends in CRLF and its rows in LF; Papaparse guesses one line ending from the start of the file.
+- **What changed:** a file that mixes CRLF and LF anywhere is evened out to LF before parsing (about 10 ms per 200 MB, 100 ms when every line is CRLF). UTF-16 files (Excel's Unicode Text) decode by their byte-order mark or by the zero in every other byte. A quote that never closes no longer swallows the rows after it: the stray quote is dropped, the file read again, and the Import check names the line. Title rows above the header were already skipped by header detection.
+- **Files / components changed:** src/parse/parse.ts, encoding.ts; src/worker/ingest.ts; src/ui/app.ts; test/parse.test.ts, test/encoding-utf16.test.ts, test/e2e/import-hardening.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-08
+
+### CHG-2026-11-08-08 — Charts animate by any number column, in numeric order
+
+- **Status:** Verified (unit, e2e, browser)
+- **Related issue / decision:** owner: animating only by dates was limiting; any numeric column with an order should work.
+- **What changed:** Animate over lists number columns beside the dates (grouped Dates / Numbers). For a number, frames play in ascending order, one per value (default up to 60 values) or in round steps giving about 10, 20 or 50 frames ("20 – 25"). With no date column, one click picks the first number column. More than 1,000 frames is refused with a way out. Shaded map regions still step through dates only.
+- **Files / components changed:** src/data/chart-frames.ts, src/ui/chart-card.ts, worker-client.ts, chart-panel.ts; src/worker/protocol.ts; test/chart-frames.test.ts, test/ui-charts.test.ts, test/e2e/chart-animate-number.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-08
+
+### CHG-2026-11-08-07 — Excel worksheets: a ticked list, load one or combine up to 100
+
+- **Status:** Verified (unit, e2e)
+- **Related issue / decision:** owner: combine worksheets with identical columns, with a sheet-name column on by default; the first version was confusing, so every sheet is listed with a tick and None/All to start over (workbooks often open with a contents page).
+- **What changed:** the worksheet picker lists every sheet (up to 100, was 50) with its size, all ticked. One button says what it will do: Load “Feb” or Combine 3 worksheets. Sheets line up by column name; a ticked sheet with different columns disables the button and the note names it. The excel_worksheetname column is offered (on) when combining.
+- **Files / components changed:** src/parse/combine-sheets.ts (new), src/ui/sheet-picker.ts (new), app.ts, styles.css, help-content.ts; src/parse/xlsx.ts, xls.ts; test/combine-sheets.test.ts, sheet-picker.test.ts, test/e2e/excel-sheets.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-08
+
+### CHG-2026-11-08-06 — Memory gauge, and Clear data clears everything
+
+- **Status:** Verified (unit, e2e, browser)
+- **Related issue / decision:** owner: show how much memory the app uses, as a small visual icon; after Clear data the old file name and quality score stayed in the top bar.
+- **What changed:** a ring in the top bar (and in compare mode) shows the app's estimated memory against the browser's limit, counting the data, undo copies, search indexes and compare; it refreshes after every change. Its panel explains the numbers, including that browsers never report more than 8 GB of device memory. Loads that would not fit warn first. Clear data resets the file name, score and worker state.
+- **Files / components changed:** src/data/memory.ts, src/ui/memory-gauge.ts (new), app.ts, load-guard.ts; src/search/fuzzy-index.ts, src/data/column.ts; src/worker/search.worker.ts; test/memory.test.ts, memory-gauge.test.ts, test/e2e/memory.spec.ts, clear-data.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-08
+
+### CHG-2026-11-08-05 — Compare two datasets (milestones 1–6)
+
+- **Status:** Verified (unit, e2e with axe, bench in the gate)
+- **Related issue / decision:** DEC-2026-11-08-02, DEC-2026-11-08-03; plan-compare.md.
+- **What changed:** a locked-down compare mode, opened from the start screen or Load more ▾ → Compare with a file. Set-up: big drop zones for A and B, suggested key columns (composite allowed, or whole-row matching), column pairing with renames, value rules, and Compare under Match rows on. Report: headline counts, warnings, column changes, per-column changes with top old → new pairs, totals check; every count opens those rows. Side by side: two panes that scroll together, Show and Differences filters, Changed in column chips, next/previous difference, one-grid toggle. What shifted: each column ranked by how far its distribution moved (PSI, standardised mean difference, Cramér's V) and group averages, sums or counts per group. Exports: HTML report, changes CSV, and an Excel workbook (summary, changes, only-in-A, only-in-B). Exit clears both datasets.
+- **Files / components changed:** src/data/compare/* (new), src/ui/compare/* (new), src/ui/xlsx-writer.ts (new), app.ts, styles.css, help-content.ts; src/worker/search.worker.ts, protocol.ts; bench/compare.ts; test/compare*.test.ts, test/e2e/compare.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-08
+
+### CHG-2026-11-08-04 — Load more: append rows from a file
+
+- **Status:** Verified (e2e)
+- **Related issue / decision:** owner: next to Clear data, a Load more button to add a file to the data or compare with it.
+- **What changed:** Load more ▾ in the top bar: Append rows from a file (stacked under the data as it is now, columns lined up by name) or Compare with a file.
+- **Files / components changed:** src/ui/app.ts; src/worker/search.worker.ts; test/e2e/compare.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-08
+
+### CHG-2026-11-08-03 — Shuffle in the Table's bottom bar; Keep only numbers / Keep only text
+
+- **Status:** Verified (unit, e2e)
+- **Related issue / decision:** owner request.
+- **What changed:** Shuffle sits after Reverse in the Table's bottom bar. A column's menu and Clean have Keep only numbers and Keep only text, in place, recorded in the Recipe and its exports.
+- **Files / components changed:** src/ui/table-nav.ts, src/data/clean-ops.ts, recipe exports
+- **Decision:** Ship
+- **Date:** 2026-11-08
+
+### CHG-2026-11-08-02 — Styles set from code survive the deployed Content-Security-Policy
+
+- **Status:** Verified (vite preview with production headers: no violations)
+- **What changed:** el() sets inline styles through style.cssText, which `style-src 'self'` allows, instead of style attributes, which it blocks.
+- **Files / components changed:** src/ui/dom.ts, vite.config.ts; test/dom-style.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-08
+
+### CHG-2026-11-08-01 — Column header: left click shows a profile, right click holds every action
+
+- **Status:** Verified (unit, e2e, axe)
+- **Related issue / decision:** DEC-2026-11-08-01.
+- **What changed:** see the decision. The header and its menus were restyled to match.
+- **Files / components changed:** src/ui/column-inspector.ts, column-actions.ts, action-menu.ts, type-glyphs.ts, styles.css
+- **Decision:** Ship
+- **Date:** 2026-11-08
+
 ### CHG-2026-11-04-03 — Opening a workspace shows progress and lands on the Table; Save workspace is in the Recipe tab
 
 - **Status:** Verified (e2e)

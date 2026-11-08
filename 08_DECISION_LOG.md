@@ -23,6 +23,15 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-08-03 — Compare is a one-off: Exit clears both datasets
+
+- **Status:** Accepted (owner, 2026-11-08)
+- **Context:** After a compare, returning to A as the working data mixed two tasks and kept B's memory around.
+- **Decision:** Exit clears A and B and returns to the start screen; when A carried Recipe steps, Exit asks first. The entry point is both the start screen and Load more ▾. Compare is limited by memory, shown by the gauge and the load warning, not by a fixed row count.
+- **Trade-offs:** Comparing from loaded data means loading it again afterwards to keep working.
+- **Revisit trigger:** People want to continue working on A after comparing.
+- **Date / owner:** 2026-11-08 / owner
+
 ### DEC-2026-11-08-02 — Compare two datasets is a separate, locked-down mode
 
 - **Status:** Accepted (owner, 2026-11-08); plan in plan-compare.md
