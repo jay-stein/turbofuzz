@@ -764,6 +764,10 @@ export interface ChartSource {
 
 type SettingsGroup = "refine" | "format" | "data";
 
+/** The colour maps offered before "More colour maps…": seven that cover what most charts need. */
+const SHORT_PALETTES: readonly string[] = ["tab10", "colorblind", "Set2", "Blues", "rocket", "Blue to red", "RdBu"];
+const MORE_PALETTES = "__more";
+
 /** The drawer shows this much of the chart's data; the download has all of it. */
 const DRAWER_ROWS = 200;
 const DRAWER_COLUMNS = 24;
@@ -2712,28 +2716,20 @@ export class ChartCard {
       "aria-label": "Colour map",
       title: "Colour map for multi-series and multi-category charts",
     }) as HTMLSelectElement;
-    const addPaletteOptions = (
-      label: string,
-      kind: "qualitative" | "sequential" | "diverging",
-    ): void => {
-      const entries = PALETTES.filter((palette) => palette.kind === kind);
-      if (entries.length === 0) return;
-      const group = el("optgroup", { label }) as HTMLOptGroupElement;
-      for (const palette of entries) {
-        group.append(
-          el("option", { value: palette.name }, [palette.name]) as HTMLOptionElement,
-        );
-      }
-      this.paletteSelect.append(group);
-    };
-    addPaletteOptions("Qualitative", "qualitative");
-    addPaletteOptions("Sequential", "sequential");
-    addPaletteOptions("Diverging", "diverging");
-    this.paletteSelect.append(
-      el("option", { value: CUSTOM_PALETTE }, ["Custom…"]) as HTMLOptionElement,
-    );
+    this.fillPaletteOptions(false);
     this.paletteSelect.value = this.config.palette ?? DEFAULT_PALETTE;
     this.paletteSelect.addEventListener("change", () => {
+      if (this.paletteSelect.value === MORE_PALETTES) {
+        // Seven colour maps cover most charts; the whole list opens on request.
+        this.fillPaletteOptions(true);
+        this.paletteSelect.value = this.rampPaletteName();
+        try {
+          this.paletteSelect.showPicker?.();
+        } catch {
+          // Opening the list for the person is a courtesy; a click does the same.
+        }
+        return;
+      }
       void this.applyPalette(this.paletteSelect.value);
     });
 
@@ -4763,6 +4759,7 @@ export class ChartCard {
 
   /** Repaints the current payloads; used when the lens is re-entered. */
   repaint(): void {
+    this.syncResearchControls();
     for (const details of this.settingsGroups) details.open = readGroupOpen(details.dataset.group as SettingsGroup);
     if (this.dataDrawer !== null) this.dataDrawer.open = readGroupOpen("data");
     // The host may still be hidden at this point; painting then would leave a
@@ -6403,7 +6400,32 @@ export class ChartCard {
     return !isRampPalette(chosen) && this.config.kind === "map" && meta !== undefined && isNumericType(meta.type) ? "Blue to red" : chosen;
   }
 
+  /** The colour maps on offer: a short list, always with the one in use; every map once asked for. */
+  private fillPaletteOptions(all: boolean): void {
+    const current = this.rampPaletteName();
+    const shown = (name: string): boolean => all || SHORT_PALETTES.includes(name) || name === current;
+    this.paletteSelect.replaceChildren();
+    const groups: [string, "qualitative" | "sequential" | "diverging"][] = [
+      ["Qualitative", "qualitative"],
+      ["Sequential", "sequential"],
+      ["Diverging", "diverging"],
+    ];
+    for (const [label, kind] of groups) {
+      const entries = PALETTES.filter((palette) => palette.kind === kind && shown(palette.name));
+      if (entries.length === 0) continue;
+      const group = el("optgroup", { label }) as HTMLOptGroupElement;
+      for (const palette of entries) group.append(el("option", { value: palette.name }, [palette.name]) as HTMLOptionElement);
+      this.paletteSelect.append(group);
+    }
+    if (!all) this.paletteSelect.append(el("option", { value: MORE_PALETTES }, ["More colour maps…"]) as HTMLOptionElement);
+    this.paletteSelect.append(el("option", { value: CUSTOM_PALETTE }, ["Custom…"]) as HTMLOptionElement);
+  }
+
   private syncPalette(): void {
+    // A map chosen elsewhere (a spec, undo) that the short list leaves out joins it.
+    if (![...this.paletteSelect.options].some((option) => option.value === this.rampPaletteName())) {
+      this.fillPaletteOptions(false);
+    }
     this.paletteSelect.value = this.rampPaletteName();
     this.paletteReverseInput.checked = this.config.paletteReversed === true;
     clear(this.palettePreview);
@@ -7694,8 +7716,15 @@ export class ChartCard {
     return this.config.errorBars === true && ERROR_BAR_KINDS.has(this.config.kind) && this.errorBarBlock() === null;
   }
 
+  /** Error bars and Extract stats are for research: General mode leaves them off the panel, unless a chart already has bars. */
+  private syncResearchControls(): void {
+    const research = this.options.research?.() !== false;
+    this.statsButton.classList.toggle("hidden", !research);
+    this.syncErrorBarControls();
+  }
+
   private syncErrorBarControls(): void {
-    const relevant = ERROR_BAR_KINDS.has(this.config.kind);
+    const relevant = ERROR_BAR_KINDS.has(this.config.kind) && (this.options.research?.() !== false || this.config.errorBars === true);
     this.errorBarRow.classList.toggle("hidden", !relevant);
     if (!relevant) return;
     const block = this.errorBarBlock();

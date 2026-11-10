@@ -1257,6 +1257,46 @@ test("the colour map defaults to tab10 and can be changed", async () => {
   card.dispose();
 });
 
+test("the colour map list is short until More colour maps is chosen, and keeps the map in use", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
+  card.setColumns([meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } })]);
+  await tick();
+  const select = host.querySelector(".chart-palette-select") as HTMLSelectElement;
+  const maps = (): string[] => [...select.options].map((option) => option.value).filter((value) => value !== "custom" && value !== "__more");
+  assert.ok(maps().length <= 7, `${maps().length} colour maps by default`);
+  assert.ok(maps().includes("tab10"));
+  select.value = "__more";
+  select.dispatchEvent(new window.Event("change") as unknown as Event);
+  assert.ok(maps().length > 40, "the whole list opens on request");
+  assert.equal(card.getConfig().palette, "tab10", "opening the list changes nothing");
+  select.value = "Spectral";
+  select.dispatchEvent(new window.Event("change") as unknown as Event);
+  await tick();
+  assert.equal(card.getConfig().palette, "Spectral");
+  card.dispose();
+});
+
+test("error bars and Extract stats are left off the panel in General mode", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  let research = false;
+  const host = document.createElement("div");
+  const card = new ChartCard(host, { ...stubCardOptions(), research: () => research }, { kind: "bar", column: 0 });
+  card.setColumns([meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } })]);
+  await tick();
+  card.repaint();
+  const stats = host.querySelector(".chart-stats-btn") as HTMLElement;
+  assert.equal(stats.classList.contains("hidden"), true);
+  research = true;
+  card.repaint();
+  assert.equal(stats.classList.contains("hidden"), false, "Research brings it back");
+  card.dispose();
+  void window;
+});
+
 test("the chart menu downloads the data behind the chart as CSV", async () => {
   const window = setupDom();
   captureMockContext(window, []);
