@@ -71,7 +71,7 @@ import {
 } from "../parse/null-tokens.js";
 import { isParquetName, readParquetGrid } from "../parse/parquet.js";
 import { columnNameKey, pairColumns } from "../data/compare/columns.js";
-import { suggestKeys } from "../data/compare/keys.js";
+import { keyColumnStats, suggestKeys } from "../data/compare/keys.js";
 import { matchRows } from "../data/compare/match.js";
 import { buildReport } from "../data/compare/report.js";
 import { DEFAULT_RULES, compareColumn, type ColumnPair, type ColumnPairing, type CompareSide, type MatchResult } from "../data/compare/types.js";
@@ -1203,6 +1203,7 @@ function handleCompareSetup(message: CompareSetupRequest): void {
     b: sideInfo(compare.bSide),
     pairing,
     keys: suggestKeys(a, compare.bSide, pairing, message.rules),
+    keyStats: keyColumnStats(a, compare.bSide, pairing, message.rules),
     ms: performance.now() - started,
   });
 }

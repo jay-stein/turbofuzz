@@ -72,6 +72,39 @@ test("Load more → Compare: the loaded data is A, a key is suggested, a rename 
   await expect(frontCompare(page)).toBeVisible();
 });
 
+test("Spot the difference says what rows were matched on, links to the setup to change it, and Another column judges each column", async ({ page }) => {
+  await compareFromFront(page, file("before.csv", A), file("after.csv", B));
+  const mode = page.getByRole("region", { name: "Compare two datasets" });
+  const line = mode.locator(".cmp-match-line");
+  await expect(line).toContainText("Rows matched on:");
+  await expect(line.locator(".cmp-match-key")).toHaveText("id");
+  await expect(line).toContainText("suggested");
+  if (process.env.FRONT_SHOTS) await page.screenshot({ path: `${process.env.FRONT_SHOTS}/match-line.png`, clip: { x: 0, y: 0, width: 1400, height: 260 } });
+
+  await line.getByRole("button", { name: "Change in setup →" }).click();
+  await expect(mode.locator("#cmp-match-rows")).toBeInViewport();
+  const table = mode.locator(".cmp-keycols");
+  const row = (name: string) => table.locator("tr", { has: page.getByRole("button", { name: new RegExp(`^${name}`) }) });
+  await expect(row("id")).toContainText("Good key");
+  await expect(row("region")).toContainText("Poor key");
+  await expect(row("region")).toContainText("those rows would pair with several");
+  if (process.env.FRONT_SHOTS) await mode.locator("#cmp-match-rows").screenshot({ path: `${process.env.FRONT_SHOTS}/key-columns.png` });
+
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    const axe = await new AxeBuilder({ page }).include(".compare-mode").analyze();
+    expect(axe.violations.map((v) => `${scheme} ${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
+  }
+
+  // The suggested key is ticked in the table too; amount, also unique, can be picked from it.
+  await expect(table.getByRole("button", { name: /^id/ })).toHaveAttribute("aria-pressed", "true");
+  await table.getByRole("button", { name: /^amount/ }).click();
+  await expect(table.getByRole("button", { name: /^amount/ })).toHaveAttribute("aria-pressed", "true");
+  await mode.getByRole("button", { name: "Compare", exact: true }).click();
+  await expect(mode.locator(".cmp-match-line .cmp-match-key")).toHaveText("amount");
+  await expect(mode.locator(".cmp-match-line")).toContainText("chosen by hand");
+});
+
 test("from the front page both files are chosen, compared at once on Spot the difference, and Setup is a step back", async ({ page }) => {
   await compareFromFront(page, file("before.csv", A), file("after.csv", B));
   const mode = page.getByRole("region", { name: "Compare two datasets" });

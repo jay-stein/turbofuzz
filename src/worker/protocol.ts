@@ -15,7 +15,7 @@ import type { RelationshipData } from "../data/relationships.js";
 import type { TextProfile } from "../data/text-profile.js";
 import type { DistributionChange } from "../data/distribution.js";
 import type { ColumnPairing, CompareRules } from "../data/compare/types.js";
-import type { KeySuggestion } from "../data/compare/keys.js";
+import type { KeyColumnStat, KeySuggestion } from "../data/compare/keys.js";
 import type { CompareReport } from "../data/compare/report.js";
 import type { RowFilter, RowWindow } from "../data/compare/view.js";
 import type { DiffColumn, DiffOp, DiffSummary } from "../data/compare/diffs.js";
@@ -1318,6 +1318,8 @@ export interface CompareSetupMessage {
   b: CompareSideInfo;
   pairing: ColumnPairing;
   keys: KeySuggestion[];
+  /** Every paired column judged as a key, for choosing one by hand. */
+  keyStats?: KeyColumnStat[];
   ms: number;
 }
 

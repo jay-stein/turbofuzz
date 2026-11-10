@@ -138,3 +138,128 @@ export function suggestKeys(a: CompareSide, b: CompareSide, pairing: ColumnPairi
   }
   return composites.sort((x, y) => score(y) - score(x) || x.pairs[0] - y.pairs[0] || x.pairs[1] - y.pairs[1]);
 }
+
+/** How well one paired column would work as the key, worked out on the first rows of each side. */
+export interface KeyColumnStat {
+  /** Index into pairing.pairs. */
+  pair: number;
+  /** Rows looked at on each side (all of them, or the first SAMPLE). */
+  rowsA: number;
+  rowsB: number;
+  sampled: boolean;
+  /** Rows with an empty key, and rows whose key was already seen (each would pair with several). */
+  emptyA: number;
+  emptyB: number;
+  repeatA: number;
+  repeatB: number;
+  /** Different values on each side. */
+  distinctA: number;
+  distinctB: number;
+  /** B's filled keys, and how many of them A has too. */
+  filled: number;
+  shared: number;
+  verdict: "good" | "fair" | "poor";
+  /** One line on why, in the words the setup shows. */
+  reason: string;
+}
+
+const pct = (part: number, whole: number): string => {
+  if (whole === 0) return "0%";
+  const share = (part / whole) * 100;
+  return share > 0 && share < 1 ? "<1%" : `${Math.round(share)}%`;
+};
+const count = (n: number): string => n.toLocaleString("en");
+
+function sideStats(tokens: readonly (string | null)[]): { empty: number; repeat: number; distinct: Set<string> } {
+  const distinct = new Set<string>();
+  let empty = 0;
+  let repeat = 0;
+  for (const token of tokens) {
+    if (token === null) empty++;
+    else if (distinct.has(token)) repeat++;
+    else distinct.add(token);
+  }
+  return { empty, repeat, distinct };
+}
+
+/**
+ * Every paired column judged as a key, so a person choosing one by hand sees
+ * why it would or would not work: how many values repeat (a row would pair
+ * with several), how many are empty (those rows can't be matched), and how
+ * many of B's values A has at all (a column of prices is unique by chance but
+ * links nothing). Read on the first SAMPLE rows of each side, which keeps the
+ * setup instant on big files; the suggestions above are checked on every row.
+ */
+export function keyColumnStats(a: CompareSide, b: CompareSide, pairing: ColumnPairing, rules: CompareRules): KeyColumnStat[] {
+  return pairing.pairs.map((pair, index) => {
+    const tokensA = tokensFor(a, b, pairing, [index], true, rules, SAMPLE);
+    const tokensB = tokensFor(b, a, pairing, [index], false, rules, SAMPLE);
+    const sa = sideStats(tokensA);
+    const sb = sideStats(tokensB);
+    let shared = 0;
+    let filled = 0;
+    for (const token of tokensB) {
+      if (token === null) continue;
+      filled++;
+      if (sa.distinct.has(token)) shared++;
+    }
+    const stat = {
+      pair: index,
+      rowsA: tokensA.length,
+      rowsB: tokensB.length,
+      sampled: a.rowCount > SAMPLE || b.rowCount > SAMPLE,
+      emptyA: sa.empty,
+      emptyB: sb.empty,
+      repeatA: sa.repeat,
+      repeatB: sb.repeat,
+      distinctA: sa.distinct.size,
+      distinctB: sb.distinct.size,
+      filled,
+      shared,
+    };
+    return { ...stat, ...judgeKey(stat, a.columns[pair.a]?.type) };
+  });
+}
+
+/** The verdict and its reason: the worst problem first, so the line says what would go wrong. */
+function judgeKey(
+  s: Omit<KeyColumnStat, "verdict" | "reason">,
+  type: string | undefined,
+): { verdict: KeyColumnStat["verdict"]; reason: string } {
+  const filledA = s.rowsA - s.emptyA;
+  const filledB = s.rowsB - s.emptyB;
+  if (filledA === 0 || filledB === 0) return { verdict: "poor", reason: `Empty in ${filledA === 0 ? "A" : "B"}: nothing to match on.` };
+  const overlap = s.filled === 0 ? 0 : s.shared / s.filled;
+  const repeatShare = Math.max(s.repeatA / filledA, s.repeatB / filledB);
+  const emptyShare = Math.max(s.emptyA / Math.max(1, s.rowsA), s.emptyB / Math.max(1, s.rowsB));
+  // Mostly repeats: a category such as region or status.
+  if (repeatShare > 0.5) {
+    return { verdict: "poor", reason: `Only ${count(s.distinctA)} different value${s.distinctA === 1 ? "" : "s"} in A and ${count(s.distinctB)} in B: a label, not an id. Each row would pair with many.` };
+  }
+  if (overlap < MIN_OVERLAP) {
+    return { verdict: "poor", reason: `Only ${pct(s.shared, s.filled)} of B's values are in A: the values don't link the two files.` };
+  }
+  if (repeatShare > PROBLEM_SHARE) {
+    const side = s.repeatA / filledA >= s.repeatB / filledB ? "A" : "B";
+    const repeats = side === "A" ? s.repeatA : s.repeatB;
+    return { verdict: "poor", reason: `${count(repeats)} repeated value${repeats === 1 ? "" : "s"} in ${side} (${pct(repeats, side === "A" ? filledA : filledB)} of rows): those rows would pair with several.` };
+  }
+  if (emptyShare > 0.05) {
+    const side = s.emptyA / s.rowsA >= s.emptyB / s.rowsB ? "A" : "B";
+    const empty = side === "A" ? s.emptyA : s.emptyB;
+    return { verdict: "poor", reason: `${pct(empty, side === "A" ? s.rowsA : s.rowsB)} of rows in ${side} are empty here: they couldn't be matched.` };
+  }
+  const flaws: string[] = [];
+  if (s.repeatA + s.repeatB > 0) flaws.push(`${count(s.repeatA + s.repeatB)} repeated`);
+  if (s.emptyA + s.emptyB > 0) flaws.push(`${count(s.emptyA + s.emptyB)} empty`);
+  if (type === "number") {
+    return { verdict: "fair", reason: `Unique, but a measure with decimals: if a value changes, its row shows as removed and added rather than changed.` };
+  }
+  if (overlap < 0.5) {
+    return { verdict: "fair", reason: `Unique, but only ${pct(s.shared, s.filled)} of B's values are in A: many rows will show as only in A or only in B.` };
+  }
+  if (flaws.length > 0) {
+    return { verdict: "fair", reason: `Nearly unique (${flaws.join(", ")}) and ${pct(s.shared, s.filled)} of B's values are in A.` };
+  }
+  return { verdict: "good", reason: `Unique and filled on both sides; ${pct(s.shared, s.filled)} of B's values are in A.` };
+}

@@ -17257,3 +17257,141 @@ button.cmp-change-name:hover {
   align-items: center;
   gap: 6px;
 }
+
+/* Spot the difference: what the rows were matched on, with the way back to change it. */
+.cmp-match-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  padding: 7px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--panel);
+  font-size: var(--fs-sm);
+}
+.cmp-match-key {
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.cmp-match-note {
+  color: var(--text-dim);
+}
+.cmp-match-change {
+  margin-left: 4px;
+  font-size: var(--fs-sm);
+}
+.cmp-card.cmp-flash {
+  animation: cmp-flash 1.6s ease-out;
+}
+@keyframes cmp-flash {
+  0%,
+  30% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Match rows on › Another column: every paired column judged as a key. */
+.cmp-keycols-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 6px 28px;
+}
+.cmp-keycols-wrap {
+  max-height: 300px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.cmp-keycols {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.cmp-keycols th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 5px 8px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.cmp-keycols td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+.cmp-keycols .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cmp-keycol.selected td {
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+}
+.cmp-keycol-pick {
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.cmp-keycol-pick:hover {
+  text-decoration: underline;
+}
+.cmp-keycol-pick[aria-pressed="true"] {
+  color: var(--text);
+}
+.cmp-keycol-tick {
+  color: var(--accent);
+}
+.cmp-keycol-alias {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+.cmp-keycol-why {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 260px;
+}
+.cmp-keycol-reason {
+  color: var(--text-dim);
+}
+.cmp-verdict {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cmp-verdict.good {
+  background: var(--ok-soft);
+  color: var(--ok-text);
+}
+.cmp-verdict.fair {
+  background: var(--qa-warn-soft);
+  color: var(--qa-warn-text);
+}
+.cmp-verdict.poor {
+  background: var(--qa-soft);
+  color: var(--qa-text);
+}
+.cmp-keycol-note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}

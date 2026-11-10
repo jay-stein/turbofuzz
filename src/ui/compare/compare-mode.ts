@@ -178,6 +178,7 @@ export class CompareMode {
           onState: (state) => {
             this.rows = state;
           },
+          onChangeMatch: () => this.showSetup("match"),
         });
         host.append(this.sideBySide.element);
         this.sideBySide.focus();
@@ -427,9 +428,17 @@ export class CompareMode {
     this.render();
   }
 
-  private showSetup(): void {
+  /** Back to the setup; "match" scrolls to Match rows on and puts focus on the chosen option. */
+  private showSetup(focus?: "match"): void {
     this.stage = "setup";
     this.render();
+    if (focus !== "match") return;
+    const box = this.body.querySelector<HTMLElement>("#cmp-match-rows");
+    if (box === null) return;
+    box.scrollIntoView({ block: "start" });
+    box.classList.add("cmp-flash");
+    window.setTimeout(() => box.classList.remove("cmp-flash"), 1600);
+    box.querySelector<HTMLInputElement>('input[name="cmp-key"]:checked')?.focus({ preventScroll: true });
   }
 
   /** Leaves comparing for the normal analysis tools on one dataset (A stays loaded; B is loaded in its place). */

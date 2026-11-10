@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ColumnData } from "../src/data/column.js";
 import { pairColumns, columnNameKey } from "../src/data/compare/columns.js";
-import { suggestKeys } from "../src/data/compare/keys.js";
+import { keyColumnStats, suggestKeys } from "../src/data/compare/keys.js";
 import { matchRows } from "../src/data/compare/match.js";
 import { buildReport } from "../src/data/compare/report.js";
 import {
@@ -61,6 +61,34 @@ test("the key suggestion prefers a filled, unique, id-like column shared by both
   assert.deepEqual(keys[0].pairs, [0]);
   assert.equal(keys[0].overlap, 0.75);
   assert.ok(!keys.some((key) => key.pairs.includes(2)), "a repeating column is never a key");
+});
+
+test("every paired column is judged as a key, with the reason: an id is good, a label repeats, prices link nothing, a gappy column can't match", () => {
+  const ids = Array.from({ length: 40 }, (_, i) => `C${i + 1}`);
+  const a = side("a", {
+    customer_id: ids,
+    region: ids.map((_, i) => ["North", "South"][i % 2]),
+    price: ids.map((_, i) => `${i}.25`),
+    email: ids.map((id, i) => (i % 4 === 0 ? "" : `${id}@x.org`)),
+  });
+  const b = side("b", {
+    customer_id: ids,
+    region: ids.map((_, i) => ["North", "South"][i % 2]),
+    price: ids.map((_, i) => `${i + 100}.75`),
+    email: ids.map((id) => `${id}@x.org`),
+  });
+  const stats = keyColumnStats(a, b, pairColumns(a, b), DEFAULT_RULES);
+  const byName = (name: string) => stats[["customer_id", "region", "price", "email"].indexOf(name)]!;
+  assert.equal(byName("customer_id").verdict, "good");
+  assert.equal(byName("customer_id").reason, "Unique and filled on both sides; 100% of B's values are in A.");
+  assert.equal(byName("region").verdict, "poor");
+  assert.match(byName("region").reason, /Only 2 different values in A and 2 in B: a label, not an id/);
+  assert.equal(byName("price").verdict, "poor");
+  assert.match(byName("price").reason, /Only 0% of B's values are in A/);
+  assert.equal(byName("email").verdict, "poor");
+  assert.equal(byName("email").emptyA, 10);
+  assert.match(byName("email").reason, /25% of rows in A are empty here/);
+  assert.equal(stats.every((stat) => stat.sampled === false), true);
 });
 
 test("with no single key, two columns together are suggested; with none at all, nothing", () => {

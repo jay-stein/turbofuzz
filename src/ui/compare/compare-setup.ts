@@ -1,5 +1,5 @@
 import { DEFAULT_RULES, type CompareRules } from "../../data/compare/types.js";
-import type { KeySuggestion } from "../../data/compare/keys.js";
+import type { KeyColumnStat, KeySuggestion } from "../../data/compare/keys.js";
 import { TYPE_LABELS } from "../../types.js";
 import type { CompareSetupMessage, CompareSideInfo } from "../../worker/protocol.js";
 import { el, svgIcon } from "../dom.js";
@@ -131,9 +131,79 @@ function section(title: string, aside?: string): HTMLElement {
   return el("section", { class: "cmp-card" }, [head]);
 }
 
+const VERDICT_LABEL: Record<KeyColumnStat["verdict"], string> = { good: "Good key", fair: "Could work", poor: "Poor key" };
+const VERDICT_RANK: Record<KeyColumnStat["verdict"], number> = { good: 0, fair: 1, poor: 2 };
+
+/** What share of a side's rows hold a value seen only once there. */
+function uniqueShare(rows: number, empty: number, repeat: number): string {
+  const filled = rows - empty;
+  if (filled <= 0) return "—";
+  const share = ((filled - repeat) / filled) * 100;
+  return share >= 99.95 ? "100%" : `${share.toFixed(share >= 99 ? 1 : 0)}%`;
+}
+
+/**
+ * "Another column": every paired column with what it would be like as the key,
+ * best first. Each row says how unique and filled it is on each side and how
+ * many of B's values A has, with a verdict and the reason, so a column can be
+ * chosen knowing why it would or would not match rows well.
+ */
+function keyColumnList(setup: CompareSetupMessage, stats: readonly KeyColumnStat[], chosen: number | null, choose: (pair: number) => void): HTMLElement {
+  const sorted = [...stats].sort((x, y) => VERDICT_RANK[x.verdict] - VERDICT_RANK[y.verdict] || y.shared / Math.max(1, y.filled) - x.shared / Math.max(1, x.filled) || x.pair - y.pair);
+  const table = el("table", { class: "cmp-keycols" });
+  table.append(
+    el("thead", {}, [
+      el("tr", {}, [
+        el("th", { scope: "col" }, ["Column"]),
+        el("th", { scope: "col", class: "num", title: "Share of filled rows whose value appears only once on that side" }, ["Unique A · B"]),
+        el("th", { scope: "col", class: "num", title: "Rows with no value, which can't be matched" }, ["Empty"]),
+        el("th", { scope: "col", class: "num", title: "Share of B's values that A has too" }, ["B in A"]),
+        el("th", { scope: "col" }, ["As a key"]),
+      ]),
+    ]),
+  );
+  const body = el("tbody");
+  for (const stat of sorted) {
+    const pair = setup.pairing.pairs[stat.pair];
+    if (pair === undefined) continue;
+    const nameA = setup.a.columns[pair.a]?.name ?? "?";
+    const nameB = setup.b.columns[pair.b]?.name ?? "?";
+    const selected = chosen === stat.pair;
+    const pick = el("button", { type: "button", class: "cmp-keycol-pick", "aria-pressed": String(selected), title: `Match rows on ${nameA}` }, [
+      selected ? el("span", { class: "cmp-keycol-tick", "aria-hidden": "true" }, ["✓ "]) : "",
+      nameA,
+      nameA === nameB ? "" : el("span", { class: "cmp-keycol-alias" }, [` ↔ ${nameB}`]),
+    ]);
+    pick.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      choose(stat.pair);
+    });
+    const empty = stat.emptyA + stat.emptyB;
+    body.append(
+      el("tr", { class: `cmp-keycol${selected ? " selected" : ""}`, "data-verdict": stat.verdict }, [
+        el("td", {}, [pick]),
+        el("td", { class: "num" }, [`${uniqueShare(stat.rowsA, stat.emptyA, stat.repeatA)} · ${uniqueShare(stat.rowsB, stat.emptyB, stat.repeatB)}`]),
+        el("td", { class: "num" }, [empty === 0 ? "none" : nf.format(empty)]),
+        el("td", { class: "num" }, [stat.filled === 0 ? "—" : `${Math.round((stat.shared / stat.filled) * 100)}%`]),
+        el("td", { class: "cmp-keycol-why" }, [el("span", { class: `cmp-verdict ${stat.verdict}` }, [VERDICT_LABEL[stat.verdict]]), el("span", { class: "cmp-keycol-reason" }, [stat.reason])]),
+      ]),
+    );
+  }
+  table.append(body);
+  const wrap = el("div", { class: "cmp-keycols-wrap" }, [table]);
+  wrap.addEventListener("click", (event) => event.stopPropagation());
+  const sampled = stats.some((stat) => stat.sampled);
+  return el("div", { class: "cmp-keycols-box" }, [
+    wrap,
+    sampled ? el("p", { class: "cmp-keycol-note" }, [`Worked out on the first ${nf.format(Math.max(...stats.map((stat) => Math.max(stat.rowsA, stat.rowsB))))} rows of each side.`]) : "",
+  ]);
+}
+
 /** "Match rows on": the suggested keys, any other paired column, or whole rows. */
 function keySection(state: SetupState, setup: CompareSetupMessage, actions: SetupActions): HTMLElement {
   const box = section("Match rows on");
+  box.id = "cmp-match-rows";
   const list = el("div", { class: "cmp-keys", role: "radiogroup", "aria-label": "Match rows on" });
   const current = state.key;
   const same = (pairs: readonly number[]): boolean =>
@@ -173,11 +243,22 @@ function keySection(state: SetupState, setup: CompareSetupMessage, actions: Setu
     if (select.value !== "") actions.setKey({ kind: "pairs", pairs: [Number(select.value)] });
   });
   select.addEventListener("click", (event) => event.stopPropagation());
+  // With the columns judged, they are listed with why each would or would not work; otherwise a plain list.
+  const stats = setup.keyStats ?? [];
+  // The table ticks the key column whichever way it was chosen (a suggestion or by hand).
+  const chosenPair = current.kind === "pairs" && current.pairs.length === 1 ? current.pairs[0]! : null;
+  const firstGood = [...stats].sort((x, y) => VERDICT_RANK[x.verdict] - VERDICT_RANK[y.verdict])[0];
   list.append(
-    option(custom, "Another column", "Its values should be unique and filled on both sides.", "", () => {
-      if (select.value !== "") actions.setKey({ kind: "pairs", pairs: [Number(select.value)] });
+    option(custom, "Another column", stats.length > 0 ? "Its values should be unique and filled on both sides, and B's values should be in A. Each column is judged below: pick one there." : "Its values should be unique and filled on both sides.", "", () => {
+      if (stats.length > 0) {
+        if (!custom && firstGood !== undefined) actions.setKey({ kind: "pairs", pairs: [firstGood.pair] });
+      } else if (select.value !== "") actions.setKey({ kind: "pairs", pairs: [Number(select.value)] });
       else select.focus();
-    }, select),
+    }, stats.length > 0 ? undefined : select),
+  );
+  // The judged columns sit under the option, outside its label, so each is its own button.
+  if (stats.length > 0) list.append(keyColumnList(setup, stats, chosenPair, (pair) => actions.setKey({ kind: "pairs", pairs: [pair] })));
+  list.append(
     option(
       current.kind === "position",
       "Match rows on position",

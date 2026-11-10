@@ -18,6 +18,28 @@ export interface SideBySideOptions {
   changedColumnsOnly: boolean;
   /** Remembers the view so the tab comes back as it was left. */
   onState(state: { filter: RowFilter; layout: GridLayout; changedColumnsOnly: boolean }): void;
+  /** "Change…" beside how rows were matched: back to the setup's Match rows on. */
+  onChangeMatch?(): void;
+}
+
+/** How the rows were matched, in words: the key column(s) (with B's name when it differs), row position, or whole rows. */
+export function matchDescription(setup: CompareSetupMessage, key: KeyChoice): { label: string; note: string } {
+  if (key.kind === "content") return { label: "whole rows (no key)", note: "rows pair up only when every compared cell agrees" };
+  if (key.kind === "position") return { label: "row position", note: "row 1 of A meets row 1 of B, and so on" };
+  const names = key.pairs.map((index) => {
+    const pair = setup.pairing.pairs[index];
+    const a = pair === undefined ? "?" : (setup.a.columns[pair.a]?.name ?? "?");
+    const b = pair === undefined ? "?" : (setup.b.columns[pair.b]?.name ?? "?");
+    return a === b ? a : `${a} ↔ ${b}`;
+  });
+  const first = setup.keys[0];
+  const suggested = first !== undefined && first.pairs.length === key.pairs.length && first.pairs.every((p, i) => p === key.pairs[i]);
+  const suggestion = setup.keys.find((k) => k.pairs.length === key.pairs.length && k.pairs.every((p, i) => p === key.pairs[i]));
+  const share = suggestion === undefined ? "" : `${(suggestion.overlap * 100).toFixed(suggestion.overlap === 1 ? 0 : 1)}% of B's keys are in A`;
+  return {
+    label: names.join(" + "),
+    note: [suggested ? "suggested" : "chosen by hand", share].filter(Boolean).join(" · "),
+  };
 }
 
 const nf = new Intl.NumberFormat("en");
@@ -146,10 +168,26 @@ export class SideBySide {
       group.append(button);
     }
     bar.append(group);
-    const wrap = el("div", { class: "cmp-toolbar-wrap" }, [bar]);
+    const wrap = el("div", { class: "cmp-toolbar-wrap" }, [bar, this.matchLine()]);
     const columns = this.columnChips();
     if (columns !== null) wrap.append(columns);
     return this.withRest(bar, wrap);
+  }
+
+  /** "Rows matched on id (suggested) · Change…": what pairs rows up, with the way back to change it. */
+  private matchLine(): HTMLElement {
+    const { label, note } = matchDescription(this.options.setup, this.options.key);
+    const line = el("div", { class: "cmp-match-line" }, [
+      el("span", { class: "cmp-chips-label" }, ["Rows matched on:"]),
+      el("strong", { class: "cmp-match-key" }, [label]),
+      note === "" ? "" : el("span", { class: "cmp-match-note" }, [note]),
+    ]);
+    if (this.options.onChangeMatch !== undefined) {
+      const change = el("button", { type: "button", class: "link cmp-match-change", title: "Choose another key column, row position or whole rows in the setup" }, ["Change in setup →"]);
+      change.addEventListener("click", () => this.options.onChangeMatch?.());
+      line.append(change);
+    }
+    return line;
   }
 
   /**
