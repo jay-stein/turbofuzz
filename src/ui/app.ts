@@ -4693,6 +4693,11 @@ export class App {
         this.setView("chart");
         this.chartsPanel?.addViewChart(view);
       },
+      onPivotChart: (view) => {
+        this.ensureCharts();
+        this.setView("chart");
+        this.chartsPanel?.addPivotHeatmap(view);
+      },
       onCopyPandas: (view) => this.copyViewRecipe(view),
       onSlickTable: (view, result) =>
         openSlickTable({

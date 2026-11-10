@@ -1614,14 +1614,9 @@ export class ChartCard {
         this.config.valueAgg = "sum";
         this.valueAggSelect.value = "sum";
       }
-      // A value line and a grouped count line are two different charts, so the
-      // value choice clears the group where both cannot coexist. Lines and bars
-      // keep the group: that combination is the split-by series chart.
-      if (
-        (this.config.valueColumn ?? -1) >= 0 &&
-        this.config.kind !== "line" &&
-        this.config.kind !== "bar"
-      ) {
+      // A value and a group can only share a chart whose type splits into series
+      // (lines, bars and their relatives); anywhere else the value choice clears the group.
+      if ((this.config.valueColumn ?? -1) >= 0 && !SPLIT_KINDS.includes(this.config.kind)) {
         this.config.groupColumn = -1;
       }
       this.generation++;
@@ -1775,7 +1770,7 @@ export class ChartCard {
       "Chart sort order",
     );
     for (const [value, label] of [
-      ["none", "As computed"],
+      ["none", "Automatic"],
       ["valueDesc", "Value high to low"],
       ["valueAsc", "Value low to high"],
       ["labelAsc", "Label A-Z"],
@@ -5225,8 +5220,28 @@ export class ChartCard {
       } else if (kind === "histogram") this.config.valueColumn = -1;
       if (kind === "histogram") this.applyColumnDefaults();
     }
+    this.dropSettingsTheNewKindCannotUse();
     this.pickerSignature = "";
     this.refreshForConfig();
+  }
+
+  /**
+   * After a change of chart type: settings that made sense on the old chart and say nothing on
+   * the new one are cleared, so the title never reads "by usertype grouped by usertype" or keeps
+   * a year-over-year change on bars of categories.
+   */
+  private dropSettingsTheNewKindCannotUse(): void {
+    const kind = this.config.kind;
+    if (isPairKind(kind) || kind === "correlation") return;
+    // Splitting a chart by the field it is already laid out by gives one series per bar.
+    if (this.config.groupColumn >= 0 && this.config.groupColumn === this.config.column) {
+      this.config.groupColumn = -1;
+      this.hiddenGroups.clear();
+    }
+    // These calculations compare each period with the one before it: they need a date axis.
+    const calc = this.config.valueCalc;
+    const needsTime = calc === "rolling7" || calc === "diff" || calc === "pctChange" || calc === "yoy" || calc === "cumulative";
+    if (needsTime && !this.isDateLike(this.meta(this.config.column))) this.config.valueCalc = undefined;
   }
 
   /** Refetches and repaints everything a whole-chart settings change can touch. */
@@ -5257,6 +5272,9 @@ export class ChartCard {
     this.chartXZoom = null;
     this.barWindow = null;
     if (this.config.kind === "histogram") this.applyColumnDefaults();
+    this.dropSettingsTheNewKindCannotUse();
+    this.groupSelect.value = String(this.config.groupColumn);
+    this.valueCalcSelect.value = this.config.valueCalc ?? "";
     this.generation++;
     this.syncPlaceholder();
     this.renderControls();
@@ -5926,7 +5944,10 @@ export class ChartCard {
 
   /** Regions matched by name need no coordinates, so their columns would only confuse. */
   private syncRegionAxes(): void {
-    const hide = this.regionsOn() && this.regions?.usesCoordinates !== true;
+    const hide =
+      this.config.source !== "" ||
+      !isPairKind(this.config.kind) ||
+      (this.regionsOn() && this.regions?.usesCoordinates !== true);
     this.xWrap.classList.toggle("hidden", hide);
     this.yWrap.classList.toggle("hidden", hide);
     // A choropleth has its own value and colours: the general chart settings would only mislead.
@@ -10477,6 +10498,26 @@ export class ChartCard {
       this.drawPlotMessage(ctx, frame, message);
       return;
     }
+    // Periods a series has no rows for follow the chart's Missing periods rule, as on an unsplit
+    // line: a total really is zero there, a running total stays where it was, anything else is a gap.
+    if (bucketTimes !== null && this.config.source === "") {
+      const calc = this.config.valueCalc;
+      const policy = calc === "cumulative" ? "carry" : calc !== undefined ? "gap" : this.fillPolicy();
+      if (policy !== "gap") {
+        for (const series of shown) {
+          let last = Number.NaN;
+          let seen = false;
+          for (let b = 0; b < series.values.length; b++) {
+            const value = series.values[b] ?? Number.NaN;
+            if (Number.isFinite(value)) {
+              last = value;
+              seen = true;
+            } else if (policy === "zero") series.values[b] = 0;
+            else if (seen) series.values[b] = last;
+          }
+        }
+      }
+    }
     const ui = frame.ui;
     const stacked =
       this.config.kind === "barplot" && (this.config.barLayout ?? "group") === "stack";
@@ -10533,6 +10574,9 @@ export class ChartCard {
         ctx.lineWidth = 2;
         ctx.beginPath();
         let started = false;
+        // A period with a gap on both sides has no line to belong to: it is drawn as a dot,
+        // so a series of scattered periods is never an empty chart.
+        const lone: [number, number][] = [];
         for (let b = 0; b < buckets.length; b++) {
           const value = series.values[b] ?? Number.NaN;
           if (!Number.isFinite(value)) {
@@ -10544,11 +10588,18 @@ export class ChartCard {
           if (!started) {
             ctx.moveTo(x, y);
             started = true;
+            if (!Number.isFinite(series.values[b + 1] ?? Number.NaN)) lone.push([x, y]);
           } else {
             ctx.lineTo(x, y);
           }
         }
         ctx.stroke();
+        ctx.fillStyle = series.color;
+        for (const [x, y] of lone) {
+          ctx.beginPath();
+          ctx.arc(x, y, 1.75 * ui, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
     } else if (stacked) {
       for (let b = 0; b < buckets.length; b++) {
@@ -11422,7 +11473,7 @@ export class ChartCard {
     });
     ctx.textAlign = "left";
     const ordered = (this.config.chartSort ?? "none") === "none" || this.config.chartSort === "valueDesc";
-    const leftOut = withOther ? "" : limit < n ? ` · ${(n - limit).toLocaleString()} more not shown (raise Top bars in Customize)` : "";
+    const leftOut = withOther ? "" : limit < n ? ` · ${(n - limit).toLocaleString()} more not shown (raise Top bars in the chart settings)` : "";
     this.noteEl.textContent = `${ordered ? "Top" : "First"} ${limit.toLocaleString()} of ${n.toLocaleString()} ${result.dimensionNames[0] ?? "groups"}${leftOut}`;
   }
 
