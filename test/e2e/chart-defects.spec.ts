@@ -114,3 +114,29 @@ test("Pivot heatmap on a pivot with a column field opens a heatmap chart of it",
   await expect(page.getByRole("tab", { name: "Chart", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(card(page)).toContainText("Pivot heatmap");
 });
+
+test("a date and two numbers draw two lines; a value can be added or removed, and Group by takes over the split", async ({ page }) => {
+  await load(page);
+  await page.getByRole("tab", { name: "Chart", exact: true }).click();
+  await field(page, "week").click();
+  await field(page, "amount").click();
+  await page.locator(".chart-add-recs .chart-add-tile").first().click();
+  await expect(card(page).locator(".chart-legend-item")).toHaveCount(0);
+  await select(page, "Add another value").selectOption({ label: "units" });
+  await expect(card(page).locator(".chart-summary")).toContainText("amount, units");
+  await expect(card(page).locator(".chart-legend-item")).toHaveText(["amount", "units"]);
+  await expect.poll(() => ink(page)).toBeGreaterThan(200);
+
+  await card(page).getByRole("button", { name: "Remove units" }).click();
+  await expect(card(page).locator(".chart-legend-item")).toHaveCount(0);
+  await expect(card(page).locator(".chart-summary")).not.toContainText("units");
+
+  await select(page, "Add another value").selectOption({ label: "units" });
+  await expect(card(page).locator(".chart-legend-item")).toHaveText(["amount", "units"]);
+
+  // A chart is split one way at a time: by a field, or by its values.
+  await select(page, "Group by").selectOption({ label: "region (Category)" });
+  await expect(card(page).locator(".chart-summary")).toContainText("grouped by region");
+  await expect(card(page).locator(".chart-summary")).not.toContainText("units");
+  await expect(select(page, "Add another value")).toBeHidden();
+});

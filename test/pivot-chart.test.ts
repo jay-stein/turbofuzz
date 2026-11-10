@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { buildDataset } from "../src/data/build.js";
 import type { ViewDef } from "../src/data/aggregate.js";
 import { computePivot } from "../src/data/pivot.js";
-import { defaultPivotShape, fitPivotShape, pivotChartDef, pivotToAggregate } from "../src/data/pivot-chart.js";
+import { computeAggregate } from "../src/data/aggregate.js";
+import { defaultPivotShape, fitPivotShape, measuresToSeries, pivotChartDef, pivotToAggregate } from "../src/data/pivot-chart.js";
 
 const DATA = buildDataset("sales", ["region", "product", "month", "amount"], [
   ["North", "Tea", "2024-01-05", "10"],
@@ -95,4 +96,34 @@ test("a saved shape is refitted when the pivot loses the field it used", () => {
   const def = view({ dimensions: [{ column: 0, by: "value" }], pivotColumns: [] });
   assert.deepEqual(fitPivotShape(def, { axis: 0, series: 1, measure: 3 }), { axis: 0, series: -1, measure: 0 });
   assert.deepEqual(fitPivotShape(view(), { axis: 1, series: 1, measure: 0 }), { axis: 1, series: -1, measure: 0 });
+});
+
+test("several measures over one axis become one series each, in step along the axis", () => {
+  const result = computeAggregate(
+    {
+      id: "v",
+      name: "v",
+      dimensions: [{ column: 2, by: { time: "month" } }],
+      measures: [
+        { column: 3, agg: "sum" },
+        { column: 3, agg: "max" },
+      ],
+      fill: "none",
+      sort: { key: "dim0", dir: "asc" },
+      limit: 500,
+      respectFilters: true,
+    },
+    DATA.columns,
+    DATA.rowCount,
+    ids,
+  );
+  const long = measuresToSeries(result, ["total", "largest"]);
+  assert.deepEqual(long.dimensions, [
+    ["2024-01", "2024-01", "2024-02", "2024-02"],
+    ["total", "largest", "total", "largest"],
+  ]);
+  assert.deepEqual([...long.measures[0]], [41, 30, 28, 20]);
+  assert.deepEqual(long.dimensionIsTime, [true, false]);
+  assert.equal(long.dimensionTimes[0][0], long.dimensionTimes[0][1], "both series share the period's time");
+  assert.equal(long.groupCount, 4);
 });

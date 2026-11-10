@@ -184,6 +184,8 @@ export function configForChart(
       if (t0) set.column = t0.pick.index;
       if (m0) Object.assign(set, { valueColumn: m0.pick.index, valueAgg: agg(m0) });
       if (cats[0]) set.groupColumn = cats[0].pick.index;
+      // Several measures and no category: one line each.
+      else if (m0 && measures.length > 1) set.extraValueColumns = measures.slice(1, 6).map((entry) => entry.pick.index);
       break;
     case "bar":
       if (c0) set.column = c0.pick.index;

@@ -287,10 +287,9 @@ export function recommend(
     add(
       "timeseries",
       "primary",
-      // A chart draws one measure: say which one, so nothing is promised that the chart leaves out.
-      `${ms[0]?.name ?? "The first measure"} over time. A chart draws one measure, so ${ms.slice(1).map((m) => m.name).join(" and ")} each need a chart of their own.`,
+      `${ms.map((m) => m.name).join(", ")} over time, one line each.`,
       { resolution: t.unit ?? "auto", measures: ms.map((m) => m.name) },
-      [],
+      ["If these use different scales, the smaller one reads flat: chart it on its own, or use small multiples."],
     );
     add("smallmultiples", "alt", "One panel per measure, each on its own scale.", { measures: ms.map((m) => m.name) });
   } else if (M.length === 2 && T.length === 0 && C.length === 0) {

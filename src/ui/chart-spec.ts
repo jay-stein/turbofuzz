@@ -29,6 +29,8 @@ export interface ChartSpec {
     filter: string | null;
     animationTime: string | null;
     correlation: string[];
+    /** More value columns drawn beside `value`, each its own series. */
+    extraValues?: string[];
   };
   aggregation: {
     measure: string | null;
@@ -167,6 +169,13 @@ export function chartSpecFromConfig(
       correlation: config.correlationColumns
         .map((index) => nameOf(index, columns))
         .filter((name): name is string => name !== null),
+      ...((config.extraValueColumns ?? []).length === 0
+        ? {}
+        : {
+            extraValues: (config.extraValueColumns ?? [])
+              .map((index) => nameOf(index, columns))
+              .filter((name): name is string => name !== null),
+          }),
     },
     aggregation: {
       measure: nameOf(config.valueColumn, columns),
@@ -263,6 +272,7 @@ export function chartSpecToConfig(
   config.animationTimeColumn = field(spec.fields.animationTime);
   config.filterColumn = field(spec.fields.filter);
   config.correlationColumns = spec.fields.correlation.map(field).filter((index) => index >= 0);
+  if (spec.fields.extraValues !== undefined) config.extraValueColumns = spec.fields.extraValues.map(field).filter((index) => index >= 0);
   config.filterCode =
     spec.filter.code !== null
       ? spec.filter.code

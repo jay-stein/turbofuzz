@@ -17540,3 +17540,29 @@ button.cmp-change-name:hover {
   text-align: right;
   font-family: var(--mono, ui-monospace, monospace);
 }
+
+/* More values on one chart: each a row with its remove button, then the list to add another. */
+.chart-extra-values {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chart-extra-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.chart-extra-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chart-sidebar .chart-extra-add {
+  width: 100%;
+}

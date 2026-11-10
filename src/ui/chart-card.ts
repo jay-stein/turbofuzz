@@ -1,6 +1,6 @@
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import { extractTsv } from "../data/chart-extract.js";
-import type { PivotChartField, PivotChartShape } from "../data/pivot-chart.js";
+import { measuresToSeries, type PivotChartField, type PivotChartShape } from "../data/pivot-chart.js";
 import type { GetSliceBreakdownRequest, SliceBreakdownMessage, SliceRegion } from "../worker/protocol.js";
 import {
   addExclusion,
@@ -744,7 +744,15 @@ export interface ChartCardConfig {
   viewAxis?: number;
   viewSeries?: number;
   viewMeasure?: number;
+  /**
+   * More numeric columns drawn beside Value on a line or bar chart, each its own series, added
+   * up the same way as Value. Not combined with Group by: a chart is split one way at a time.
+   */
+  extraValueColumns?: number[];
 }
+
+/** The most values one chart draws as separate series. */
+const MAX_VALUES = 6;
 
 /** A source in a card's Source list: the table, or a Pivot View with the fields a chart of it can use. */
 export interface ChartSource {
@@ -1458,6 +1466,8 @@ export class ChartCard {
   private readonly viewSeriesWrap: HTMLElement;
   private readonly viewMeasureWrap: HTMLElement;
   private readonly backToSource: HTMLButtonElement;
+  private readonly extraValuesWrap = el("div", { class: "chart-extra-values hidden", role: "group", "aria-label": "More values" });
+  private extraValuesKey = "";
   private viewResult: AggregateMessage | null = null;
   /** A view-bound card cannot change type, so its real type is shown as text. */
   private readonly kindStatic = el("span", { class: "chart-kind-static hidden" });
@@ -1652,6 +1662,8 @@ export class ChartCard {
     );
     this.groupSelect.addEventListener("change", () => {
       this.config.groupColumn = Number(this.groupSelect.value);
+      // Split by a field or by several values, one at a time.
+      if (this.config.groupColumn >= 0) this.config.extraValueColumns = [];
       this.hiddenGroups.clear();
       this.generation++;
       this.refreshGroupedBins();
@@ -2163,7 +2175,7 @@ export class ChartCard {
         this.backToSource,
       ),
       sideSection(this.axesPanel, this.sortWrap),
-      sideSection(this.valueWrap, this.groupWrap, this.valueCalcWrap),
+      sideSection(this.valueWrap, this.extraValuesWrap, this.groupWrap, this.valueCalcWrap),
       sideSection(this.viewAxisWrap, this.viewSeriesWrap, this.viewMeasureWrap),
       sideSection(this.pivotRowWrap, this.pivotColWrap, this.pivotMeasureWrap),
     ]);
@@ -3499,7 +3511,7 @@ export class ChartCard {
 
   /** The columns this chart plots, for the field list to mark. */
   usedFields(): Set<number> {
-    const used = new Set<number>();
+    const used = new Set<number>(this.extraValues());
     for (const { select } of this.fieldControls()) {
       const index = Number(select.value);
       if (index >= 0) used.add(index);
@@ -3529,6 +3541,12 @@ export class ChartCard {
           select.dispatchEvent(new (view?.Event ?? Event)("change", { bubbles: true }));
         },
       });
+    }
+    if (this.allowsExtraValues() && column !== this.config.valueColumn && isNumericType(this.meta(column)?.type ?? "string")) {
+      const active = this.extraValues().includes(column);
+      if (active || this.extraValues().length < MAX_VALUES - 1) {
+        out.push({ label: "Another value", active, clearable: true, toggle: () => this.toggleExtraValue(column) });
+      }
     }
     return out;
   }
@@ -3869,6 +3887,7 @@ export class ChartCard {
     this.weekStartWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || this.resolvedGrain() !== "week");
     this.fiscalWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || (this.resolvedGrain() !== "quarter" && this.resolvedGrain() !== "year"));
     this.valueCalcWrap.classList.toggle("hidden", bound || !valueOn || kind === "treemap");
+    this.syncExtraValues();
     // Regions matched by name need no coordinates, so a map of them hides X and Y too.
     const noAxes = bound || !pair || (this.regionsOn() && this.regions?.usesCoordinates !== true);
     this.xWrap.classList.toggle("hidden", noAxes);
@@ -3924,6 +3943,72 @@ export class ChartCard {
       .catch(() => {
         // Keep the last result as the fallback.
       });
+  }
+
+  /** Whether this chart can draw more than one value: a line or bars of the table, not already split by a field. */
+  private allowsExtraValues(): boolean {
+    const kind = this.config.kind;
+    const agg = this.config.valueAgg ?? "mean";
+    return (
+      this.config.source === "" &&
+      (kind === "line" || kind === "barplot") &&
+      (this.config.valueColumn ?? -1) >= 0 &&
+      this.config.groupColumn < 0 &&
+      agg !== "true" && agg !== "false" && agg !== "missing" && agg !== "truePct"
+    );
+  }
+
+  /** The extra value columns in use: only where the chart can draw them, and only numbers still in the table. */
+  private extraValues(): number[] {
+    if (!this.allowsExtraValues()) return [];
+    return (this.config.extraValueColumns ?? []).filter(
+      (column, index, all) =>
+        column !== this.config.valueColumn &&
+        all.indexOf(column) === index &&
+        isNumericType(this.meta(column)?.type ?? "string"),
+    );
+  }
+
+  /** Adds or removes a column as another value; a chart with several values is not also split by a field. */
+  private toggleExtraValue(column: number): void {
+    const current = this.config.extraValueColumns ?? [];
+    this.noteBeforeChange();
+    this.config.extraValueColumns = current.includes(column)
+      ? current.filter((other) => other !== column)
+      : [...current, column].slice(0, MAX_VALUES - 1);
+    this.hiddenSplit.clear();
+    this.generation++;
+    this.renderControls();
+    this.refreshValue();
+    this.render();
+    this.noteAfterChange();
+  }
+
+  /** The values drawn beside Value, each with a remove button, and a list to add another. */
+  private syncExtraValues(): void {
+    const allowed = this.allowsExtraValues();
+    const extras = this.extraValues();
+    const numeric = this.columns
+      .map((meta, index) => ({ meta, index }))
+      .filter(({ meta, index }) => isNumericType(meta.type) && meta.role !== "provenance" && index !== this.config.valueColumn && !extras.includes(index));
+    const key = `${allowed}|${extras.join(",")}|${numeric.map(({ index }) => index).join(",")}`;
+    this.extraValuesWrap.classList.toggle("hidden", !allowed || (extras.length === 0 && numeric.length === 0));
+    if (key === this.extraValuesKey) return;
+    this.extraValuesKey = key;
+    const rows = extras.map((column) => {
+      const name = this.meta(column)?.name ?? "value";
+      const remove = el("button", { class: "icon-btn chart-extra-remove", type: "button", title: `Stop drawing ${name}`, "aria-label": `Remove ${name}` }, ["\u00d7"]);
+      remove.addEventListener("click", () => this.toggleExtraValue(column));
+      return el("div", { class: "chart-extra-value" }, [el("span", { class: "chart-extra-name" }, [name]), remove]);
+    });
+    const add = el("select", { class: "chart-picker chart-picker-small chart-extra-add", "aria-label": "Add another value" }) as HTMLSelectElement;
+    add.append(el("option", { value: "" }, ["+ Add another value\u2026"]) as HTMLOptionElement);
+    for (const { meta, index } of numeric) add.append(el("option", { value: String(index) }, [meta.name]) as HTMLOptionElement);
+    add.disabled = extras.length >= MAX_VALUES - 1 || numeric.length === 0;
+    add.addEventListener("change", () => {
+      if (add.value !== "") this.toggleExtraValue(Number(add.value));
+    });
+    this.extraValuesWrap.replaceChildren(...rows, add);
   }
 
   /** The pivot fields this chart can use, when its source is a Pivot View that offered them. */
@@ -4226,7 +4311,14 @@ export class ChartCard {
                     { column: this.config.groupColumn, by: "value" },
                   ]
                 : [{ column: this.config.column, by: "value" }],
-      measures: [measure],
+      measures: [
+        measure,
+        ...this.extraValues().map((extra): MeasureSpec => ({
+          column: extra,
+          agg: valueAgg as Aggregate,
+          ...(post === undefined ? {} : { post: [...post] }),
+        })),
+      ],
       fill: line && !split ? (fillPolicy === "zero" ? "zero" : fillPolicy === "carry" ? "carry" : "none") : "none",
       ...(line && !split && fillPolicy === "gap" ? { showGaps: true } : {}),
       sort:
@@ -4436,7 +4528,7 @@ export class ChartCard {
     }
     const agg =
       this.config.valueColumn !== undefined && this.config.valueColumn >= 0
-        ? `${this.valueAggSelect.selectedOptions[0]?.textContent ?? this.config.valueAgg ?? "mean"} of ${name(this.config.valueColumn)}`
+        ? `${this.valueAggSelect.selectedOptions[0]?.textContent ?? this.config.valueAgg ?? "mean"} of ${[this.config.valueColumn, ...this.extraValues()].map(name).join(", ")}`
         : "rows";
     const overTime =
       this.config.valueColumn !== undefined &&
@@ -11818,6 +11910,12 @@ export class ChartCard {
       return;
     }
     if (this.config.source === "" && this.drawExtraKind(ctx, frame, result, values)) return;
+    if (this.config.source === "" && result.dimensions.length === 1 && result.measures.length > 1 && this.extraValues().length > 0) {
+      const columns = [this.config.valueColumn ?? -1, ...this.extraValues()];
+      const long = measuresToSeries(result, columns.map((column) => this.meta(column)?.name ?? "value"));
+      this.drawSplitAggregate(ctx, frame, long, long.measures[0] ?? new Float64Array(0));
+      return;
+    }
     if (result.dimensions.length >= 2) {
       this.drawSplitAggregate(ctx, frame, result, values);
       return;

@@ -136,3 +136,40 @@ export function pivotToAggregate(pivot: PivotResult): AggregateResult {
     partials: null,
   };
 }
+
+/**
+ * A result with one dimension and several measures, as the long list a chart draws: each measure
+ * becomes a series named `names[m]`, along the same axis. Two numbers over time are then two lines.
+ */
+export function measuresToSeries<T extends AggregateResult>(result: T, names: readonly string[]): T {
+  const n = result.groupCount;
+  const count = result.measures.length;
+  const axis: string[] = [];
+  const series: string[] = [];
+  const times = new Float64Array(n * count);
+  const values = new Float64Array(n * count);
+  const axisLabels = result.dimensions[0] ?? [];
+  const axisTimes = result.dimensionTimes[0];
+  for (let i = 0; i < n; i++) {
+    for (let m = 0; m < count; m++) {
+      const at = i * count + m;
+      axis.push(axisLabels[i] ?? "");
+      series.push(names[m] ?? result.measureNames[m] ?? "");
+      times[at] = axisTimes?.[i] ?? Number.NaN;
+      values[at] = result.measures[m]?.[i] ?? Number.NaN;
+    }
+  }
+  return {
+    ...result,
+    labels: axis.map((label, i) => `${label} · ${series[i]}`),
+    dimensions: [axis, series],
+    dimensionNames: [result.dimensionNames[0] ?? "", "value"],
+    dimensionIsTime: [result.dimensionIsTime[0] === true, false],
+    dimensionTimes: [times, new Float64Array(n * count).fill(Number.NaN)],
+    measures: [values],
+    measureNames: [result.measureNames[0] ?? ""],
+    groupCount: n * count,
+    totalGroups: n * count,
+    partials: null,
+  };
+}
