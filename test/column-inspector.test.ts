@@ -72,6 +72,7 @@ function context(calls: string[], overrides: Partial<ColumnActionContext> = {}):
     onSort: (dir) => calls.push(`sort:${dir}`),
     onFilter: () => calls.push("filter"),
     onChart: () => calls.push("chart"),
+    onChartWith: () => calls.push("chartWith"),
     onHide: () => calls.push("hide"),
     onToggleFreeze: () => calls.push("freeze"),
     onDisplayFormat: (decimals) => calls.push(`format:${decimals}`),

@@ -128,6 +128,13 @@ export class ChartAddPanel {
     else this.open();
   }
 
+  /** Opens with these columns already on the shelf: a chart started from the table. */
+  startWith(columns: readonly number[]): void {
+    this.picks.clear();
+    for (const index of columns) if (index >= 0 && index < this.columns.length) this.picks.set(index, undefined);
+    this.open();
+  }
+
   /** Forget the shelf after a chart is made, so the next one starts clean. */
   reset(): void {
     this.picks.clear();

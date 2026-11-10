@@ -136,3 +136,21 @@ test("the field list changes the chart, + Add chart opens a new tab, and PNG ask
   const [download] = await Promise.all([page.waitForEvent("download"), page.locator(".context-menu .context-item").first().click()]);
   expect(download.suggestedFilename()).toMatch(/\.png$/);
 });
+
+test("a column's header menu starts the chart builder with that column already on the shelf", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "sales.csv", mimeType: "text/csv", buffer: Buffer.from(sales()) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator(".view-tabs button", { hasText: "Table" }).click();
+  await page.locator(".th-label", { hasText: /^region$/ }).first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: /Chart with other columns/ }).click();
+  await expect(page.locator(".chart-add-panel")).toBeVisible();
+  await expect(page.locator(".chart-add-field.picked, .chart-add-field[aria-pressed='true']").filter({ hasText: "region" })).toHaveCount(1);
+  // One more field from the builder, and the recommendations follow both.
+  await page.locator(".chart-add-field").filter({ has: page.locator(".chart-add-field-name", { hasText: /^sales$/ }) }).first().click();
+  await page.locator(".chart-add-tile").first().click();
+  await page.locator(".chart-card:not(.hidden) .chart-canvas").waitFor();
+  await expect(page.locator(".chart-card:not(.hidden) .chart-headline")).toContainText(/sales/);
+});

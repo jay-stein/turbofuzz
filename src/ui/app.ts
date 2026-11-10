@@ -7656,6 +7656,11 @@ export class App {
         this.setView("chart");
         this.chartsPanel?.addChart({ kind: chartKindFor(meta.type) ?? "histogram", column });
       },
+      onChartWith: () => {
+        this.ensureCharts();
+        this.setView("chart");
+        this.chartsPanel?.startChartWith([column]);
+      },
       onHide: () => this.setHiddenColumns(new Set([...this.hiddenColumns, column])),
       onToggleFreeze: () => {
         this.frozenThrough = this.frozenThrough === column ? -1 : column;

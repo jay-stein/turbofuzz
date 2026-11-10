@@ -28,6 +28,8 @@ export interface ColumnActionContext {
   onSort(dir: 1 | -1 | 0): void;
   onFilter(): void;
   onChart(): void;
+  /** The chart builder with this column on its shelf, to add the others. */
+  onChartWith(): void;
   onHide(): void;
   onToggleFreeze(): void;
   onDisplayFormat(decimals: number | null): void;
@@ -120,6 +122,7 @@ export function columnActionSections(ctx: ColumnActionContext): ActionSection[] 
   view.push(
     { label: "Filter this column", hint: "Open this column's filter in the sidebar", icon: ICONS.filter, run: () => ctx.onFilter() },
     { label: "Chart this column", hint: "Add a chart of this column", icon: ICONS.chart, run: () => ctx.onChart() },
+    { label: "Chart with other columns…", hint: "Open the chart builder with this column picked, to add more", icon: ICONS.chart, run: () => ctx.onChartWith() },
     { label: "Hide column", hint: "Hide from the table only — the data keeps it", icon: ICONS.hide, run: () => ctx.onHide() },
     {
       label: ctx.frozen ? "Unfreeze columns" : "Freeze columns up to here",

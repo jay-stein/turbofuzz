@@ -565,6 +565,13 @@ export class ChartsPanel {
     this.syncEmpty();
   }
 
+  /** The builder, with the columns picked in the table already on its shelf. */
+  startChartWith(columns: readonly number[]): void {
+    this.addPanel.setColumns(this.columns, this.rowCount);
+    this.addPanel.setSources(this.sources);
+    this.addPanel.startWith(columns);
+  }
+
   private toggleAddPanel(): void {
     this.addPanel.setColumns(this.columns, this.rowCount);
     this.addPanel.setSources(this.sources);
