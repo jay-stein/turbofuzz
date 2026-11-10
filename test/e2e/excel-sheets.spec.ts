@@ -21,12 +21,12 @@ async function openTable(page: Page): Promise<void> {
   await page.getByRole("tab", { name: "Table" }).click();
 }
 
-test("every worksheet starts ticked; a contents page blocks combining until it is unticked", async ({ page }) => {
+test("every worksheet starts ticked; a contents page is pointed out so it can be unticked", async ({ page }) => {
   await openWorkbook(page, [contents, jan, feb]);
   for (const name of ["Contents", "Jan", "Feb"]) await expect(sheet(page, name)).toBeChecked();
   const go = page.locator(".sheet-go");
-  await expect(go).toBeDisabled();
-  await expect(page.locator(".sheet-note")).toHaveText("“Contents” has 1 column and the others have 3: untick it to combine the rest.");
+  await expect(go).toBeEnabled();
+  await expect(page.locator(".sheet-note")).toHaveText("“Contents” has 1 column and the others have 3. Columns are lined up by name and missing cells left empty; untick it if it isn't part of the table.");
 
   await sheet(page, "Contents").uncheck();
   await expect(go).toHaveText("Combine 2 worksheets");
@@ -61,13 +61,13 @@ test("combining without the sheet-name column", async ({ page }) => {
   await expect.poll(() => headers(page)).toEqual(["id", "amount", "region"]);
 });
 
-test("same number of columns but different names: combining explains which sheet differs", async ({ page }) => {
+test("sheets with different column names still stack, lined up by name, with empty cells where a sheet lacks a column", async ({ page }) => {
   const staff: Sheet = { name: "Staff", headers: ["id", "name", "team"], rows: [["7", "Ada", "Ops"]] };
   await openWorkbook(page, [jan, staff]);
   await page.locator(".sheet-go").click();
-  await expect(page.locator(".status.error, .error").first()).toContainText(
-    "These worksheets can't be combined: “Staff” is missing “amount” and “region”, and has “name” and “team”, which “Jan” does not. Load one at a time instead.",
-  );
+  await openTable(page);
+  await expect.poll(() => headers(page)).toEqual(["id", "amount", "region", "name", "team", "excel_worksheetname"]);
+  await expect(page.locator(".count").first()).toContainText("3 rows");
 });
 
 test("a workbook with 100 worksheets lists them all, and all 100 combine", async ({ page }) => {

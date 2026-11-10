@@ -351,6 +351,13 @@ function extensionOf(name: string): string {
   return dot === -1 ? "" : lower.slice(dot);
 }
 
+/** After stacking sheets: which columns only some sheets had, so their empty cells are expected. */
+function sheetGapNote(gaps: readonly { column: string; missingIn: string[] }[]): string {
+  if (gaps.length === 0) return "";
+  const names = gaps.slice(0, 3).map((gap) => `“${gap.column}”`).join(", ") + (gaps.length > 3 ? ` and ${gaps.length - 3} more` : "");
+  return ` ${names} ${gaps.length === 1 ? "is" : "are"} only in some sheets; the other sheets' rows are left empty there.`;
+}
+
 /** The front page's heading and line for each mode. */
 const FRONT_COPY: Record<FrontMode, { title: string; sub: string }> = {
   single: {
@@ -2448,6 +2455,7 @@ export class App {
       }
       const result = combineSheets(sheets, { hasHeaders: this.headersCheckbox.checked, sheetColumn });
       if (!result.ok) throw new Error(`These worksheets can't be combined: ${result.reason} Load one at a time instead.`);
+      const gapNote = sheetGapNote(result.gaps);
       this.setLoadingText("");
       const base = fileName.replace(/\.[^.]+$/, "");
       await this.loadTable(result.table, `${base} — ${sheets.length} sheets`, result.hasHeaders, {
@@ -2455,7 +2463,7 @@ export class App {
         header: `found in each of ${sheets.length} worksheets`,
       });
       this.setAction(
-        `Combined ${sheets.length} worksheets: ${result.rows.toLocaleString()} rows${result.sheetColumn === null ? "" : `, with ${result.sheetColumn} saying which sheet each came from`}.`,
+        `Combined ${sheets.length} worksheets: ${result.rows.toLocaleString()} rows${result.sheetColumn === null ? "" : `, with ${result.sheetColumn} saying which sheet each came from`}.${gapNote}`,
       );
     } catch (error) {
       this.setStatusError(error instanceof Error ? error.message : "Could not combine the worksheets");

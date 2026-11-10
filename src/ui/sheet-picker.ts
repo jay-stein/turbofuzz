@@ -11,16 +11,16 @@ export interface SheetChoice {
 export type SheetPlan =
   | { action: "none"; note: string }
   | { action: "one"; sheet: string; button: string }
-  | { action: "combine"; sheets: string[]; button: string; note: string }
-  | { action: "blocked"; note: string };
+  | { action: "combine"; sheets: string[]; button: string; note: string; warn?: boolean };
 
 const nf = new Intl.NumberFormat("en");
 
 /**
  * What the button does for the ticked sheets: nothing yet, load the one, or
- * stack them. Sheets can only be stacked when they have the same number of
- * columns; when one stands out (a contents page, say) the note names it so
- * it can be unticked. Column names are checked when combining.
+ * stack them. Columns are lined up by name when combining, so sheets of
+ * different widths still stack, with empty cells where a sheet lacks a
+ * column; when one stands out (a contents page, say) the note names it so it
+ * can be unticked if it is not part of the table.
  */
 export function planSheets(sheets: readonly SheetChoice[], ticked: ReadonlySet<string>, hasHeaders: boolean): SheetPlan {
   const chosen = sheets.filter((sheet) => ticked.has(sheet.name));
@@ -36,23 +36,24 @@ export function planSheets(sheets: readonly SheetChoice[], ticked: ReadonlySet<s
   }
   const [width] = [...byWidth.entries()].sort((x, y) => y[1].count - x[1].count || y[1].rows - x[1].rows)[0]!;
   const odd = chosen.filter((sheet) => sheet.columns !== width);
+  const rows = chosen.reduce((sum, sheet) => sum + sheet.rows, 0) - (hasHeaders ? chosen.length : 0);
+  const plan = {
+    action: "combine" as const,
+    sheets: chosen.map((sheet) => sheet.name),
+    button: `Combine ${chosen.length} worksheets`,
+  };
   if (odd.length > 0) {
     const names = odd.slice(0, 3).map((sheet) => `“${sheet.name}”`).join(", ") + (odd.length > 3 ? ` and ${odd.length - 3} more` : "");
     const columns = (n: number): string => `${n} column${n === 1 ? "" : "s"}`;
     return {
-      action: "blocked",
+      ...plan,
+      warn: true,
       note: odd.length === 1
-        ? `${names} has ${columns(odd[0]!.columns)} and the others have ${width}: untick it to combine the rest.`
-        : `${names} have different columns from the others (${width}): untick them to combine the rest.`,
+        ? `${names} has ${columns(odd[0]!.columns)} and the others have ${width}. Columns are lined up by name and missing cells left empty; untick it if it isn't part of the table.`
+        : `${names} have different columns from the others (${width}). Columns are lined up by name and missing cells left empty; untick them if they aren't part of the table.`,
     };
   }
-  const rows = chosen.reduce((sum, sheet) => sum + sheet.rows, 0) - (hasHeaders ? chosen.length : 0);
-  return {
-    action: "combine",
-    sheets: chosen.map((sheet) => sheet.name),
-    button: `Combine ${chosen.length} worksheets`,
-    note: `About ${nf.format(rows)} rows × ${width} columns, stacked in the order listed.`,
-  };
+  return { ...plan, note: `About ${nf.format(rows)} rows × ${width} columns, stacked in the order listed.` };
 }
 
 export interface SheetPickerActions {
@@ -119,10 +120,10 @@ export function renderSheetPicker(host: HTMLElement, sheets: readonly SheetChoic
 
   const update = (): void => {
     const plan = planSheets(sheets, ticked, hasHeaders);
-    go.disabled = plan.action === "none" || plan.action === "blocked";
+    go.disabled = plan.action === "none";
     go.textContent = plan.action === "one" || plan.action === "combine" ? plan.button : ticked.size > 1 ? `Combine ${ticked.size} worksheets` : "Load";
     note.textContent = plan.action === "one" ? "" : plan.note;
-    note.classList.toggle("warn", plan.action === "blocked");
+    note.classList.toggle("warn", plan.action === "combine" && plan.warn === true);
     columnOption.classList.toggle("hidden", ticked.size < 2);
   };
 
