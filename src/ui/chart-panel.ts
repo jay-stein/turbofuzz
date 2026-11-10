@@ -843,11 +843,13 @@ export class ChartsPanel {
   }
 
   private syncCard(card: ChartCard): void {
-    card.setColumns(this.columns);
-    card.setSources(this.sources);
+    // The columns go in last: each of these asks the worker for the chart's data once it has
+    // columns to ask about, so giving them first sent every request of a new chart twice.
     card.setFiltered(this.facets, this.histograms);
     card.setRowCount(this.rowCount);
     card.setTotalRowCount(this.totalRowCount);
+    card.setSources(this.sources);
+    card.setColumns(this.columns);
     if (card.getConfig().source !== "") card.refreshView();
   }
 
