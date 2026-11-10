@@ -967,15 +967,17 @@ function computeBinEdges(
     return edges.length >= 2 ? edges : null;
   }
   // Quantile bins over the filtered values.
-  const values: number[] = [];
+  // A typed array sorts as numbers natively, several times faster than a comparator over number[].
+  const kept = new Float64Array(ids.length);
+  let size = 0;
   for (let position = 0; position < ids.length; position++) {
     const row = ids[position];
     if (row >= rowCount) continue;
     const value = numbers[row];
-    if (Number.isFinite(value)) values.push(value);
+    if (Number.isFinite(value)) kept[size++] = value;
   }
-  if (values.length === 0) return null;
-  values.sort((a, b) => a - b);
+  if (size === 0) return null;
+  const values = kept.subarray(0, size).sort();
   const n = Math.max(2, Math.min(100, Math.floor(spec.n) || 10));
   const edges: number[] = [];
   for (let i = 0; i <= n; i++) {
