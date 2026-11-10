@@ -17,9 +17,9 @@ export function readMode(): AppMode {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (isMode(stored)) return stored;
   } catch {
-    // Storage can be blocked; General is the safe default.
+    // Storage can be blocked; Research (every tab showing) is the default.
   }
-  return "general";
+  return "research";
 }
 
 export function writeMode(mode: AppMode): void {
@@ -38,12 +38,12 @@ export function modeLabel(mode: AppMode): string {
 const OPTIONS: readonly { mode: AppMode; title: string; icon: string }[] = [
   {
     mode: "general",
-    title: "Overview, Data Quality, Table, Pivot View and Chart",
+    title: "Table, Overview, Data Quality, Pivot View and Chart only: hides the research tabs",
     icon: '<circle cx="12" cy="12" r="8.5"/><path d="M15.2 8.8l-1.9 4.5-4.5 1.9 1.9-4.5z"/>',
   },
   {
     mode: "research",
-    title: "Adds Outliers, Relationships, Time Series and Map to the tabs",
+    title: "Shows Time Series, Map, Outliers and Relationships on the tabs",
     icon: '<path d="M9.5 3h5M10.5 3v6.2L5 18.4A1.8 1.8 0 0 0 6.6 21h10.8a1.8 1.8 0 0 0 1.6-2.6L13.5 9.2V3"/><path d="M7.8 15h8.4"/>',
   },
 ];

@@ -187,7 +187,7 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   {
     name: "research",
     aliases: ["research mode"],
-    hint: "Research mode: adds Outliers, Relationships, Time Series and Map to the tabs",
+    hint: "Research mode: shows Time Series, Map, Outliers and Relationships on the tabs",
   },
   { name: "general", aliases: ["general mode"], hint: "General mode: the everyday tabs only" },
   { name: "mode", aliases: [], hint: "Switch mode — “mode research” or “mode general”" },

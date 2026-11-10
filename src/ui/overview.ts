@@ -97,27 +97,8 @@ export interface DatasetSourceInfo {
   sizeLabel: string | null;
 }
 
-const VIEW_DEFAULT_KEY = "turbofuzz.view.default";
-
 export const STATS_ICON =
   '<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/><path d="M10 12v6"/><path d="M13 10v8"/><path d="M16 14v4"/>';
-
-export function readDefaultView(): "overview" | "table" {
-  try {
-    return localStorage.getItem(VIEW_DEFAULT_KEY) === "table" ? "table" : "overview";
-  } catch {
-    return "overview";
-  }
-}
-
-function writeDefaultView(view: "overview" | "table"): void {
-  try {
-    if (view === "table") localStorage.setItem(VIEW_DEFAULT_KEY, "table");
-    else localStorage.removeItem(VIEW_DEFAULT_KEY);
-  } catch {
-    // Persisting the preference is best-effort.
-  }
-}
 
 function plural(count: number, singular: string, plural = `${singular}s`): string {
   return count === 1 ? singular : plural;
@@ -852,15 +833,7 @@ export class Overview {
     ) as HTMLButtonElement;
     explore.addEventListener("click", () => this.callbacks.onOpenTable());
 
-    const remember = el("label", { class: "control check" });
-    const checkbox = el("input", { type: "checkbox" }) as HTMLInputElement;
-    checkbox.checked = readDefaultView() === "table";
-    checkbox.addEventListener("change", () =>
-      writeDefaultView(checkbox.checked ? "table" : "overview"),
-    );
-    remember.append(checkbox, "Open in Table next time");
-
-    row.append(explore, remember);
+    row.append(explore);
     return row;
   }
 

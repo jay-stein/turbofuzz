@@ -100,7 +100,7 @@ import { clear, el, svgIcon } from "./dom.js";
 import { openDedupeMenu } from "./dedupe-menu.js";
 import { openMenu, type MenuItem } from "./menu.js";
 import { buildColumnCard } from "./summary-band.js";
-import { Overview, STATS_ICON, delimiterLabel, readDefaultView } from "./overview.js";
+import { Overview, STATS_ICON, delimiterLabel } from "./overview.js";
 import type { DatasetStats } from "../data/stats.js";
 import { FilterPanel } from "./filters.js";
 import { ChartsPanel, remapChartConfigs, type NamedChartCardConfig } from "./chart-panel.js";
@@ -764,10 +764,10 @@ export class App {
   private chartActive = false;
   private chartRestore: NamedChartCardConfig[] | null = null;
   private chartRemoved = 0;
-  private view: ViewId = "overview";
+  private view: ViewId = "table";
   private lastLens: ViewId = "table";
   /** Where switching back to General lands when a research view is open. */
-  private lastGeneralView: ViewId = "overview";
+  private lastGeneralView: ViewId = "table";
   private mode: AppMode = readMode();
   private modeSwitch: ModeSwitch | null = null;
   private tabs: ViewTabs | null = null;
@@ -858,7 +858,7 @@ export class App {
     this.hints = new Hints([
       {
         id: "tabs",
-        text: `Overview, Data Quality, Table, Pivot View and Chart are lenses — ${viewSwitchHint(GENERAL_VIEWS.length)}. Switch to Research for Outliers, Relationships, Time Series and Map.`,
+        text: `Table, Overview, Data Quality, Pivot View and Chart are lenses — ${viewSwitchHint(GENERAL_VIEWS.length)}. The green Research tabs (Time Series, Map, Outliers, Relationships) show by default; slide to General to hide them.`,
         target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
       },
       {
@@ -2694,13 +2694,12 @@ export class App {
     // A new table shows every column, none frozen.
     this.hiddenColumns = new Set();
     this.frozenThrough = -1;
-    // A new dataset always opens in General; Research is switched on by the person each time.
-    if (loaded.type === "loaded" && this.mode !== "general") {
-      this.mode = "general";
-      writeMode("general");
-      this.modeSwitch?.setSelected("general");
-      this.tabs?.setResearch(false);
-      if (isResearchView(this.view)) this.view = "overview";
+    // A new dataset always opens with the research tabs showing; sliding to General hides them until the next file.
+    if (loaded.type === "loaded" && this.mode !== "research") {
+      this.mode = "research";
+      writeMode("research");
+      this.modeSwitch?.setSelected("research");
+      this.tabs?.setResearch(true);
     }
     const captured = this.chartsPanel?.captureConfigs() ?? this.chartRestore;
     const hadOrphans =
@@ -2847,7 +2846,7 @@ export class App {
       );
     }
     if (loaded.type === "loaded") {
-      this.view = readDefaultView();
+      this.view = "table";
       const sidebarPreference = this.readSidebarCollapsed();
       this.setSidebarCollapsed(
         sidebarPreference ?? (loaded.columnCount > 8 || window.innerWidth < 1100),
@@ -4980,7 +4979,7 @@ export class App {
     this.hints?.refresh();
     const message =
       mode === "research"
-        ? "Research mode: Outliers, Relationships, Time Series and Map are on the tab bar"
+        ? "Research mode: Time Series, Map, Outliers and Relationships are on the tab bar"
         : "General mode: the research views are tucked away, and your work in them is kept";
     this.setAction(message);
     this.showToast(message, () => {

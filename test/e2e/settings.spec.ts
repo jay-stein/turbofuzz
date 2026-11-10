@@ -29,6 +29,8 @@ test("dates that fit both orders are read day-first with a question on the Overv
   const csv = ["when,amount", "01/02/2025,10", "03/04/2025,20", "05/06/2025,30", "07/08/2025,40", "09/10/2025,50", "02/01/2025,60"].join("\n");
   await page.locator('input[type="file"]').setInputFiles({ name: "ambiguous.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
   await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("tab", { name: "Overview" }).click();
   const step = page.locator(".next-step-card", { hasText: "could be day-first or month-first" });
   await expect(step).toBeVisible({ timeout: 15_000 });
   await expect(step).toContainText("read day-first");

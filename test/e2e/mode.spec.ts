@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-const RESEARCH_TABS = ["Outliers", "Relationships", "Time Series", "Map"];
+const RESEARCH_TABS = ["Time Series", "Map", "Outliers", "Relationships"];
 
 /** A small dated table, so Chart can offer a line card with a Time Series link. */
 function sales(): string {
@@ -24,32 +24,33 @@ async function load(page: Page): Promise<void> {
 const modeOption = (page: Page, name: "General" | "Research") =>
   page.getByRole("radiogroup", { name: "Mode" }).getByRole("radio", { name });
 
-test("General is the default, Research adds four tabs, and a new dataset opens in General again", async ({ page }) => {
+test("a file opens on Table with the research tabs showing; General hides them until the next file", async ({ page }) => {
   await load(page);
-  await expect(modeOption(page, "General")).toHaveAttribute("aria-checked", "true");
-  for (const name of RESEARCH_TABS) await expect(page.getByRole("tab", { name })).toBeHidden();
-  // Number keys follow the visible tabs: 5 is Chart in General mode.
-  await page.keyboard.press("5");
-  await expect(page.getByRole("tab", { name: "Chart" })).toHaveAttribute("aria-selected", "true");
-
-  await modeOption(page, "Research").click();
+  await expect(page.getByRole("tab", { name: "Table" })).toHaveAttribute("aria-selected", "true");
   await expect(modeOption(page, "Research")).toHaveAttribute("aria-checked", "true");
   for (const name of RESEARCH_TABS) await expect(page.getByRole("tab", { name })).toBeVisible();
+  // Number keys follow the visible tabs: 9 is Relationships, the last research tab.
   await page.keyboard.press("9");
-  await expect(page.getByRole("tab", { name: "Map" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Relationships" })).toHaveAttribute("aria-selected", "true");
+
+  await modeOption(page, "General").click();
+  await expect(modeOption(page, "General")).toHaveAttribute("aria-checked", "true");
+  for (const name of RESEARCH_TABS) await expect(page.getByRole("tab", { name })).toBeHidden();
+  await page.keyboard.press("5");
+  await expect(page.getByRole("tab", { name: "Chart" })).toHaveAttribute("aria-selected", "true");
 
   await page.reload();
   await page.locator('input[type="file"]').setInputFiles({ name: "sales.csv", mimeType: "text/csv", buffer: Buffer.from(sales()) });
   await page.locator(".nav-row").waitFor();
-  // Every new dataset opens in General; Research is switched on each time.
-  await expect(modeOption(page, "General")).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByRole("tab", { name: "Outliers" })).toBeHidden();
+  // Every new dataset opens with Research on again, on the Table.
+  await expect(modeOption(page, "Research")).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("tab", { name: "Outliers" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Table" })).toHaveAttribute("aria-selected", "true");
 });
 
 test("leaving Research on a research page returns to the last general page, and Undo brings it back", async ({ page }) => {
   await load(page);
   await page.getByRole("tab", { name: "Table" }).click();
-  await modeOption(page, "Research").click();
   await page.getByRole("tab", { name: "Relationships" }).click();
 
   await modeOption(page, "General").click();
@@ -63,6 +64,7 @@ test("leaving Research on a research page returns to the last general page, and 
 
 test("asking for a research page from the command bar switches to Research and says so", async ({ page }) => {
   await load(page);
+  await modeOption(page, "General").click();
   await page.keyboard.press("Control+k");
   await page.keyboard.type("outliers");
   await page.keyboard.press("Enter");
@@ -79,11 +81,11 @@ test("chart line cards only point to Time Series in Research mode", async ({ pag
   if (await dialog.count()) await dialog.getByRole("button", { name: /^(Add|Create|OK)/ }).last().click();
   await page.locator("canvas.chart-canvas").first().waitFor();
   const link = page.getByRole("button", { name: "Open in Time Series →" });
-  await expect(link).toHaveCount(0);
-
-  await modeOption(page, "Research").click();
   await expect(link.first()).toBeVisible();
 
   await modeOption(page, "General").click();
   await expect(link).toHaveCount(0);
+
+  await modeOption(page, "Research").click();
+  await expect(link.first()).toBeVisible();
 });

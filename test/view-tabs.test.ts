@@ -25,22 +25,22 @@ function setupDom(): Window {
 test("the keyboard hint follows the number of registered tabs", () => {
   assert.equal(VIEW_ORDER.length, 9);
   assert.deepEqual(VIEW_ORDER, [
+    "table",
     "overview",
     "quality",
-    "table",
     "views",
     "chart",
-    "outliers",
-    "relationships",
     "timeseries",
     "map",
+    "outliers",
+    "relationships",
   ]);
   assert.equal(viewSwitchHint(), `switch anytime with 1–${VIEW_ORDER.length}`);
   assert.equal(viewSwitchHint(GENERAL_VIEWS.length), "switch anytime with 1–5");
 });
 
-test("research views are exactly Outliers, Relationships, Time Series and Map", () => {
-  assert.deepEqual(RESEARCH_VIEWS, ["outliers", "relationships", "timeseries", "map"]);
+test("research views are Time Series, Map, Outliers and Relationships, in that order", () => {
+  assert.deepEqual(RESEARCH_VIEWS, ["timeseries", "map", "outliers", "relationships"]);
   for (const view of VIEW_ORDER) assert.equal(isResearchView(view), RESEARCH_VIEWS.includes(view));
   assert.deepEqual([...GENERAL_VIEWS, ...RESEARCH_VIEWS], VIEW_ORDER);
 });
@@ -55,10 +55,10 @@ test("General mode hides the research lane and keyboard moves only over visible 
   assert.ok(lane.classList.contains("hidden"));
   assert.deepEqual(tabs.visibleViews(), GENERAL_VIEWS);
 
-  // ArrowRight from the last general tab wraps to Overview, never into the lane.
+  // ArrowRight from the last general tab wraps to Table, never into the lane.
   tabs.setSelected("chart");
   root.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight" }) as unknown as Event);
-  assert.deepEqual(picked, ["overview"]);
+  assert.deepEqual(picked, ["table"]);
 
   tabs.setResearch(true, true);
   assert.ok(!lane.classList.contains("hidden"));
@@ -66,16 +66,16 @@ test("General mode hides the research lane and keyboard moves only over visible 
   assert.deepEqual(tabs.visibleViews(), VIEW_ORDER);
   tabs.setSelected("chart");
   root.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight" }) as unknown as Event);
-  assert.deepEqual(picked, ["overview", "outliers"]);
+  assert.deepEqual(picked, ["table", "timeseries"]);
 });
 
-test("the mode is remembered, defaults to General and survives blocked storage", () => {
+test("the mode is remembered, defaults to Research and survives blocked storage", () => {
   setupDom();
-  assert.equal(readMode(), "general");
-  writeMode("research");
   assert.equal(readMode(), "research");
-  localStorage.setItem("turbofuzz-mode", "bogus");
+  writeMode("general");
   assert.equal(readMode(), "general");
+  localStorage.setItem("turbofuzz-mode", "bogus");
+  assert.equal(readMode(), "research");
 
   const globals = globalThis as Record<string, unknown>;
   globals.localStorage = {
@@ -86,8 +86,8 @@ test("the mode is remembered, defaults to General and survives blocked storage",
       throw new Error("storage blocked");
     },
   };
-  assert.equal(readMode(), "general");
-  writeMode("research");
+  assert.equal(readMode(), "research");
+  writeMode("general");
 });
 
 test("the mode switch is a radio group that reports the user's choice", () => {

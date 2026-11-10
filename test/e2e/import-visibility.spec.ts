@@ -5,6 +5,9 @@ async function load(page: Page, name: string, csv: string): Promise<void> {
   await page.goto("/");
   await page.locator('input[type="file"]').setInputFiles({ name, mimeType: "text/csv", buffer: Buffer.from(csv) });
   await page.locator(".nav-row").waitFor();
+  // A file opens on Table; these tests read the Overview.
+  await page.keyboard.press("Escape");
+  await page.getByRole("tab", { name: "Overview" }).click();
 }
 
 function longFile(): string {
@@ -70,6 +73,7 @@ test("Import settings can leave columns out, and the Overview note says so", asy
   await expect(dialog.locator(".header-row-cells").first()).not.toContainText("notes");
   await expect(dialog.locator(".header-row-columns")).toContainText("3 of 4");
   await dialog.getByRole("button", { name: "Apply and reload" }).click();
+  await page.getByRole("tab", { name: "Overview" }).click();
   await expect(page.locator(".overview-facts")).toContainText("30 rows × 3 columns", { timeout: 15_000 });
   await expect(page.locator(".overview-header-note")).toContainText("1 column left out");
 });

@@ -7,6 +7,8 @@ test("columns that are empty in every row cost points, are flagged to drop, and 
   await page.goto("/");
   await page.locator('input[type="file"]').setInputFiles({ name: "gaps.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
   await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("tab", { name: "Overview" }).click();
 
   // The Overview offers to drop both, and no longer calls them columns "with empty cells".
   const step = page.locator(".next-step-card", { hasText: "empty in every row" });

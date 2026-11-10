@@ -6850,30 +6850,30 @@ tr.views-drop-after > td {
 
 /* ---------- General / Research mode ---------- */
 
-/* Teal belongs to Research mode only (purple is reserved for sensitivity). */
+/* Emerald green belongs to Research mode only (purple is reserved for sensitivity). */
 :root {
-  --research: #0f766e;
-  --research-soft: #ddf3ef;
-  --research-border: #8fd3c8;
-  --research-text: #0f5f58;
+  --research: #047857;
+  --research-soft: #d1fae5;
+  --research-border: #6ee7b7;
+  --research-text: #065f46;
   --research-lane: color-mix(in srgb, var(--research) 9%, transparent);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --research: #2dd4bf;
-    --research-soft: #11302d;
-    --research-border: #1e6b62;
-    --research-text: #5eead4;
+    --research: #34d399;
+    --research-soft: #0b2e22;
+    --research-border: #1d6b50;
+    --research-text: #6ee7b7;
     --research-lane: color-mix(in srgb, var(--research) 12%, transparent);
   }
 }
 
 :root[data-theme="dark"] {
-  --research: #2dd4bf;
-  --research-soft: #11302d;
-  --research-border: #1e6b62;
-  --research-text: #5eead4;
+  --research: #34d399;
+  --research-soft: #0b2e22;
+  --research-border: #1d6b50;
+  --research-text: #6ee7b7;
   --research-lane: color-mix(in srgb, var(--research) 12%, transparent);
 }
 
@@ -6971,15 +6971,18 @@ tr.views-drop-after > td {
   }
 }
 
-/* The research tabs sit in their own lane: a divider, a teal wash rising from
-   the baseline, and a teal underline on the active tab. */
+/* The research tabs sit in their own lane: a green border around the group, a
+   green wash rising from the baseline, and a green underline on the active tab. */
 .view-tabs-research {
   position: relative;
   display: flex;
   flex: none;
   align-items: stretch;
   margin-left: 13px;
+  margin-top: 3px;
   padding: 0 2px;
+  border: 1.5px solid color-mix(in srgb, var(--research) 75%, transparent);
+  border-bottom: none;
   border-radius: 8px 8px 0 0;
   background: linear-gradient(to bottom, transparent 15%, var(--research-lane));
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--research) 40%, transparent);

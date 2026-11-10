@@ -12,10 +12,10 @@ export type ViewId =
   | "map";
 
 /** The everyday lenses, shown in both modes. */
-export const GENERAL_VIEWS: readonly ViewId[] = ["overview", "quality", "table", "views", "chart"];
+export const GENERAL_VIEWS: readonly ViewId[] = ["table", "overview", "quality", "views", "chart"];
 
-/** Shown only in Research mode, grouped after the general tabs. */
-export const RESEARCH_VIEWS: readonly ViewId[] = ["outliers", "relationships", "timeseries", "map"];
+/** The research lane, on by default and edged in green; sliding the switch to General hides it. */
+export const RESEARCH_VIEWS: readonly ViewId[] = ["timeseries", "map", "outliers", "relationships"];
 
 export const VIEW_ORDER: readonly ViewId[] = [...GENERAL_VIEWS, ...RESEARCH_VIEWS];
 
@@ -80,15 +80,15 @@ export interface ViewTabsCallbacks {
 }
 
 /**
- * `Overview | Data Quality | Table | Pivot View | Chart` lens switcher, plus
- * the Research lane (`Outliers | Relationships | Time Series | Map`) when
+ * `Table | Overview | Data Quality | Pivot View | Chart` lens switcher, plus
+ * the Research lane (`Time Series | Map | Outliers | Relationships`) when
  * Research mode is on. ARIA tabs pattern: role=tablist, aria-selected and
  * roving tabindex. Lenses never alter data; they only change what is on screen.
  */
 export class ViewTabs {
   private readonly buttons = new Map<ViewId, HTMLButtonElement>();
   private readonly researchLane: HTMLElement;
-  private view: ViewId = "overview";
+  private view: ViewId = "table";
   private research: boolean;
 
   constructor(

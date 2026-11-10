@@ -226,15 +226,8 @@ test("overview renders dataset line, tiles, next steps and every column", () => 
   assert.ok(host.querySelector(".overview-dataset .stats-report-button") !== null);
   assert.equal(host.querySelector(".overview-actions .stats-link"), null);
   assert.equal(host.lastElementChild?.classList.contains("missingness-section"), true);
-
-  const checkbox = host.querySelector<HTMLInputElement>(".overview-actions input[type=checkbox]");
-  assert.ok(checkbox !== null);
-  checkbox.checked = true;
-  checkbox.dispatchEvent(new window.Event("change") as unknown as Event);
-  assert.equal(window.localStorage.getItem("turbofuzz.view.default"), "table");
-  checkbox.checked = false;
-  checkbox.dispatchEvent(new window.Event("change") as unknown as Event);
-  assert.equal(window.localStorage.getItem("turbofuzz.view.default"), null);
+  // Every file opens in Table, so there is no "Open in Table next time" preference.
+  assert.equal(host.querySelector(".overview-actions input[type=checkbox]"), null);
 
   overview.updateColumn(0, meta({ name: "renamed", type: "number" }));
   assert.match(
