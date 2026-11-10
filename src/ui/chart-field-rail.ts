@@ -35,7 +35,22 @@ export type FieldClick =
   | { do: "add"; slot: FieldSlot }
   | { do: "remove"; slot: FieldSlot }
   | { do: "new"; kind: ChartCardKind }
-  | { do: "ask" };
+  | { do: "ask" }
+  | { do: "none" };
+
+/** The click for a field with these places on the chart: the obvious one, or a question. */
+export function chooseSlot(slots: readonly FieldSlot[]): FieldClick {
+  const active = slots.filter((slot) => slot.active);
+  if (active.length > 0) {
+    if (active.length === 1 && active[0]!.clearable) return { do: "remove", slot: active[0]! };
+    // A field that is where it must be, with nowhere else to go, has nothing to offer.
+    return slots.length === 1 ? { do: "none" } : { do: "ask" };
+  }
+  if (slots.length === 0) return { do: "none" };
+  if (slots.length === 1) return { do: "add", slot: slots[0]! };
+  const empty = slots.filter((slot) => slot.empty);
+  return empty.length === 1 ? { do: "add", slot: empty[0]! } : { do: "ask" };
+}
 
 /**
  * One click puts a field in the obvious place: the only place it fits, or the only one still
@@ -48,12 +63,7 @@ export function fieldClick(card: ChartCard | null, column: number, meta: ColumnM
     const kind = chartKindFor(meta.type);
     return kind === null ? { do: "ask" } : { do: "new", kind };
   }
-  const slots = card.fieldSlots(column);
-  const active = slots.filter((slot) => slot.active);
-  if (active.length > 0) return active.length === 1 && active[0]!.clearable ? { do: "remove", slot: active[0]! } : { do: "ask" };
-  if (slots.length === 1) return { do: "add", slot: slots[0]! };
-  const empty = slots.filter((slot) => slot.empty);
-  return empty.length === 1 ? { do: "add", slot: empty[0]! } : { do: "ask" };
+  return chooseSlot(card.fieldSlots(column));
 }
 
 /**
@@ -65,6 +75,7 @@ export class ChartFieldRail {
   readonly root: HTMLElement;
   private readonly list: HTMLElement;
   private readonly search: HTMLInputElement;
+  private readonly title: HTMLElement;
   private columns: readonly ColumnMeta[] = [];
   private query = "";
   private drawn = "";
@@ -82,8 +93,9 @@ export class ChartFieldRail {
       this.sync();
     });
     this.list = el("div", { class: "chart-rail-list" });
+    this.title = el("div", { class: "chart-rail-title" }, ["Fields"]);
     this.root = el("aside", { class: "chart-rail", "aria-label": "Fields" }, [
-      el("div", { class: "chart-rail-title" }, ["Fields"]),
+      this.title,
       this.search,
       this.list,
     ]);
@@ -99,6 +111,12 @@ export class ChartFieldRail {
   /** Redraws when the columns, the search or the fields in use changed; cheap otherwise, so a chart can call it on every paint. */
   sync(): void {
     const card = this.options.activeCard();
+    const items = card?.pivotRailItems() ?? null;
+    this.title.textContent = items === null ? "Fields" : "Pivot fields";
+    if (items !== null) {
+      this.syncPivot(items);
+      return;
+    }
     const used = card?.usedFields() ?? new Set<number>();
     const roles = card?.fieldRoles() ?? new Map<number, string>();
     const key = `${this.columns.length}|${this.query}|${[...used].map((column) => `${column}:${roles.get(column) ?? ""}`).join(",")}`;
@@ -146,11 +164,70 @@ export class ChartFieldRail {
     this.list.replaceChildren(...rows);
   }
 
+  /** A chart of a pivot: the pivot's own fields, with what each is on the chart. */
+  private syncPivot(items: NonNullable<ReturnType<ChartCard["pivotRailItems"]>>): void {
+    const key = `pivot|${this.query}|${items.map((item) => `${item.name}:${item.role}:${item.slots.map((slot) => `${slot.label}${slot.active ? "*" : ""}`).join("/")}`).join(",")}`;
+    if (key === this.drawn) return;
+    this.drawn = key;
+    this.search.classList.toggle("hidden", items.length <= SEARCH_ABOVE);
+    const rows: HTMLElement[] = [];
+    for (const item of items) {
+      if (this.query !== "" && !item.name.toLowerCase().includes(this.query)) continue;
+      const used = item.role !== "";
+      const field = el(
+        "button",
+        { class: `chart-rail-field${used ? " used" : ""}`, type: "button", "aria-pressed": String(used) },
+        [
+          el("span", { class: "chart-rail-glyph", "aria-hidden": "true" }, [item.glyph]),
+          el("span", { class: "chart-rail-name" }, [item.name]),
+          ...(item.role === "" ? [] : [el("span", { class: "chart-rail-role" }, [item.role])]),
+        ],
+      );
+      const click = chooseSlot(item.slots);
+      field.title =
+        click.do === "add"
+          ? `${item.name}. Click to use it as the ${click.slot.label} of this chart.`
+          : click.do === "remove"
+            ? `${item.name} is the ${click.slot.label} of this chart: click to take it off.`
+            : click.do === "ask"
+              ? `${item.name}. Click to choose where it goes.`
+              : item.name;
+      const menu = (anchor: HTMLElement): void => {
+        if (item.slots.length === 0) return;
+        openMenu(anchor, [
+          { label: "Use on this chart as", heading: true, action: () => {} },
+          ...item.slots.map(
+            (slot): MenuItem => ({
+              label: slot.label,
+              checked: slot.active,
+              disabled: slot.active && !slot.clearable,
+              action: () => slot.toggle(),
+            }),
+          ),
+        ]);
+      };
+      field.addEventListener("click", () => {
+        const now = chooseSlot(item.slots);
+        if (now.do === "add" || now.do === "remove") now.slot.toggle();
+        else if (now.do === "ask") menu(field);
+      });
+      const more = el(
+        "button",
+        { class: "chart-rail-more", type: "button", title: `Every place ${item.name} can go`, "aria-label": `Every place ${item.name} can go`, "aria-haspopup": "menu" },
+        ["\u22ef"],
+      );
+      more.addEventListener("click", () => menu(more));
+      rows.push(el("div", { class: "chart-rail-row" }, item.slots.length === 0 ? [field] : [field, more]));
+    }
+    this.list.replaceChildren(...rows);
+  }
+
   private describe(column: number, meta: ColumnMeta): string {
     const click = fieldClick(this.options.activeCard(), column, meta);
     if (click.do === "add") return `Click to use it as the ${click.slot.label} of this chart.`;
     if (click.do === "remove") return `It is the ${click.slot.label} of this chart: click to take it off.`;
     if (click.do === "new") return "Click to chart it.";
+    if (click.do === "none") return "It is already where it can be on this chart.";
     return "Click to choose where it goes.";
   }
 
@@ -160,7 +237,7 @@ export class ChartFieldRail {
     const click = fieldClick(this.options.activeCard(), column, meta);
     if (click.do === "add" || click.do === "remove") click.slot.toggle();
     else if (click.do === "new") this.options.onNewChart(click.kind, column);
-    else this.openFor(anchor, column);
+    else if (click.do === "ask") this.openFor(anchor, column);
   }
 
   private openFor(anchor: HTMLElement, column: number): void {

@@ -127,3 +127,16 @@ test("several measures over one axis become one series each, in step along the a
   assert.equal(long.dimensionTimes[0][0], long.dimensionTimes[0][1], "both series share the period's time");
   assert.equal(long.groupCount, 4);
 });
+
+test("a hand-set order carries over: rows along the axis, series in the legend", () => {
+  const v = view({ pivotColumns: [1] });
+  const def = pivotChartDef(v, { axis: 0, series: 1, measure: 0 })!;
+  const pivot = computePivot(def, DATA.columns, DATA.rowCount, ids);
+  const plain = pivotToAggregate(pivot);
+  assert.deepEqual([...new Set(plain.dimensions[0])], ["North", "South"], "by size without an order");
+  const ordered = pivotToAggregate(pivot, { rows: ["South", "North"], cols: ["Tea", "Coffee"] });
+  assert.deepEqual([...new Set(ordered.dimensions[0])], ["South", "North"]);
+  assert.deepEqual([...new Set(ordered.dimensions[1])], ["Tea", "Coffee"]);
+  const byLabel = pivotToAggregate(pivot);
+  assert.deepEqual([...new Set(byLabel.dimensions[1])], ["Coffee", "Tea"], "series in the pivot's column order");
+});

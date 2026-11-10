@@ -1,4 +1,5 @@
 import type { AggregateResult, ViewDef } from "./aggregate.js";
+import { orderedIndexes, orderKey } from "./pivot-order.js";
 import type { PivotDef, PivotResult } from "./pivot.js";
 
 /**
@@ -84,7 +85,11 @@ export function pivotChartDef(view: ViewDef, shape: PivotChartShape): PivotDef |
  * The pivot's cells as the long list a chart draws: one entry per (axis value, series value) that
  * has a number. A category axis is ordered by its largest total first, a date axis in date order.
  */
-export function pivotToAggregate(pivot: PivotResult): AggregateResult {
+export function pivotToAggregate(
+  pivot: PivotResult,
+  /** The Pivot View's hand-set order (label paths), when it applies to the field the chart uses. */
+  saved?: { rows?: readonly string[]; cols?: readonly string[] },
+): AggregateResult {
   const measure = pivot.measures[0];
   const rowCount = pivot.rowLabels.length;
   const colCount = Math.max(1, pivot.colLabels.length);
@@ -94,7 +99,10 @@ export function pivotToAggregate(pivot: PivotResult): AggregateResult {
   const cell = (r: number, c: number): number => measure?.values[r * colCount + c] ?? Number.NaN;
 
   const order = Array.from({ length: rowCount }, (_, r) => r);
-  if (!isTime) {
+  const rowOrder = saved?.rows !== undefined && saved.rows.length > 0 ? saved.rows : undefined;
+  if (rowOrder !== undefined && !isTime) {
+    order.splice(0, rowCount, ...orderedIndexes(pivot.rowLabels.map((labels) => orderKey(labels)), rowOrder));
+  } else if (!isTime) {
     const size = order.map((r) => {
       let total = 0;
       for (let c = 0; c < colCount; c++) {
@@ -110,8 +118,13 @@ export function pivotToAggregate(pivot: PivotResult): AggregateResult {
   const series: string[] = [];
   const times: number[] = [];
   const values: number[] = [];
+  // Series come in the pivot's column order (label order, or the one set by hand).
+  const colOrder =
+    saved?.cols !== undefined && saved.cols.length > 0 && pivot.colLabels.length > 0
+      ? orderedIndexes(pivot.colLabels.map((labels) => orderKey(labels)), saved.cols)
+      : Array.from({ length: colCount }, (_, c) => c);
   for (const r of order) {
-    for (let c = 0; c < colCount; c++) {
+    for (const c of colOrder) {
       const value = cell(r, c);
       if (!Number.isFinite(value)) continue;
       axis.push(pivot.rowLabels[r]?.join(" · ") ?? "");

@@ -17648,3 +17648,22 @@ button.cmp-change-name:hover {
 .nav-row .view-tabs {
   flex: 0 1 auto;
 }
+
+/* Where a chart of a pivot came from, one click back. */
+.chart-source-chip {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chart-source-chip:hover {
+  border-color: var(--accent);
+}
+.chart-headline:has(.chart-source-chip:not(.hidden)) .chart-scope {
+  display: none;
+}

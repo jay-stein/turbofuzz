@@ -1470,6 +1470,11 @@ export class ChartCard {
   private readonly viewSeriesWrap: HTMLElement;
   private readonly viewMeasureWrap: HTMLElement;
   private readonly backToSource: HTMLButtonElement;
+  private readonly sourceChip = el(
+    "button",
+    { class: "chart-source-chip hidden", type: "button", title: "Open the Pivot View this chart draws, as you left it" },
+    [],
+  ) as HTMLButtonElement;
   private readonly extraValuesWrap = el("div", { class: "chart-extra-values hidden", role: "group", "aria-label": "More values" });
   private extraValuesKey = "";
   private viewResult: AggregateMessage | null = null;
@@ -2133,16 +2138,7 @@ export class ChartCard {
     });
     const shapeSelect = (label: string, key: "viewAxis" | "viewSeries" | "viewMeasure"): HTMLSelectElement => {
       const select = this.buildSelect("chart-picker chart-picker-small", label);
-      select.addEventListener("change", () => {
-        this.noteBeforeChange();
-        this.config[key] = Number(select.value);
-        // The axis cannot also be the series: taking a field for one frees the other.
-        if (key === "viewAxis" && this.config.viewSeries === this.config.viewAxis) this.config.viewSeries = -1;
-        this.hiddenSplit.clear();
-        this.syncViewShapeOptions();
-        this.renderControls();
-        this.refreshView();
-      });
+      select.addEventListener("change", () => this.setViewShape(key, Number(select.value)));
       return select;
     };
     this.viewAxisSelect = shapeSelect("Pivot field on the axis", "viewAxis");
@@ -3333,7 +3329,10 @@ export class ChartCard {
     this.root.classList.add("chart-card-docked");
     this.layoutEl.classList.add("docked");
     sideHead.remove();
-    head.prepend(el("div", { class: "chart-headline" }, [this.summaryEl, this.scopeEl]));
+    this.sourceChip.addEventListener("click", () => {
+      if (this.config.source !== "") this.options.onOpenSource?.(this.config.source);
+    });
+    head.prepend(el("div", { class: "chart-headline" }, [this.summaryEl, this.scopeEl, this.sourceChip]));
     this.undoButton = el(
       "button",
       { class: "ghost small chart-undo-btn", type: "button", title: "Undo the last change to this chart (Ctrl+Z)", "aria-label": "Undo the last change to this chart", disabled: "disabled" },
@@ -3845,6 +3844,9 @@ export class ChartCard {
     this.kindStatic.classList.toggle("hidden", !bound || choice);
     this.viewKindSelect.classList.toggle("hidden", !choice);
     this.backToSource.classList.toggle("hidden", !bound || this.options.onOpenSource === undefined);
+    const origin = bound ? this.sources.find((entry) => entry.id === this.config.source) : undefined;
+    this.sourceChip.classList.toggle("hidden", origin === undefined || this.options.onOpenSource === undefined);
+    if (origin !== undefined) this.sourceChip.textContent = `${origin.kind === "pivot" ? "Pivot" : "View"}: ${origin.name} \u2197`;
     this.syncViewShapeOptions();
     this.syncFieldVisibility();
     this.settingsBody.classList.toggle("hidden", bound ? false : !this.canDraw());
@@ -4017,6 +4019,66 @@ export class ChartCard {
       if (add.value !== "") this.toggleExtraValue(Number(add.value));
     });
     this.extraValuesWrap.replaceChildren(...rows, add);
+  }
+
+  /** Puts a pivot field on the axis, as the series, or as the value. */
+  private setViewShape(key: "viewAxis" | "viewSeries" | "viewMeasure", value: number): void {
+    this.noteBeforeChange();
+    // Fields the chart had not fixed yet stay as the pivot lays them out.
+    const shape = this.viewShape();
+    if (shape !== null) {
+      this.config.viewAxis ??= shape.axis;
+      this.config.viewSeries ??= shape.series;
+      this.config.viewMeasure ??= shape.measure;
+    }
+    this.config[key] = value;
+    // The axis cannot also be the series: taking a field for one frees the other.
+    if (key === "viewAxis" && this.config.viewSeries === this.config.viewAxis) this.config.viewSeries = -1;
+    this.hiddenSplit.clear();
+    this.syncViewShapeOptions();
+    this.renderControls();
+    this.refreshView();
+  }
+
+  /**
+   * The fields of the pivot this chart draws, for the field list to show in place of the table's
+   * columns: what each is on the chart, and the places it could go. Null for a chart of the table.
+   */
+  pivotRailItems(): {
+    name: string;
+    glyph: string;
+    role: string;
+    slots: { label: string; active: boolean; clearable: boolean; empty: boolean; toggle(): void }[];
+  }[] | null {
+    const fields = this.viewFields();
+    const shape = this.viewShape();
+    if (fields === null || shape === null) return null;
+    const live = this.config.kind !== "pivotHeatmap";
+    const dimensions = fields.dimensions.map((field, index) => {
+      const slots: { label: string; active: boolean; clearable: boolean; empty: boolean; toggle(): void }[] = [];
+      if (live) {
+        slots.push({ label: "Axis", active: shape.axis === index, clearable: false, empty: false, toggle: () => this.setViewShape("viewAxis", index) });
+        // The axis field cannot also split the series, so it offers the axis only.
+        if (shape.axis !== index) {
+          slots.push({
+            label: "Series",
+            active: shape.series === index,
+            clearable: true,
+            empty: shape.series < 0,
+            toggle: () => this.setViewShape("viewSeries", shape.series === index ? -1 : index),
+          });
+        }
+      }
+      const role = shape.axis === index ? "Axis" : shape.series === index ? "Series" : "";
+      return { name: field.name, glyph: field.time ? "T" : "C", role: live ? role : "", slots };
+    });
+    const measures = fields.measures.map((name, index) => ({
+      name,
+      glyph: "#",
+      role: live && shape.measure === index ? "Value" : "",
+      slots: live ? [{ label: "Value", active: shape.measure === index, clearable: false, empty: false, toggle: () => this.setViewShape("viewMeasure", index) }] : [],
+    }));
+    return [...dimensions, ...measures];
   }
 
   /** The pivot fields this chart can use, when its source is a Pivot View that offered them. */
@@ -10907,6 +10969,8 @@ export class ChartCard {
       color: string;
       total: number;
       values: Float64Array;
+      /** Where it first appeared: for a pivot chart, the pivot's own column order. */
+      first: number;
     }
     const byGroup = new Map<string, SplitSeries>();
     for (let i = 0; i < n; i++) {
@@ -10918,6 +10982,7 @@ export class ChartCard {
           color: this.groupColor(byGroup.size),
           total: 0,
           values: new Float64Array(buckets.length).fill(Number.NaN),
+          first: byGroup.size,
         };
         byGroup.set(label, entry);
       }
@@ -10931,12 +10996,15 @@ export class ChartCard {
     const all = [...byGroup.values()].sort((a, b) => b.total - a.total);
     const seriesLimit = Math.max(1, Math.min(12, this.config.topN));
     let shown = all.slice(0, seriesLimit);
+    // The largest are kept, but a pivot's series read in the pivot's order: years in year order.
+    if (this.config.source !== "") shown.sort((a, b) => a.first - b.first);
     if (this.config.groupOther && all.length > seriesLimit) {
       const other: SplitSeries = {
         label: "Other",
         color: this.groupColor(shown.length),
         total: 0,
         values: new Float64Array(buckets.length).fill(Number.NaN),
+        first: byGroup.size,
       };
       for (const series of all.slice(seriesLimit)) {
         other.total += series.total;

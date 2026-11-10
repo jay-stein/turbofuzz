@@ -1,4 +1,4 @@
-import { fitPivotShape, pivotChartDef, pivotToAggregate, type PivotChartShape } from "../data/pivot-chart.js";
+import { fitPivotShape, pivotColumnIndexes, pivotChartDef, pivotToAggregate, type PivotChartShape } from "../data/pivot-chart.js";
 import { openSettingsPanel } from "./settings-panel.js";
 import { readSettings, updateSettings } from "./settings.js";
 import type { DateOrder } from "../parse/dates.js";
@@ -3151,15 +3151,23 @@ export class App {
   private aggregateForSource(source: string, shape?: PivotChartShape): Promise<AggregateMessage | null> {
     const def = this.viewsPanel?.viewDef(source);
     if (def === undefined) return Promise.resolve(null);
-    const pivot = pivotChartDef(def, fitPivotShape(def, shape));
+    const fitted = fitPivotShape(def, shape);
+    const pivot = pivotChartDef(def, fitted);
     if (pivot === null) return Promise.resolve(null);
-    const key = JSON.stringify(pivot);
+    // A hand-set order is a list of label paths: it carries over when the field is the only one on its side.
+    const columns = pivotColumnIndexes(def);
+    const rowFields = def.dimensions.map((_, index) => index).filter((index) => !columns.includes(index));
+    const saved = {
+      rows: rowFields.length === 1 && rowFields[0] === fitted.axis ? def.pivotRowOrder : undefined,
+      cols: columns.length === 1 && columns[0] === fitted.series ? def.pivotColOrder : undefined,
+    };
+    const key = JSON.stringify([pivot, saved]);
     const pending = this.viewChartRequests.get(key);
     if (pending !== undefined) return pending;
     const request = this.client
       .getPivot(pivot)
       .then((message): AggregateMessage => ({
-        ...pivotToAggregate(message),
+        ...pivotToAggregate(message, saved),
         type: "aggregate",
         requestId: message.requestId,
         viewId: source,
