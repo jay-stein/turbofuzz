@@ -592,7 +592,10 @@ export class ChartsPanel {
     for (const other of this.entries) this.entryRoot(other).classList.toggle("hidden", other !== entry);
     this.syncTabs();
     this.rail.sync();
-    if (entry?.type === "card") entry.card.repaint();
+    if (entry?.type === "card") {
+      this.bringUpToDate(entry.card);
+      entry.card.repaint();
+    }
   }
 
   /** Redraws the tab row from the entries, in their order. */
@@ -938,7 +941,9 @@ export class ChartsPanel {
   /** Refetch every view-bound card after filters or underlying data change. */
   refreshBoundViews(): void {
     for (const card of this.cards()) {
-      if (card.getConfig().source !== "") card.refreshView();
+      if (card.getConfig().source === "") continue;
+      if (this.onScreen(card)) card.refreshView();
+      else this.stale.add(card);
     }
   }
 
@@ -955,6 +960,7 @@ export class ChartsPanel {
   removeCard(card: ChartCard): void {
     const entry = this.entries.find((candidate) => candidate.type === "card" && candidate.card === card);
     if (entry === undefined) return;
+    this.stale.delete(card);
     card.dispose();
     this.dropEntry(entry);
   }
@@ -1212,28 +1218,67 @@ export class ChartsPanel {
   ): void {
     this.facets = facets;
     this.histograms = histograms;
-    for (const card of this.liveCards()) card.setFiltered(facets, histograms);
+    for (const card of this.liveCards()) {
+      if (this.onScreen(card)) card.setFiltered(facets, histograms);
+      else this.stale.add(card);
+    }
+  }
+
+  /**
+   * Charts nobody is looking at (another chart's tab, or the whole Chart page while Table is
+   * open) do not recompute when the rows change: the worker is one queue, and their requests
+   * stood in line with the table's own. They are marked here and catch up when shown.
+   */
+  private stale = new Set<ChartCard>();
+
+  private onScreen(card: ChartCard): boolean {
+    if (this.detached.includes(card)) return true;
+    return !this.root.classList.contains("hidden") && card === this.activeCard();
+  }
+
+  /** A chart coming into view takes the rows as they are now, once, if they changed while it was away. */
+  private bringUpToDate(card: ChartCard): void {
+    if (!this.stale.delete(card)) return;
+    card.setRowCount(this.rowCount);
+    card.setTotalRowCount(this.totalRowCount);
+    card.setFiltered(this.facets, this.histograms);
   }
 
   setRowCount(count: number): void {
     this.rowCount = count;
     this.addPanel.setColumns(this.columns, count);
-    for (const card of this.liveCards()) card.setRowCount(count);
+    for (const card of this.liveCards()) {
+      if (this.onScreen(card)) card.setRowCount(count);
+      else this.stale.add(card);
+    }
   }
 
   setTotalRowCount(count: number): void {
     this.totalRowCount = count;
-    for (const card of this.liveCards()) card.setTotalRowCount(count);
+    for (const card of this.liveCards()) {
+      if (this.onScreen(card)) card.setTotalRowCount(count);
+      else this.stale.add(card);
+    }
   }
 
   refresh(): void {
-    for (const card of this.liveCards()) card.refresh();
+    for (const card of this.liveCards()) {
+      if (this.onScreen(card)) card.refresh();
+      else this.stale.add(card);
+    }
   }
 
-  /** Cheap re-entry: repaint without re-requesting any worker payloads. Hidden tabs repaint when opened. */
+  /**
+   * The Chart page is being shown again: the open chart repaints, and first catches up if the
+   * rows changed while the page was away. Hidden tabs do the same when opened.
+   */
   repaint(): void {
-    this.activeCard()?.repaint();
-    for (const card of this.detached) card.repaint();
+    const card = this.activeCard();
+    if (card !== null) {
+      this.bringUpToDate(card);
+      card.repaint();
+    }
+    for (const other of this.detached) other.repaint();
   }
 
   dispose(): void {
