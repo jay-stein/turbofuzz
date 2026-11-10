@@ -115,7 +115,7 @@ import {
   themeLabel,
   type ThemePreference,
 } from "./theme.js";
-import { ResultTable, type ColumnQaKind, type HighlightRule } from "./table.js";
+import { ResultTable, autoGroups, type ColumnQaKind, type HighlightRule } from "./table.js";
 import { openStatsModal } from "./stats.js";
 import { chipText } from "./chips.js";
 import {
@@ -781,7 +781,7 @@ export class App {
   /** Columns showing thousands separators (display only, data unchanged). */
   private displayGrouping = new Set<number>();
   /** The columns whose thousands separators were switched on by the Settings number format, not by the person, so a change of format can take them off again. */
-  private autoGrouped = new Set<number>();
+  private groupingOff = new Set<number>();
   private columnsStrip!: HTMLElement;
   private tilesOn = readColumnTilesPreference();
   private filterHost!: HTMLElement;
@@ -2763,7 +2763,7 @@ export class App {
     this.showChanges = false;
     this.displayFormats.clear();
     this.displayGrouping.clear();
-    this.autoGrouped.clear();
+    this.groupingOff.clear();
     this.applyNumberFormatToTable(false);
     // User-run checks reference filter bits that reset with the data.
     this.dqUserChecks = [];
@@ -3013,7 +3013,7 @@ export class App {
     this.table.setSort(-1, 1);
     this.table.setCount(this.resultCount);
     this.table.setFormats(this.displayFormats);
-    this.table.setGrouping(this.displayGrouping);
+    this.table.setGrouping(this.displayGrouping, this.groupingOff);
     this.table.setLocaleNumbers(readSettings().numberFormat !== "");
     this.table.setShowChanges(this.showChanges);
     this.syncColumnQa();
@@ -6869,23 +6869,18 @@ export class App {
    * table is left as it was, separators off unless asked for.
    */
   private applyNumberFormatToTable(repaint: boolean): void {
-    const chosen = readSettings().numberFormat !== "";
-    for (const column of this.autoGrouped) this.displayGrouping.delete(column);
-    this.autoGrouped.clear();
-    if (chosen) {
-      this.metas.forEach((meta, column) => {
-        if (meta.type !== "integer" && meta.type !== "number") return;
-        if (meta.role === "provenance" || this.displayGrouping.has(column)) return;
-        const big = Math.max(Math.abs(meta.stats.min ?? 0), Math.abs(meta.stats.max ?? 0));
-        if (big < 10_000) return;
-        this.displayGrouping.add(column);
-        this.autoGrouped.add(column);
-      });
-    }
+    // Which columns get separators is worked out by the table from each column as it is now (Table.isGrouped).
     if (repaint && this.table !== null) {
-      this.table.setLocaleNumbers(chosen);
-      this.table.setGrouping(this.displayGrouping);
+      this.table.setLocaleNumbers(readSettings().numberFormat !== "");
+      this.table.setGrouping(this.displayGrouping, this.groupingOff);
     }
+  }
+
+  /** Whether a column shows thousands separators: the person's choice, else the Settings number format's rule. */
+  private groupedNow(column: number): boolean {
+    if (this.displayGrouping.has(column)) return true;
+    if (this.groupingOff.has(column) || readSettings().numberFormat === "") return false;
+    return autoGroups(this.metas[column]);
   }
 
   private onSettingChanged(key: "dateOrder" | "weekStart" | "holidays" | "numberFormat"): void {
@@ -7461,7 +7456,7 @@ export class App {
     openColumnInspector(anchor, meta, column, {
       rowCount: this.rowCount,
       displayFormat: this.displayFormats.get(column) ?? null,
-      displayGrouping: this.displayGrouping.has(column),
+      displayGrouping: this.groupedNow(column),
       sensitiveWhy: this.sensitiveNotes.has(column) ? [this.sensitiveNotes.get(column) ?? ""] : [],
     });
   }
@@ -7599,7 +7594,7 @@ export class App {
       sort: this.table?.sortFor(column) ?? 0,
       frozen: this.frozenThrough === column,
       displayFormat: this.displayFormats.get(column) ?? null,
-      displayGrouping: this.displayGrouping.has(column),
+      displayGrouping: this.groupedNow(column),
       fillItems: meta.stats.nulls > 0 ? this.fillMenuItems([column]) : [],
       outlierItems: meta.anomalyCounts.values > 0 ? this.outlierMenuItems([column]) : [],
       onSort: (dir) => this.changeSort(column, dir),
@@ -7626,9 +7621,14 @@ export class App {
         );
       },
       onDisplayGrouping: (on) => {
-        if (on) this.displayGrouping.add(column);
-        else this.displayGrouping.delete(column);
-        this.table?.setGrouping(this.displayGrouping);
+        if (on) {
+          this.displayGrouping.add(column);
+          this.groupingOff.delete(column);
+        } else {
+          this.displayGrouping.delete(column);
+          this.groupingOff.add(column);
+        }
+        this.table?.setGrouping(this.displayGrouping, this.groupingOff);
         this.setAction(
           on
             ? `“${meta.name}”: thousands separators shown (values unchanged)`

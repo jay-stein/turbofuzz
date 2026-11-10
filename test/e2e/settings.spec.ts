@@ -82,3 +82,31 @@ test("with a number format chosen, big numbers in the table get its thousands se
   await expect(first).toContainText("19.187");
   await expect(page.locator(".table-rows .tr").nth(1)).toContainText("1,25");
 });
+
+test("a column that only becomes a number after loading gets thousands separators too, and a person's off stays off", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.evaluate(() => localStorage.setItem("turbofuzz.settings", JSON.stringify({ numberFormat: "en-US" })));
+  await page.reload();
+  // Fixed-width, unround 7-digit numbers under a neutral name are read as an ID, so no separators at first.
+  const rows = ["title,amt"];
+  for (let i = 0; i < 30; i++) rows.push(`Film ${i},${4_000_001 + i * 7_919}`);
+  await page.locator('input[type="file"]').setInputFiles({ name: "films.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  const first = page.locator(".table-rows .tr").first();
+  await expect(first).toContainText("4000001");
+
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("type amt integer");
+  await page.keyboard.press("Enter");
+  await page.getByRole("dialog", { name: "Apply this step?" }).getByRole("button", { name: "Apply" }).click();
+  await page.getByRole("button", { name: "Convert to Integer" }).click();
+  await expect(first).toContainText("4,000,001", { timeout: 15_000 });
+
+  // Turned off by hand, it stays off.
+  await page.locator(".table-header .th-label", { hasText: "amt" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: /Number display/ }).click();
+  await page.getByText("Thousands separators", { exact: true }).click();
+  await expect(first).toContainText("4000001");
+});

@@ -134,6 +134,13 @@ export interface ResultTableOptions {
   ) => void;
 }
 
+/** With a number format chosen, a number column whose values reach 10,000 gets thousands separators; years and small codes don't. */
+export function autoGroups(meta: Pick<ColumnMeta, "type" | "role" | "stats"> | undefined): boolean {
+  if (meta === undefined || (meta.type !== "integer" && meta.type !== "number") || meta.role === "provenance") return false;
+  const big = Math.max(Math.abs(meta.stats.min ?? 0), Math.abs(meta.stats.max ?? 0));
+  return big >= 10_000;
+}
+
 export class ResultTable {
   private readonly scroller: HTMLDivElement;
   private readonly header: HTMLDivElement;
@@ -157,8 +164,9 @@ export class ResultTable {
     this.repaintRows();
   }
 
-  /** Per-column thousands-separator display (display only, not the data). */
+  /** Columns the person switched thousands separators on for, or off (display only, not the data). */
   private grouping = new Set<number>();
+  private groupingOff = new Set<number>();
   /** A number format is chosen in Settings: number columns are written in it, decimal mark included, not as the file spelled them. */
   private localeNumbers = false;
   private columnQa = new Set<string>();
@@ -445,10 +453,26 @@ export class ResultTable {
     this.repaintRows();
   }
 
-  /** Per-column thousands-separator display (display only, not the data). */
-  setGrouping(columns: Iterable<number>): void {
-    this.grouping = new Set(columns);
+  /**
+   * Thousands separators the person chose per column: `on` shows them, `off` keeps them away even where the
+   * Settings number format would add them. Display only, not the data.
+   */
+  setGrouping(on: Iterable<number>, off: Iterable<number> = []): void {
+    this.grouping = new Set(on);
+    this.groupingOff = new Set(off);
     this.repaintRows();
+  }
+
+  /**
+   * Whether a column's numbers are written with thousands separators: the person's choice when they made one;
+   * otherwise, with a number format chosen in Settings, every number column with big values (10,000 and up, so
+   * years and small codes stay as they are). Read from the column as it is now, so a column that becomes a number
+   * later (a type change, a clean, an undo) is grouped too, without anyone having to remember to ask.
+   */
+  isGrouped(column: number): boolean {
+    if (this.grouping.has(column)) return true;
+    if (this.groupingOff.has(column) || !this.localeNumbers) return false;
+    return autoGroups(this.columns[column]);
   }
 
   /**
@@ -1503,7 +1527,7 @@ export class ResultTable {
     // - number columns honour the forced-decimal and grouping preferences
     // - date/datetime cells render as ISO YYYY-MM-DD [HH:MM]
     const decimals = this.formats.get(columnIndex);
-    const grouped = this.grouping.has(columnIndex);
+    const grouped = this.isGrouped(columnIndex);
     const numericType = this.columns[columnIndex]?.type;
     let display = value;
     if (numericType === "integer") {
