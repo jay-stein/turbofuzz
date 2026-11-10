@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("the Melt button opens a dialog: keep some columns, stack the others, see the result, apply", async ({ page }) => {
+test("Melt, from the Reshape menu, opens a dialog: keep some columns, stack the others, see the result, apply", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   const csv = ["region,2019,2020,2021", "North,10,12,", "South,20,22,24", "East,30,32,34"].join("\n");
@@ -8,7 +8,8 @@ test("the Melt button opens a dialog: keep some columns, stack the others, see t
   await page.locator(".nav-row").waitFor();
   await page.getByRole("tab", { name: "Table" }).click();
 
-  await page.getByRole("button", { name: /^Melt/ }).click();
+  await page.getByRole("button", { name: "Reshape data" }).click();
+  await page.getByRole("menuitem", { name: /^Melt/ }).click();
   const dialog = page.getByRole("dialog", { name: "Melt: pivot longer" });
   await expect(dialog).toBeVisible();
   // The years are stacked and the region kept without being asked; the new column is named for what the headers are.
@@ -43,7 +44,8 @@ test("Melt picks columns by what they contain and tidies the old headers; Spread
   await page.locator(".nav-row").waitFor();
   await page.getByRole("tab", { name: "Table" }).click();
 
-  await page.getByRole("button", { name: /^Melt/ }).click();
+  await page.getByRole("button", { name: "Reshape data" }).click();
+  await page.getByRole("menuitem", { name: /^Melt/ }).click();
   const melt = page.getByRole("dialog", { name: "Melt: pivot longer" });
   await melt.getByRole("button", { name: "Keep all" }).click();
   await melt.getByLabel("Select columns by name").fill("kwh");
@@ -57,7 +59,8 @@ test("Melt picks columns by what they contain and tidies the old headers; Spread
   await melt.getByRole("button", { name: /Melt into 6 rows/ }).click();
   await expect(page.locator(".nav-actions button", { hasText: /^Recipe \(1\)/ })).toBeVisible();
 
-  await page.getByRole("button", { name: /^Spread/ }).click();
+  await page.getByRole("button", { name: "Reshape data" }).click();
+  await page.getByRole("menuitem", { name: /^Spread/ }).click();
   const spread = page.getByRole("dialog", { name: "Spread: pivot wider" });
   await expect(spread).toBeVisible();
   await expect(spread.getByLabel("Column whose values become the new headers")).toHaveValue("2");
@@ -73,7 +76,8 @@ test("the preview box redraws as the choices change, with real rows", async ({ p
   const csv = ["region,2019,2020,2021", "North,10,12,", "South,20,22,24", "East,30,32,34"].join("\n");
   await page.locator('input[type="file"]').setInputFiles({ name: "wide.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
   await page.locator(".nav-row").waitFor();
-  await page.getByRole("button", { name: /^Melt/ }).click();
+  await page.getByRole("button", { name: "Reshape data" }).click();
+  await page.getByRole("menuitem", { name: /^Melt/ }).click();
   const dialog = page.getByRole("dialog", { name: "Melt: pivot longer" });
   const after = dialog.locator(".pv-box .pv-table").last();
   await expect(after.locator("tbody tr")).toHaveCount(6, { timeout: 10_000 });

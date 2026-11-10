@@ -9443,7 +9443,10 @@ label.null-row {
   .sidebar {
     width: 268px;
   }
+}
 
+/* The page tabs come first: when they and the icons no longer fit, the icons go into Actions. */
+@media (max-width: 1120px) {
   .nav-actions .nav-action {
     display: none;
   }
@@ -17613,4 +17616,35 @@ button.cmp-change-name:hover {
   .chart-rail-more {
     opacity: 1;
   }
+}
+
+/* Toolbar icons name themselves under the icon. Growing in place pushed the page tabs sideways. */
+.nav-actions .xbtn {
+  position: relative;
+}
+.nav-actions .xbtn-label {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  max-width: none;
+  margin: 0;
+  padding: 3px 9px;
+  overflow: visible;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.25);
+  transition: opacity 0.12s ease;
+}
+.nav-actions .xbtn:hover .xbtn-label,
+.nav-actions .xbtn:focus-visible .xbtn-label {
+  max-width: none;
+  margin-left: 0;
+}
+.nav-row .view-tabs {
+  flex: 0 1 auto;
 }

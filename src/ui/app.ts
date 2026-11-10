@@ -1358,6 +1358,28 @@ export class App {
         { label: "Open workspace…", title: "Replay a saved workspace file on this data", action: () => this.pickWorkspaceFile() },
       ]),
     );
+    // The ways of reshaping the data sit in one menu: they are used once in a while, and six icons
+    // for them crowded the page tabs. The buttons stay (the menu and the column menu click them).
+    const reshapeButton = el(
+      "button",
+      { class: "ghost small nav-action reshape-button", type: "button", title: "Convert types, melt, spread, explode and import settings", "aria-haspopup": "menu" },
+      [],
+    ) as HTMLButtonElement;
+    expandButton(reshapeButton, "convert", "Reshape data ▾");
+    reshapeButton.addEventListener("click", () =>
+      openMenu(reshapeButton, [
+        { label: "Convert types…", title: this.convertTypesButton.title, action: () => this.convertTypesButton.click() },
+        { label: "Melt: pivot longer (wide → long)…", title: this.meltButton.title, action: () => this.meltButton.click() },
+        { label: "Spread: pivot wider (long → wide)…", title: this.spreadButton.title, action: () => this.spreadButton.click() },
+        { label: "Explode: one row per value in a cell…", title: this.explodeButton.title, action: () => this.explodeButton.click() },
+        {
+          label: "Import settings…",
+          title: this.headerRowButton.title,
+          disabled: this.headerRowButton.disabled,
+          action: () => this.headerRowButton.click(),
+        },
+      ]),
+    );
     const actionsMenu = el(
       "button",
       { class: "ghost small nav-actions-menu", type: "button", title: "Convert types, recipe and export" },
@@ -1402,11 +1424,7 @@ export class App {
       tabHost,
       el("span", { class: "grow" }),
       el("div", { class: "nav-actions" }, [
-        this.convertTypesButton,
-        this.meltButton,
-        this.spreadButton,
-        this.explodeButton,
-        this.headerRowButton,
+        reshapeButton,
         this.undoButton,
         this.stepsButton,
         workspaceButton,

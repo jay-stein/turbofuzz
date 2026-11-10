@@ -61,7 +61,8 @@ test("batch type conversion updates the column type", async ({ page }) => {
   await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
   await page.getByRole("tab", { name: "Table" }).click();
 
-  await page.getByRole("button", { name: "Convert column types" }).click();
+  await page.getByRole("button", { name: "Reshape data" }).click();
+  await page.getByRole("menuitem", { name: /^Convert types/ }).click();
   await expect(page.locator(".batch-cast-modal")).toBeVisible();
   const row = page.locator(".batch-cast-row").filter({ hasText: "flag" });
   await row.locator("select").selectOption("boolean");
@@ -247,7 +248,8 @@ test("the header row can be chosen by hand and reloads the table", async ({ page
   await page.getByRole("tab", { name: "Table" }).click();
   await expect(page.locator(".th-label")).toHaveText(["Region", "Sales"]);
 
-  await page.getByRole("button", { name: "Import settings" }).click();
+  await page.getByRole("button", { name: "Reshape data" }).click();
+  await page.getByRole("menuitem", { name: "Import settings…" }).click();
   await expect(page.locator(".header-row-modal")).toBeVisible();
   // Treat row 3 (North, 10) as the header instead of the guess.
   await page.locator(".header-row-line").nth(2).click();
@@ -301,7 +303,8 @@ test("a statistics-agency file loads without its notes and the end can be set by
   ]);
   await expect(page.locator(".table-rows .tr")).toHaveCount(4);
 
-  await page.getByRole("button", { name: "Import settings" }).click();
+  await page.getByRole("button", { name: "Reshape data" }).click();
+  await page.getByRole("menuitem", { name: "Import settings…" }).click();
   await expect(page.locator(".header-row-modal")).toBeVisible();
   await expect(page.locator(".header-row-ignored").first()).toBeVisible();
   // Keep data only up to the Utilities row (row 9 of the parsed rows) with the per-row button.
@@ -358,7 +361,8 @@ test("the header row can be chosen for a compressed file", async ({ page }) => {
   await page.getByRole("tab", { name: "Table" }).click();
   await expect(page.locator(".th-label")).toHaveText(["Region", "Sales"]);
 
-  await page.getByRole("button", { name: "Import settings" }).click();
+  await page.getByRole("button", { name: "Reshape data" }).click();
+  await page.getByRole("menuitem", { name: "Import settings…" }).click();
   await page.locator(".header-row-line").nth(2).click();
   await page.getByRole("button", { name: "Apply and reload" }).click();
   await expect(page.locator(".header-row-modal")).toHaveCount(0);
