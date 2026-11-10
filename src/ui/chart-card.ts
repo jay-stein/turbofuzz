@@ -1,4 +1,5 @@
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
+import type { PivotChartField, PivotChartShape } from "../data/pivot-chart.js";
 import type { GetSliceBreakdownRequest, SliceBreakdownMessage, SliceRegion } from "../worker/protocol.js";
 import {
   addExclusion,
@@ -475,7 +476,9 @@ export interface ChartCardOptions {
     chartExclude?: ChartExclusion[];
   }): Promise<GroupedBinsMessage>;
   /** Aggregate result for a view-bound card (null when the view is gone). */
-  requestViewAggregate?(source: string): Promise<AggregateMessage | null>;
+  requestViewAggregate?(source: string, shape?: PivotChartShape): Promise<AggregateMessage | null>;
+  /** Go to the Pivot View this chart draws, as it was left. */
+  onOpenSource?(source: string): void;
   /** Worker pivot result for a pivot-bound heatmap card. */
   requestViewPivot?(source: string): Promise<PivotMessage | null>;
   /** Ad-hoc aggregation for the treemap measure (sum of a numeric column). */
@@ -731,7 +734,25 @@ export interface ChartCardConfig {
   pivotRowLevel?: number;
   pivotColLevel?: number;
   pivotMeasure?: number;
+  /**
+   * A chart of a Pivot View: which of the pivot's fields is the axis, which splits it into
+   * series (-1 none) and which value is drawn. Unset follows the pivot: Rows, then Columns.
+   */
+  viewAxis?: number;
+  viewSeries?: number;
+  viewMeasure?: number;
 }
+
+/** A source in a card's Source list: the table, or a Pivot View with the fields a chart of it can use. */
+export interface ChartSource {
+  id: string;
+  name: string;
+  kind?: "pivot" | "view";
+  fields?: { dimensions: PivotChartField[]; measures: string[]; shape: PivotChartShape };
+}
+
+/** A chart of a pivot split into series draws at most this many groups of bars along its axis. */
+const SPLIT_AXIS_LIMIT = 20;
 
 /** One overlaid bubble set (a group, or the whole chart when ungrouped). */
 interface BubbleLayer {
@@ -1402,7 +1423,15 @@ export class ChartCard {
   private readonly kindSelect: HTMLSelectElement;
   private readonly sourceSelect: HTMLSelectElement;
   private readonly sourceWrap: HTMLElement;
-  private sources: { id: string; name: string; kind?: "pivot" | "view" }[] = [];
+  private sources: ChartSource[] = [];
+  private readonly viewKindSelect: HTMLSelectElement;
+  private readonly viewAxisSelect: HTMLSelectElement;
+  private readonly viewSeriesSelect: HTMLSelectElement;
+  private readonly viewMeasureSelect: HTMLSelectElement;
+  private readonly viewAxisWrap: HTMLElement;
+  private readonly viewSeriesWrap: HTMLElement;
+  private readonly viewMeasureWrap: HTMLElement;
+  private readonly backToSource: HTMLButtonElement;
   private viewResult: AggregateMessage | null = null;
   /** A view-bound card cannot change type, so its real type is shown as text. */
   private readonly kindStatic = el("span", { class: "chart-kind-static hidden" });
@@ -1554,6 +1583,9 @@ export class ChartCard {
     this.renderSourceOptions();
     this.sourceSelect.addEventListener("change", () => {
       this.config.source = this.sourceSelect.value;
+      this.config.viewAxis = undefined;
+      this.config.viewSeries = undefined;
+      this.config.viewMeasure = undefined;
       this.generation++;
       this.viewResult = null;
       this.pivotResult = null;
@@ -2046,6 +2078,45 @@ export class ChartCard {
       this.render();
     });
     this.pivotMeasureWrap = this.tagged("Value", this.pivotMeasureSelect).wrap;
+
+    // A chart of a Pivot View: bars and lines or a heatmap, and which pivot field goes where.
+    this.viewKindSelect = this.buildSelect("chart-picker chart-picker-small hidden", "Chart type for this pivot");
+    this.viewKindSelect.addEventListener("change", () => {
+      this.noteBeforeChange();
+      this.config.kind = this.viewKindSelect.value === "pivotHeatmap" ? "pivotHeatmap" : "bar";
+      this.viewResult = null;
+      this.pivotResult = null;
+      this.syncSourceControls();
+      this.refreshForConfig();
+    });
+    const shapeSelect = (label: string, key: "viewAxis" | "viewSeries" | "viewMeasure"): HTMLSelectElement => {
+      const select = this.buildSelect("chart-picker chart-picker-small", label);
+      select.addEventListener("change", () => {
+        this.noteBeforeChange();
+        this.config[key] = Number(select.value);
+        // The axis cannot also be the series: taking a field for one frees the other.
+        if (key === "viewAxis" && this.config.viewSeries === this.config.viewAxis) this.config.viewSeries = -1;
+        this.hiddenSplit.clear();
+        this.syncViewShapeOptions();
+        this.renderControls();
+        this.refreshView();
+      });
+      return select;
+    };
+    this.viewAxisSelect = shapeSelect("Pivot field on the axis", "viewAxis");
+    this.viewSeriesSelect = shapeSelect("Pivot field for the series", "viewSeries");
+    this.viewMeasureSelect = shapeSelect("Pivot value", "viewMeasure");
+    this.viewAxisWrap = this.tagged("Axis", this.viewAxisSelect).wrap;
+    this.viewSeriesWrap = this.tagged("Series", this.viewSeriesSelect).wrap;
+    this.viewMeasureWrap = this.tagged("Value", this.viewMeasureSelect).wrap;
+    this.backToSource = el(
+      "button",
+      { class: "link small chart-back-to-source hidden", type: "button", title: "Open the Pivot View this chart draws, as you left it" },
+      ["← Back to pivot"],
+    ) as HTMLButtonElement;
+    this.backToSource.addEventListener("click", () => {
+      if (this.config.source !== "") this.options.onOpenSource?.(this.config.source);
+    });
     // Every control below already shows or hides itself for the chart type;
     // the sidebar only decides where they live.
     const sidebarRow = (label: string, control: HTMLElement): HTMLElement =>
@@ -2060,12 +2131,14 @@ export class ChartCard {
       sideSection(
         sidebarRow(
           "Chart type",
-          el("span", { class: "chart-kind-field" }, [this.kindSelect, this.kindStatic]),
+          el("span", { class: "chart-kind-field" }, [this.kindSelect, this.kindStatic, this.viewKindSelect]),
         ),
         this.sourceWrap,
+        this.backToSource,
       ),
       sideSection(this.axesPanel, this.sortWrap),
       sideSection(this.valueWrap, this.groupWrap, this.valueCalcWrap),
+      sideSection(this.viewAxisWrap, this.viewSeriesWrap, this.viewMeasureWrap),
       sideSection(this.pivotRowWrap, this.pivotColWrap, this.pivotMeasureWrap),
     ]);
     this.sidebarToggle = el(
@@ -3224,6 +3297,7 @@ export class ChartCard {
       [this.colorWrap, this.colorSelect],
       [this.sizeWrap, this.sizeSelect],
     ];
+    if (this.config.source !== "") return [];
     return pairs
       .filter(([wrap, select]) => !wrap.classList.contains("hidden") && !select.disabled)
       .map(([wrap, select]) => ({ wrap, select, label: wrap.querySelector(".chart-tag-label")?.textContent ?? "" }));
@@ -3487,7 +3561,7 @@ export class ChartCard {
     this.setColumns(this.columns);
   }
   /** The sources a card can bind to (the table plus each saved view). */
-  setSources(sources: { id: string; name: string; kind?: "pivot" | "view" }[]): void {
+  setSources(sources: ChartSource[]): void {
     this.sources = sources;
     this.renderSourceOptions();
     this.syncSourceControls();
@@ -3546,7 +3620,12 @@ export class ChartCard {
     const bound = this.config.source !== "";
     const kind = this.config.kind;
     this.kindSelect.classList.toggle("hidden", bound);
-    this.kindStatic.classList.toggle("hidden", !bound);
+    // A pivot with a Columns field can also be a heatmap, so its chart gets a choice; a plain view says what it is.
+    const choice = bound && this.isPivotSource();
+    this.kindStatic.classList.toggle("hidden", !bound || choice);
+    this.viewKindSelect.classList.toggle("hidden", !choice);
+    this.backToSource.classList.toggle("hidden", !bound || this.options.onOpenSource === undefined);
+    this.syncViewShapeOptions();
     this.syncFieldVisibility();
     this.settingsBody.classList.toggle("hidden", bound ? false : !this.canDraw());
     const pivotMode = kind === "pivotHeatmap" && this.isPivotSource();
@@ -3641,7 +3720,7 @@ export class ChartCard {
       return;
     }
     void this.options
-      .requestViewAggregate(source)
+      .requestViewAggregate(source, this.viewShape() ?? undefined)
       .then((message) => {
         if (generation !== this.viewGeneration || this.disposed || this.config.source !== source) return;
         this.viewResult = message;
@@ -3651,6 +3730,62 @@ export class ChartCard {
       .catch(() => {
         // Keep the last result as the fallback.
       });
+  }
+
+  /** The pivot fields this chart can use, when its source is a Pivot View that offered them. */
+  private viewFields(): NonNullable<ChartSource["fields"]> | null {
+    if (this.config.source === "") return null;
+    return this.sources.find((entry) => entry.id === this.config.source)?.fields ?? null;
+  }
+
+  /** Axis, series and value as chosen, each falling back to the pivot's own layout. */
+  private viewShape(): PivotChartShape | null {
+    const fields = this.viewFields();
+    if (fields === null) return null;
+    const dims = fields.dimensions.length;
+    const ok = (index: number | undefined): index is number => index !== undefined && index >= 0 && index < dims;
+    const axis = ok(this.config.viewAxis) ? this.config.viewAxis : fields.shape.axis;
+    const chosen = this.config.viewSeries;
+    let series = chosen === -1 ? -1 : ok(chosen) ? chosen : fields.shape.series;
+    if (series === axis) series = fields.shape.series === axis ? -1 : fields.shape.series;
+    const measure =
+      this.config.viewMeasure !== undefined && this.config.viewMeasure >= 0 && this.config.viewMeasure < fields.measures.length
+        ? this.config.viewMeasure
+        : fields.shape.measure;
+    return { axis, series, measure };
+  }
+
+  /** Fills the Axis, Series and Value pickers from the pivot's fields and shows the ones with a choice to make. */
+  private syncViewShapeOptions(): void {
+    const fields = this.viewFields();
+    const shape = this.viewShape();
+    const on = fields !== null && shape !== null && this.config.kind !== "pivotHeatmap";
+    this.viewAxisWrap.classList.toggle("hidden", !on || fields.dimensions.length < 2);
+    this.viewSeriesWrap.classList.toggle("hidden", !on || fields.dimensions.length < 2);
+    this.viewMeasureWrap.classList.toggle("hidden", !on || fields.measures.length < 2);
+    if (this.isPivotSource()) {
+      const lines = shape !== null && fields?.dimensions[shape.axis]?.time === true;
+      this.viewKindSelect.replaceChildren(
+        el("option", { value: "bar" }, [lines ? "Lines" : "Bars"]) as HTMLOptionElement,
+        el("option", { value: "pivotHeatmap" }, ["Heatmap"]) as HTMLOptionElement,
+      );
+      this.viewKindSelect.value = this.config.kind === "pivotHeatmap" ? "pivotHeatmap" : "bar";
+    }
+    if (!on) return;
+    const zone = (index: number): string => (fields.dimensions[index]?.zone === "columns" ? "Columns" : "Rows");
+    const option = (index: number): HTMLOptionElement =>
+      el("option", { value: String(index) }, [`${fields.dimensions[index]?.name ?? ""} (${zone(index)})`]) as HTMLOptionElement;
+    this.viewAxisSelect.replaceChildren(...fields.dimensions.map((_, index) => option(index)));
+    this.viewAxisSelect.value = String(shape.axis);
+    this.viewSeriesSelect.replaceChildren(
+      el("option", { value: "-1" }, ["None"]) as HTMLOptionElement,
+      ...fields.dimensions.map((_, index) => index).filter((index) => index !== shape.axis).map(option),
+    );
+    this.viewSeriesSelect.value = String(shape.series);
+    this.viewMeasureSelect.replaceChildren(
+      ...fields.measures.map((name, index) => el("option", { value: String(index) }, [name]) as HTMLOptionElement),
+    );
+    this.viewMeasureSelect.value = String(shape.measure);
   }
 
   /** Levels and measures exposed by the bound pivot result. */
@@ -4091,11 +4226,13 @@ export class ChartCard {
         this.summaryEl.textContent = `${kind} from view: ${source}`;
         return;
       }
-      const dimension = result.dimensionNames.join(" and ") || "group";
       const groups = result.groupCount;
+      const measureName = plainMeasureName(result.measureNames[0] ?? "measure");
       this.summaryEl.textContent =
-        `${kind} from view: ${plainMeasureName(result.measureNames[0] ?? "measure")} by ${dimension}` +
-        ` · ${groups.toLocaleString()} ${groups === 1 ? "group" : "groups"}`;
+        result.dimensionNames.length >= 2
+          ? `${result.dimensionIsTime[0] === true ? "Lines" : "Bars"} from view: ${measureName} by ${result.dimensionNames[0]}, one series per ${result.dimensionNames[1]}`
+          : `${kind} from view: ${measureName} by ${result.dimensionNames[0] || "group"}` +
+            ` · ${groups.toLocaleString()} ${groups === 1 ? "group" : "groups"}`;
       return;
     }
     const name = (index: number): string => this.meta(index)?.name ?? "value";
@@ -5723,7 +5860,9 @@ export class ChartCard {
     this.syncErrorBarControls();
     this.barStackField.classList.toggle(
       "hidden",
-      kind !== "barplot" || this.config.groupColumn < 0,
+      this.config.source !== ""
+        ? kind === "pivotHeatmap" || (this.viewShape()?.series ?? -1) < 0
+        : kind !== "barplot" || this.config.groupColumn < 0,
     );
     this.barSettings.classList.toggle(
       "hidden",
@@ -10404,6 +10543,13 @@ export class ChartCard {
         buckets.push(label);
       }
     }
+    // A pivot can have hundreds of rows, and a group of bars for each is unreadable: a chart of
+    // one shows the biggest (they arrive largest first) and says how many it left out.
+    const axisTotal = buckets.length;
+    if (this.config.source !== "" && result.dimensionIsTime[0] !== true && buckets.length > SPLIT_AXIS_LIMIT) {
+      buckets = buckets.slice(0, SPLIT_AXIS_LIMIT);
+      for (const label of [...bucketIndex.keys()]) if ((bucketIndex.get(label) ?? 0) >= SPLIT_AXIS_LIMIT) bucketIndex.delete(label);
+    }
     // A time axis keeps empty periods in place (series show a gap there) rather
     // than letting the neighbouring periods close up.
     let bucketTimes: number[] | null = null;
@@ -10442,8 +10588,8 @@ export class ChartCard {
         byGroup.set(label, entry);
       }
       const value = values[i] ?? Number.NaN;
-      if (Number.isFinite(value)) {
-        const bucket = bucketIndex.get(bucketLabels[i] ?? "") ?? 0;
+      const bucket = bucketIndex.get(bucketLabels[i] ?? "");
+      if (Number.isFinite(value) && bucket !== undefined) {
         entry.values[bucket] = value;
         entry.total += Math.abs(value);
       }
@@ -10500,7 +10646,7 @@ export class ChartCard {
     }
     const ui = frame.ui;
     const stacked =
-      this.config.kind === "barplot" && (this.config.barLayout ?? "group") === "stack";
+      (this.config.kind === "barplot" || this.config.source !== "") && (this.config.barLayout ?? "group") === "stack";
     let max = 0;
     if (stacked) {
       for (let bucket = 0; bucket < buckets.length; bucket++) {
@@ -10658,8 +10804,10 @@ export class ChartCard {
     this.noteEl.textContent = `${plainMeasureName(measure)} by ${
       result.dimensionNames[1] ?? "group"
     } · ${shown.length} of ${all.length} series shown${stacked ? " (stacked)" : ""} · ${
-      result.dimensionNames[0] ?? "group"
-    } advances left to right`;
+      axisTotal > buckets.length && bucketTimes === null
+        ? `the ${buckets.length} largest of ${axisTotal.toLocaleString()} ${result.dimensionNames[0] ?? "groups"}`
+        : `${result.dimensionNames[0] ?? "group"} advances left to right`
+    }`;
   }
 
   /**
@@ -11473,7 +11621,7 @@ export class ChartCard {
       return;
     }
     if (this.config.source === "" && this.drawExtraKind(ctx, frame, result, values)) return;
-    if (this.config.source === "" && result.dimensions.length >= 2) {
+    if (result.dimensions.length >= 2) {
       this.drawSplitAggregate(ctx, frame, result, values);
       return;
     }
@@ -12306,7 +12454,7 @@ export class ChartCard {
               code: result.codes[index] ?? index,
             }))
           : null;
-    if (this.splitLegend !== null && this.usesAggregate() && this.config.source === "") {
+    if (this.splitLegend !== null && this.usesAggregate()) {
       this.legendEl.classList.remove("hidden");
       this.legendEl.replaceChildren();
       for (const { label, color } of this.splitLegend) {

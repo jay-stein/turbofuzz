@@ -1,3 +1,4 @@
+import { fitPivotShape, pivotChartDef, pivotToAggregate, type PivotChartShape } from "../data/pivot-chart.js";
 import { openSettingsPanel } from "./settings-panel.js";
 import { readSettings, updateSettings } from "./settings.js";
 import type { DateOrder } from "../parse/dates.js";
@@ -3036,7 +3037,11 @@ export class App {
       requestCrosstab: (input) => this.client.getCrosstab(input),
       requestCorrelation: (columns, scope) => this.client.getCorrelation(columns, scope),
       requestGroupedBins: (input) => this.client.getGroupedBins(input),
-      requestViewAggregate: (source) => this.aggregateForSource(source),
+      requestViewAggregate: (source, shape) => this.aggregateForSource(source, shape),
+      onOpenSource: (source) => {
+        this.ensureViews();
+        if (this.viewsPanel?.openViewById(source) === true) this.setView("views");
+      },
       requestViewPivot: (source) => this.pivotForSource(source),
       requestAggregate: (view) => this.client.getAggregate(view),
       requestTextProfile: (column) => this.client.getTextProfile(column),
@@ -3117,10 +3122,34 @@ export class App {
     return out;
   }
 
-  private aggregateForSource(source: string): Promise<AggregateMessage | null> {
+  /** Requests still on their way, so two cards (or one card asked twice) share one computation. */
+  private viewChartRequests = new Map<string, Promise<AggregateMessage | null>>();
+
+  /**
+   * The numbers a chart of a Pivot View draws: the pivot's own computation, asked for with the
+   * chart's axis field as rows and its series field as columns, so the pivot's filters apply and
+   * every bar equals the pivot's cell.
+   */
+  private aggregateForSource(source: string, shape?: PivotChartShape): Promise<AggregateMessage | null> {
     const def = this.viewsPanel?.viewDef(source);
     if (def === undefined) return Promise.resolve(null);
-    return this.client.getAggregate(def);
+    const pivot = pivotChartDef(def, fitPivotShape(def, shape));
+    if (pivot === null) return Promise.resolve(null);
+    const key = JSON.stringify(pivot);
+    const pending = this.viewChartRequests.get(key);
+    if (pending !== undefined) return pending;
+    const request = this.client
+      .getPivot(pivot)
+      .then((message): AggregateMessage => ({
+        ...pivotToAggregate(message),
+        type: "aggregate",
+        requestId: message.requestId,
+        viewId: source,
+        ms: message.ms,
+      }))
+      .finally(() => this.viewChartRequests.delete(key));
+    this.viewChartRequests.set(key, request);
+    return request;
   }
 
   private pivotForSource(source: string): Promise<PivotMessage | null> {

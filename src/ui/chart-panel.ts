@@ -1,3 +1,5 @@
+import type { PivotChartShape } from "../data/pivot-chart.js";
+import type { ChartSource } from "./chart-card.js";
 import type { FrameStep } from "../data/chart-frames.js";
 import type { ChartBinOptions } from "../data/chart-bins.js";
 import {
@@ -112,7 +114,9 @@ export interface ChartsPanelOptions {
     chartExclude?: ChartExclusion[];
   }): Promise<GroupedBinsMessage>;
   /** Aggregate result for a view-bound card (null when the view is gone). */
-  requestViewAggregate?(source: string): Promise<AggregateMessage | null>;
+  requestViewAggregate?(source: string, shape?: PivotChartShape): Promise<AggregateMessage | null>;
+  /** Go to the Pivot View a chart draws. */
+  onOpenSource?(source: string): void;
   /** Pivot result for a pivot-heatmap card. */
   requestViewPivot?(source: string): Promise<PivotMessage | null>;
   /** Ad-hoc aggregation for the treemap measure. */
@@ -472,7 +476,7 @@ export class ChartsPanel {
   private dragging: ChartEntry | null = null;
   private detached: ChartCard[] = [];
   private columns: ColumnMeta[] = [];
-  private sources: { id: string; name: string; kind?: "pivot" | "view" }[] = [];
+  private sources: ChartSource[] = [];
   private facets: Record<number, number[]> = {};
   private histograms: Record<number, number[]> = {};
   private rowCount = 0;
@@ -862,6 +866,7 @@ export class ChartsPanel {
         requestCorrelation: this.options.requestCorrelation,
         requestGroupedBins: this.options.requestGroupedBins,
         requestViewAggregate: this.options.requestViewAggregate,
+        onOpenSource: this.options.onOpenSource,
         requestViewPivot: this.options.requestViewPivot,
         requestAggregate: this.options.requestAggregate,
         requestTextProfile: this.options.requestTextProfile,
@@ -921,7 +926,7 @@ export class ChartsPanel {
   }
 
   /** Sources every card can bind to: the filtered table plus each saved view. */
-  setSources(sources: { id: string; name: string; kind?: "pivot" | "view" }[]): void {
+  setSources(sources: ChartSource[]): void {
     this.sources = sources;
     this.addPanel.setSources(sources);
     for (const card of this.liveCards()) card.setSources(sources);

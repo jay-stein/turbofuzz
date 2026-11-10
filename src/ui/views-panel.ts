@@ -1,3 +1,4 @@
+import { defaultPivotShape, pivotColumnIndexes, type PivotChartField, type PivotChartShape } from "../data/pivot-chart.js";
 import type { ColumnMeta, AggregateMessage, PivotMessage } from "../worker/protocol.js";
 import type { PivotDef } from "../data/pivot.js";
 import type { ArchetypeId } from "../data/archetype.js";
@@ -37,6 +38,8 @@ export interface ViewSource {
   id: string;
   name: string;
   kind: "pivot" | "view";
+  /** The pivot's fields, for a chart of it: what can go on the axis, split the series, or be the value. */
+  fields: { dimensions: PivotChartField[]; measures: string[]; shape: PivotChartShape };
 }
 export interface ViewsPanelOptions {
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
@@ -828,14 +831,27 @@ export class ViewsPanel {
   sources(): ViewSource[] {
     return this.views
       .filter((entry) => isCompleteView(entry.def))
-      .map((entry) => ({
-        id: entry.def.id,
-        name: entry.def.name,
-        kind:
-          (entry.def.pivotColumns?.length ?? 0) > 0 || entry.def.pivot !== undefined
-            ? "pivot"
-            : "view",
-      }));
+      .map((entry) => {
+        const columns = pivotColumnIndexes(entry.def);
+        return {
+          id: entry.def.id,
+          name: entry.def.name,
+          kind: columns.length > 0 ? ("pivot" as const) : ("view" as const),
+          fields: {
+            dimensions: entry.def.dimensions.map((spec, index) => {
+              const time = typeof spec.by === "object" && "time" in spec.by ? spec.by.time : null;
+              const name = this.metas[spec.column]?.name ?? "?";
+              return {
+                name: time === null ? name : `${name} (${time})`,
+                zone: columns.includes(index) ? ("columns" as const) : ("rows" as const),
+                time: time !== null,
+              };
+            }),
+            measures: entry.def.measures.map((measure) => `${measureSymbol(measure)} ${measureDisplay(measure, this.metas)}`),
+            shape: defaultPivotShape(entry.def),
+          },
+        };
+      });
   }
 
   /** The views as a workspace file keeps them. */
@@ -866,6 +882,14 @@ export class ViewsPanel {
 
   viewDef(id: string): ViewDef | undefined {
     return this.views.find((entry) => entry.def.id === id)?.def;
+  }
+
+  /** Opens a view by id (a chart's "Back to pivot"); false when it is gone. */
+  openViewById(id: string): boolean {
+    const index = this.views.findIndex((entry) => entry.def.id === id);
+    if (index < 0) return false;
+    this.openView(index);
+    return true;
   }
 
   /** Worker pivot definition for a saved view, when it has a column layout. */
@@ -1283,6 +1307,25 @@ export class ViewsPanel {
       }
     }
     head.append(el("span", { class: "grow" }));
+    if (expanded) {
+      // The way on from a pivot, where it can always be seen: under a long result the
+      // action row is thousands of pixels down the page.
+      const chartThis = el(
+        "button",
+        {
+          class: "primary small views-chart-this",
+          type: "button",
+          title: "Open a chart of this pivot: Rows along the axis, Columns as the series, and the value as it is here",
+        },
+        ["Chart this pivot"],
+      ) as HTMLButtonElement;
+      chartThis.disabled = !isCompleteView(entry.def);
+      chartThis.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.options.onChart(entry.def);
+      });
+      head.append(chartThis);
+    }
     if (this.views.length > 1) {
       const remove = el(
         "button",

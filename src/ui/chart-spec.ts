@@ -93,6 +93,10 @@ export interface ChartSpec {
     pivotRowLevel?: number;
     pivotColLevel?: number;
     pivotMeasure?: number;
+    /** A chart of a Pivot View: the pivot field on the axis, the one for the series (-1 none) and the value. */
+    viewAxis?: number;
+    viewSeries?: number;
+    viewMeasure?: number;
   };
 }
 
@@ -224,6 +228,9 @@ export function chartSpecFromConfig(
       pivotRowLevel: config.pivotRowLevel,
       pivotColLevel: config.pivotColLevel,
       pivotMeasure: config.pivotMeasure,
+      ...(config.viewAxis === undefined ? {} : { viewAxis: config.viewAxis }),
+      ...(config.viewSeries === undefined ? {} : { viewSeries: config.viewSeries }),
+      ...(config.viewMeasure === undefined ? {} : { viewMeasure: config.viewMeasure }),
     },
   };
 }
@@ -323,6 +330,9 @@ export function chartSpecToConfig(
   if (spec.presentation.pivotMeasure !== undefined) {
     config.pivotMeasure = spec.presentation.pivotMeasure;
   }
+  if (spec.presentation.viewAxis !== undefined) config.viewAxis = spec.presentation.viewAxis;
+  if (spec.presentation.viewSeries !== undefined) config.viewSeries = spec.presentation.viewSeries;
+  if (spec.presentation.viewMeasure !== undefined) config.viewMeasure = spec.presentation.viewMeasure;
   validateCompiledSpec(spec, config, columns, issues);
   return { config: issues.length === 0 ? config : null, issues };
 }
