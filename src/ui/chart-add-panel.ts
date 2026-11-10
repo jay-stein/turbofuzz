@@ -8,7 +8,7 @@ import {
   type ValueAgg,
 } from "./chart-builder.js";
 import type { ChartCardConfig } from "./chart-card.js";
-import { fitChartKind, kindIcon, previewFor, QUESTION_GROUPS } from "./chart-gallery.js";
+import { barKindFor, COMMON_KINDS, fitChartKind, kindIcon, MORE_GROUPS, previewFor } from "./chart-gallery.js";
 import { profile, recommend, type RecRole } from "./chart-recommender.js";
 import { CHART_KIND_LABELS, sourceOption, suggestCharts, toRecColumn, type ChartCardKind } from "./chart-utils.js";
 import { el } from "./dom.js";
@@ -74,6 +74,8 @@ export class ChartAddPanel {
   private sources: ChartAddSource[] = [];
   private source = "";
   private picks = new Map<number, ValueAgg | undefined>();
+  /** "More chart types" stays as it was left while the panel re-renders. */
+  private moreOpen = false;
   private message = "";
 
   constructor(private readonly options: ChartAddPanelOptions) {
@@ -308,8 +310,12 @@ export class ChartAddPanel {
     // 4. A chart type is a shortcut that fills the same slots.
     // Each type is its small picture and its name, grouped by the question it answers; hovering says what it is and why one is greyed out.
     const types = el("div", { class: "chart-add-types", role: "group", "aria-label": "Or choose a chart type" });
-    for (const group of QUESTION_GROUPS) {
-      const row = el("div", { class: "chart-add-type-group" }, [el("div", { class: "chart-add-type-question" }, [group.question])]);
+    const more = el("details", { class: "chart-add-more" }, [el("summary", { class: "chart-add-more-title" }, ["More chart types"])]) as HTMLDetailsElement;
+    more.open = this.moreOpen;
+    more.addEventListener("toggle", () => (this.moreOpen = more.open));
+    const common = { question: "", kinds: COMMON_KINDS.map((kind) => (kind === "barplot" ? barKindFor(cols, this.rowCount) : kind)) };
+    for (const group of [common, ...MORE_GROUPS]) {
+      const row = el("div", { class: "chart-add-type-group" }, group.question === "" ? [] : [el("div", { class: "chart-add-type-question" }, [group.question])]);
       const tiles = el("div", { class: "chart-add-type-tiles" });
       for (const kind of group.kinds) {
         const fit = fitChartKind(kind, cols, this.rowCount);
@@ -331,7 +337,9 @@ export class ChartAddPanel {
         chip.addEventListener("click", () => {
           if (!fit.ok) return;
           this.create(
-            configForChart(kind, this.shelf(), cols, this.rowCount),
+            // Bar with only a category picked is a count of rows: the other bar kind.
+            configForChart(kind, this.shelf(), cols, this.rowCount) ??
+              (kind === "barplot" ? configForChart("bar", this.shelf(), cols, this.rowCount) : null),
             CHART_KIND_LABELS[kind],
             `The selected fields do not fit a ${CHART_KIND_LABELS[kind].toLowerCase()} chart. Clear them to use the default columns.`,
           );
@@ -339,8 +347,9 @@ export class ChartAddPanel {
         tiles.append(chip);
       }
       row.append(tiles);
-      types.append(row);
+      (group === common ? types : more).append(row);
     }
+    types.append(more);
     out.push(el("div", { class: "chart-add-block" }, [el("h4", {}, ["Or choose a chart type"]), types]));
     return out;
   }

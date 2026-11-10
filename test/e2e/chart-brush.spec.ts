@@ -66,7 +66,7 @@ test("Shift+drag across a histogram keeps the brushed range of that column", asy
 });
 
 test("Shift+drag across a time series filters the date column to that period", async ({ page }) => {
-  await openChart(page, /time series/i);
+  await openChart(page, /^Line/);
   await shiftDrag(page, [0.3, 0.4], [0.6, 0.4]);
   await expect(page.locator(".action-status")).toContainText(/Chart selection: day 2024-\d\d-\d\d to 2024-\d\d-\d\d/);
 });

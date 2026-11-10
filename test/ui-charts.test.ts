@@ -799,7 +799,7 @@ test("chart canvas carries a generated role=img label", async () => {
   await tick();
   const canvas = host.querySelector("canvas") as HTMLCanvasElement;
   assert.equal(canvas.getAttribute("role"), "img");
-  assert.match(canvas.getAttribute("aria-label") ?? "", /Count plot of region/);
+  assert.match(canvas.getAttribute("aria-label") ?? "", /Bar chart of region/);
   card.dispose();
 });
 
@@ -1058,7 +1058,7 @@ test("group by draws one line per category with a toggleable legend", async () =
   const labels = [...legend.querySelectorAll("button")].map((button) => button.textContent);
   assert.deepEqual(labels, ["Perth", "Sydney"]);
   const canvas = host.querySelector("canvas") as HTMLCanvasElement;
-  assert.match(canvas.getAttribute("aria-label") ?? "", /Time series of order_date by region/);
+  assert.match(canvas.getAttribute("aria-label") ?? "", /Line chart of order_date by region/);
   assert.match(host.querySelector(".chart-note")?.textContent ?? "", /2 lines by region/);
 
   (canvas as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(
@@ -1902,7 +1902,7 @@ test("the Animate button stays visible and grey, and says why, whenever it canno
   card.applyConfig({ kind: "barplot", column: 0 });
   await tick();
   assert.equal(button.getAttribute("aria-disabled"), "true");
-  assert.match(button.title, /^Barplot charts can't animate/);
+  assert.match(button.title, /^Bar charts can't animate/);
   card.applyConfig({ kind: "map", x: 3, y: 2, mapMode: "heat" });
   await tick();
   assert.match(button.title, /set Show to One dot per place/);
@@ -2044,6 +2044,11 @@ test("a grouped bubble chart draws one set per category with a legend", async ()
   card.dispose();
 });
 
+function bubbleInMore(host: HTMLElement): boolean {
+  const more = host.querySelector("details.chart-add-more");
+  return more !== null && [...more.querySelectorAll(".chart-add-type")].some((chip) => (chip.textContent ?? "").startsWith("Bubble"));
+}
+
 test("the add-chart builder lists every type, explains unfit ones and adds directly", async () => {
   const window = setupDom();
   captureMockContext(window, []);
@@ -2058,7 +2063,9 @@ test("the add-chart builder lists every type, explains unfit ones and adds direc
   await tick();
   assert.equal(host.querySelector(".charts-rail"), null, "the duplicate left rail is gone");
   const chips = [...host.querySelectorAll(".chart-add-type")] as HTMLButtonElement[];
-  assert.equal(chips.length, 18, "one chip per chart type; maps are on their own page");
+  assert.equal(chips.length, 17, "one chip per chart type, the two bar kinds as one Bar; maps are on their own page");
+  assert.deepEqual(chips.slice(0, 5).map((chip) => chip.querySelector(".chart-add-type-name")?.textContent ?? ""), ["Bar", "Line", "Scatter", "Histogram", "Heatmap"], "the five most used come first");
+  assert.ok(bubbleInMore(host), "the rest sit under More chart types");
   const bubble = chips.find((chip) => (chip.textContent ?? "").startsWith("Bubble"));
   assert.ok(bubble !== undefined, "the builder offers Bubble");
   const disabled = chips.find((chip) => chip.getAttribute("aria-disabled") === "true");
@@ -3427,7 +3434,7 @@ test("chart card menu opens the shared edit dialog and reset path", async () => 
   await new Promise((resolve) => setTimeout(resolve, 0));
   const modal = doc.querySelector(".chart-setup-modal");
   assert.ok(modal !== null);
-  assert.match(modal.textContent ?? "", /Edit count plot chart/);
+  assert.match(modal.textContent ?? "", /Edit bar chart/);
   (modal.querySelector(".ghost") as unknown as { click(): void }).click();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(doc.querySelector(".chart-setup-modal"), null);
@@ -3584,7 +3591,7 @@ test("the add-chart builder recommends charts for the picked fields", async () =
   assert.equal(field("revenue").getAttribute("aria-pressed"), "true");
   const tiles = [...host.querySelectorAll<HTMLButtonElement>(".chart-add-tile")];
   assert.ok(tiles.length >= 1);
-  assert.match(tiles[0].textContent ?? "", /Barplot/);
+  assert.match(tiles[0].textContent ?? "", /Bar/);
   assert.match(tiles[0].textContent ?? "", /Best/);
   assert.match(tiles[0].textContent ?? "", /Bars start at zero/);
   tiles[0].click();
@@ -3661,17 +3668,17 @@ test("a view-bound bar names its real type, source and measure", async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(
     host.querySelector(".chart-summary")?.textContent,
-    "Barplot from view: Sum of units by region · 4 groups",
+    "Bar from view: Sum of units by region · 4 groups",
   );
   const staticType = host.querySelector(".chart-kind-static");
-  assert.equal(staticType?.textContent, "Barplot", "the type row reads as text, not blank");
+  assert.equal(staticType?.textContent, "Bar", "the type row reads as text, not blank");
   assert.equal(staticType?.classList.contains("hidden"), false);
 
   // A count view is still a count plot.
   result = viewResult("count(*)", 1);
   card.refreshView();
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(host.querySelector(".chart-summary")?.textContent, "Count plot from view: Rows by region · 1 group");
+  assert.equal(host.querySelector(".chart-summary")?.textContent, "Bar from view: Rows by region · 1 group");
   card.dispose();
   void window;
 });
@@ -3709,7 +3716,7 @@ test("Chart this keeps its view result when sibling refreshes run after the requ
   await tick();
   assert.equal(
     host.querySelector(".chart-summary")?.textContent,
-    "Barplot from view: Sum of units by region · 4 groups",
+    "Bar from view: Sum of units by region · 4 groups",
   );
   assert.doesNotMatch(host.querySelector(".chart-note")?.textContent ?? "", /no groups/);
   panel.dispose();

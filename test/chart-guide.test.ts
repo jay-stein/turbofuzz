@@ -52,7 +52,7 @@ test("the guide opens with the selection and an availability tab, with no reques
   assert.ok(ms < 50, `opens in under 50 ms, took ${ms}`);
   assert.ok(guide.isOpen);
   const text = guide.root.textContent ?? "";
-  assert.match(text, /Barplot/);
+  assert.match(text, /Bar/);
   assert.match(text, /Needs vs you have/);
   assert.match(text, /Category: region ✓/);
   assert.match(text, /No pie charts/);

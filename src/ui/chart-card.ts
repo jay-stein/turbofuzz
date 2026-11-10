@@ -50,7 +50,7 @@ import {
   type ChartSpec,
 } from "./chart-spec.js";
 import { chartConfigWithDefaults } from "./chart-builder.js";
-import { fitChartKind, kindIcon, QUESTION_GROUPS } from "./chart-gallery.js";
+import { barKindFor, COMMON_KINDS, fitChartKind, kindIcon, MORE_GROUPS } from "./chart-gallery.js";
 import { fieldsFor } from "./chart-registry.js";
 import {
   drawDotPlot,
@@ -3305,7 +3305,11 @@ export class ChartCard {
   private openKindPicker(): void {
     const anchor = this.kindButton;
     if (anchor === null) return;
-    const groups = QUESTION_GROUPS.map((group) =>
+    // Bar is one choice: the chart keeps the bar kind it has, or takes the one these columns can make.
+    const current = this.config.kind;
+    const barKind = current === "bar" || current === "barplot" ? current : barKindFor(this.columns, this.rowCount);
+    const common = { question: "Most used", kinds: COMMON_KINDS.map((kind) => (kind === "barplot" ? barKind : kind)) };
+    const groups = [common, ...MORE_GROUPS].map((group) =>
       el("div", { class: "chart-kind-group" }, [
         el("div", { class: "chart-kind-question" }, [group.question]),
         el("div", { class: "chart-kind-options" }, group.kinds.map((kind) => {
@@ -8329,11 +8333,11 @@ export class ChartCard {
       case "line": {
         const group = this.meta(this.config.groupColumn);
         return group === undefined
-          ? `Time series of ${name(this.config.column)}, ${rows} rows shown`
-          : `Time series of ${name(this.config.column)} by ${group.name}, ${rows} rows shown`;
+          ? `Line chart of ${name(this.config.column)}, ${rows} rows shown`
+          : `Line chart of ${name(this.config.column)} by ${group.name}, ${rows} rows shown`;
       }
       case "bar":
-        return `Count plot of ${name(this.config.column)}, ${rows} rows shown`;
+        return `Bar chart of ${name(this.config.column)} (a count of rows), ${rows} rows shown`;
       case "dotplot":
       case "stacked100":
       case "smallmultiples":
@@ -8345,7 +8349,7 @@ export class ChartCard {
         )}) by ${name(this.config.column)}${group === undefined ? "" : ` and ${group.name}`}, ${rows} rows shown`;
       }
       case "barplot":
-        return `Barplot of ${this.config.valueAgg ?? "mean"}(${name(
+        return `Bar chart of ${this.config.valueAgg ?? "mean"}(${name(
           this.config.valueColumn ?? -1,
         )}) by ${name(this.config.column)}, ${rows} rows shown`;
       case "scatter":

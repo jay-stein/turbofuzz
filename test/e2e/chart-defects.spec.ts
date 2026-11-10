@@ -94,8 +94,8 @@ test("changing the chart type never leaves a chart split by the field it is laid
   await page.locator(".chart-add-recs .chart-add-tile").first().click();
   await select(page, "Group by").selectOption({ label: "region (Category)" });
   await card(page).locator("button.chart-kind-button").click();
-  await page.locator("button:visible", { hasText: /^Barplot$/ }).last().click();
-  await expect(card(page)).toContainText("Barplot:");
+  await page.locator("button:visible", { hasText: /^Bar$/ }).last().click();
+  await expect(card(page)).toContainText("Bar:");
   // Lay the bars out by region, the field they are already split by: the split has to go.
   await select(page, "Chart column").selectOption({ label: "region (Category)" });
   await expect(card(page)).toContainText("amount by region");

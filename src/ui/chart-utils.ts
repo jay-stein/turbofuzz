@@ -47,9 +47,11 @@ export const DEFAULT_MAP_MODE = "places" as const;
 
 export const CHART_KIND_LABELS: Record<ChartCardKind, string> = {
   histogram: "Histogram",
-  line: "Time series",
-  bar: "Count plot",
-  barplot: "Barplot",
+  // A line over dates is a Line here; "Time Series" is the page that analyses one.
+  line: "Line",
+  // One Bar to the person: a count of rows ("bar") or a measure ("barplot").
+  bar: "Bar",
+  barplot: "Bar",
   scatter: "Scatter",
   density: "Density",
   box: "Box plot",

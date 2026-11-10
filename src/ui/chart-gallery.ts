@@ -363,6 +363,23 @@ export const QUESTION_GROUPS: readonly { question: string; kinds: readonly Chart
   { question: "What is the text about?", kinds: ["terms"] },
 ];
 
+/**
+ * The five charts most questions need, offered before any other. "Bar" stands for both bar kinds:
+ * a measure per category when the table has a measure, a count of rows when it has not.
+ */
+export const COMMON_KINDS: readonly ChartCardKind[] = ["barplot", "line", "scatter", "histogram", "heatmap"];
+
+/** Every other chart, still grouped by the question it answers. */
+export const MORE_GROUPS: readonly { question: string; kinds: readonly ChartCardKind[] }[] = QUESTION_GROUPS.map((group) => ({
+  question: group.question,
+  kinds: group.kinds.filter((kind) => !COMMON_KINDS.includes(kind) && kind !== "bar"),
+})).filter((group) => group.kinds.length > 0);
+
+/** The bar chart these columns can make: of a measure when there is one, otherwise a count of rows. */
+export function barKindFor(columns: readonly ColumnMeta[], rowCount: number): "bar" | "barplot" {
+  return fitChartKind("barplot", columns, rowCount).ok ? "barplot" : "bar";
+}
+
 /** Compact inline illustrations — no library, one path each. */
 const ICONS: Record<ChartCardKind, string> = {
   kpi: '<rect x="8" y="10" width="56" height="28" rx="5" fill="none" stroke="currentColor" stroke-width="2.5" opacity="0.5"/><path d="M16 30l8-7 6 4 10-11 10 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="14" y="15" width="18" height="6" rx="3" fill="currentColor" opacity="0.85"/>',

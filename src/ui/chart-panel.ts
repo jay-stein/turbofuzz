@@ -944,7 +944,7 @@ export class ChartsPanel {
 
   /** "Chart this" from the Views lens: a card bound to the view's result. */
   addViewChart(view: ViewDef): void {
-    this.addChart({ kind: "bar", source: view.id, title: view.name }, "Barplot");
+    this.addChart({ kind: "bar", source: view.id, title: view.name }, "Bar");
   }
 
   /** Create a pivot-matrix heatmap bound to a pivot view. */

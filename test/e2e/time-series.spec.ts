@@ -39,7 +39,7 @@ async function openTimeSeries(page: Page): Promise<void> {
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
   await page.locator(".view-tabs button", { hasText: "Chart" }).click();
-  await page.locator(".chart-add-type", { hasText: /time series/i }).first().click();
+  await page.locator(".chart-add-type", { hasText: /^Line/ }).first().click();
   const dialog = page.locator(".modal-overlay");
   if (await dialog.count()) await dialog.getByRole("button", { name: /^(Add|Create|OK)/ }).last().click();
   await page.locator("canvas.chart-canvas").waitFor();

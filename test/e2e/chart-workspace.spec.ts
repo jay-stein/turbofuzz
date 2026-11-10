@@ -97,13 +97,13 @@ test("twenty categories lie on their side with Top 10, and the type picker keeps
   await expect(card(page).locator(".chart-headline")).toContainText(/Scatter: sales vs/);
   // Undo brings the bars back, by button and by keyboard.
   await card(page).getByRole("button", { name: "Undo the last change to this chart" }).click();
-  await expect(card(page).locator(".chart-kind-button")).toContainText("Barplot");
+  await expect(card(page).locator(".chart-kind-button")).toContainText("Bar");
   await expect(card(page).locator(".chart-note")).toContainText("Top 10 of 20 region");
   await card(page).locator(".chart-kind-button").click();
   await page.getByRole("dialog", { name: "Chart type" }).getByRole("button", { name: "Dot plot", exact: true }).click();
   await expect(card(page).locator(".chart-kind-button")).toContainText("Dot plot");
   await page.keyboard.press("Control+z");
-  await expect(card(page).locator(".chart-kind-button")).toContainText("Barplot");
+  await expect(card(page).locator(".chart-kind-button")).toContainText("Bar");
 });
 
 test("the field list changes the chart, + Add chart opens a new tab, and PNG asks its size when used", async ({ page }) => {

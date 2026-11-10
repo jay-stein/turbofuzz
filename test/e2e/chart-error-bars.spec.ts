@@ -12,7 +12,7 @@ function data(rows: number): string {
   return lines.join("\n");
 }
 
-async function open(page: Page, rows = 600, fields = ["region", "amount"], kind = "Barplot"): Promise<Locator> {
+async function open(page: Page, rows = 600, fields = ["region", "amount"], kind = "Bar"): Promise<Locator> {
   await page.setViewportSize({ width: 1440, height: 900 });
   // These tests work the settings under Refine and Format, which are closed until opened.
   await page.addInitScript(() => {
@@ -109,7 +109,7 @@ test("the bootstrap shows a donut and its progress, puts its numbers in the stat
 });
 
 test("a time series gets its bars with the warning, also in the stats", async ({ page }) => {
-  const card = await open(page, 600, ["date", "amount"], "Time series");
+  const card = await open(page, 600, ["date", "amount"], "Line");
   await card.getByRole("checkbox", { name: "Error bars" }).check();
   await expect(card.locator(".chart-note")).toContainText("periods in a time series are related");
   await errorTable(page, card);

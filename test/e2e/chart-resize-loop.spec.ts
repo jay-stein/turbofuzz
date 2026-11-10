@@ -29,7 +29,7 @@ test("the first time-series chart settles instead of resizing in a loop", async 
       return (orig as any).apply(this, a);
     };
   });
-  await page.locator(".chart-add-type", { hasText: /time series/i }).first().click();
+  await page.locator(".chart-add-type", { hasText: /^Line/ }).first().click();
   await page.waitForTimeout(1200);
   const dialog = page.locator(".modal-overlay");
   if (await dialog.count()) await dialog.getByRole("button", { name: /^(Add|Create|OK)/ }).last().click();

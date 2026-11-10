@@ -17455,3 +17455,19 @@ button.cmp-change-name:hover {
 .chart-sidebar > .chart-side-group:first-of-type {
   border-top: 0;
 }
+
+/* The five most used chart types sit in view; the others open under More chart types. */
+.chart-add-more {
+  margin-top: 8px;
+}
+.chart-add-more-title {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 0;
+  width: fit-content;
+}
+.chart-add-more[open] > .chart-add-more-title {
+  margin-bottom: 8px;
+}

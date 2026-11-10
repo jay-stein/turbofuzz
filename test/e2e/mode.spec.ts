@@ -76,7 +76,7 @@ test("asking for a research page from the command bar switches to Research and s
 test("chart line cards only point to Time Series in Research mode", async ({ page }) => {
   await load(page);
   await page.getByRole("tab", { name: "Chart" }).click();
-  await page.locator(".chart-add-type", { hasText: /time series/i }).first().click();
+  await page.locator(".chart-add-type", { hasText: /^Line/ }).first().click();
   const dialog = page.locator(".modal-overlay");
   if (await dialog.count()) await dialog.getByRole("button", { name: /^(Add|Create|OK)/ }).last().click();
   await page.locator("canvas.chart-canvas").first().waitFor();
