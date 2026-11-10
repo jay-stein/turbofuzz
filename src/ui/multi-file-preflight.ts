@@ -124,12 +124,21 @@ const fileSize = (bytes: number): string => {
 
 export type MultiFileAppendMode = "align" | "identical";
 
-/** The dialog also hands back "headerRow" so the caller can re-preview with a new layout. */
-export type MultiFilePreflightChoice = MultiFileAppendMode | "headerRow";
+/**
+ * The dialog also hands back "headerRow" so the caller can re-preview with a new layout, and "compare" when two files
+ * that share few columns are better compared than stacked.
+ */
+export type MultiFilePreflightChoice = MultiFileAppendMode | "headerRow" | "compare";
+
+/** Two files that share few column names look like two different tables: offer to compare them instead. */
+export function looksLikeTwoTables(preflight: MultiFilePreflight): boolean {
+  return preflight.files.length === 2 && preflight.mismatchedFiles.length > 0;
+}
 
 /** Preflight summary and append-mode choice; null cancels the import. */
 export function openMultiFilePreflight(
   preflight: MultiFilePreflight,
+  options: { canCompare?: boolean } = {},
 ): Promise<MultiFilePreflightChoice | null> {
   return new Promise((resolve) => {
     const overlay = el("div", { class: "modal-overlay" });
@@ -146,7 +155,15 @@ export function openMultiFilePreflight(
         `${preflight.totalRows.toLocaleString()} estimated rows · ${preflight.totalCells.toLocaleString()} cells · ${preflight.commonColumns.length} shared columns`,
       ]),
     );
-    if (preflight.mismatchedFiles.length > 0) {
+    const twoTables = options.canCompare === true && looksLikeTwoTables(preflight);
+    if (twoTables) {
+      body.append(
+        el("p", { class: "multi-file-warning", role: "alert" }, [
+          el("strong", {}, ["These look like two different tables. "]),
+          `They share only ${preflight.commonColumns.length} column name${preflight.commonColumns.length === 1 ? "" : "s"}, so stacking them would leave most cells empty. To see what is different between them, compare them instead.`,
+        ]),
+      );
+    } else if (preflight.mismatchedFiles.length > 0) {
       const names = preflight.mismatchedFiles.slice(0, 3).join(", ");
       const more = preflight.mismatchedFiles.length - 3;
       body.append(
@@ -223,7 +240,16 @@ export function openMultiFilePreflight(
     const confirm = el("button", { class: "primary", type: "button" }, ["Append rows"]);
     const headerRow = el("button", { class: "ghost", type: "button" }, ["Import settings…"]);
     headerRow.title = "Choose where the table starts and ends. One setting applies to every file.";
-    footer.append(cancel, headerRow, el("span", { class: "grow" }), confirm);
+    footer.append(cancel, headerRow, el("span", { class: "grow" }));
+    if (twoTables) {
+      const compare = el("button", { class: "primary", type: "button" }, ["Compare them instead →"]);
+      compare.addEventListener("click", () => finish("compare"));
+      confirm.className = "ghost";
+      confirm.textContent = "Stack anyway";
+      footer.append(confirm, compare);
+    } else {
+      footer.append(confirm);
+    }
     modal.append(body, footer);
 
     let settled = false;

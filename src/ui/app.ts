@@ -229,6 +229,7 @@ import { timeDimension, type TsViewSource } from "../data/timeseries/view-source
 import { fuzzyRank } from "../search/fuzzy-match.js";
 import { createMapPage, type MapPageHandle } from "./map-page.js";
 import { buildAbout, buildVersion } from "./about.js";
+import { FrontCompare, FrontSwitch, buildStackGuide, type FrontMode } from "./front-page.js";
 import {
   coMissingnessFindings,
   distributionFindings,
@@ -349,6 +350,18 @@ function extensionOf(name: string): string {
   const dot = lower.lastIndexOf(".");
   return dot === -1 ? "" : lower.slice(dot);
 }
+
+/** The front page's heading and line for each mode. */
+const FRONT_COPY: Record<FrontMode, { title: string; sub: string }> = {
+  single: {
+    title: "Clean, reshape and explore a table",
+    sub: "Drop a messy CSV or Excel file, or several with the same columns to stack into one. Type-aware cleanup, transforms and search, all offline: nothing leaves this tab.",
+  },
+  compare: {
+    title: "See what changed between two tables",
+    sub: "Drop the original as A and the new version as B: two files, or two sheets of the same Excel workbook. You land on Spot the difference.",
+  },
+};
 
 /** Icons for the toolbar buttons that show only the icon until the pointer or the keyboard reaches them, then spell out their name. */
 const BUTTON_ICONS = {
@@ -511,6 +524,8 @@ interface AppendSource {
   prefix: (bytes: number) => Promise<ArrayBuffer>;
   /** Reads the whole file; called again on reload, so it must return a fresh buffer. */
   all: () => Promise<ArrayBuffer>;
+  /** The dropped file itself, when it is one, so two files can go to Compare instead. */
+  file?: File;
 }
 
 interface ImportSource {
@@ -729,6 +744,12 @@ export class App {
   private convertTypesButton!: HTMLButtonElement;
   private meltButton!: HTMLButtonElement;
   private spreadButton!: HTMLButtonElement;
+  private frontSwitch!: FrontSwitch;
+  private frontCompare!: FrontCompare;
+  private singlePane!: HTMLElement;
+  private comparePane!: HTMLElement;
+  private frontTitle!: HTMLElement;
+  private frontSub!: HTMLElement;
   private explodeButton!: HTMLButtonElement;
   private headerRowButton!: HTMLButtonElement;
   /** How the current table was read, so the header row can be re-chosen and reloaded. */
@@ -1033,6 +1054,16 @@ export class App {
   private buildPasteView(): HTMLElement {
     const view = el("div", { class: "paste-view" });
     const card = el("div", { class: "paste-card" });
+    // Analyse one table | Compare two tables: one table every time the front page opens.
+    this.frontSwitch = new FrontSwitch((mode) => this.setFrontMode(mode));
+    this.frontCompare = new FrontCompare({
+      onCompare: (a, b) => void this.compareFromFront(a, b),
+      onError: (message) => this.setStatusError(message),
+    });
+    const singlePane = el("div", { class: "front-pane" });
+    this.singlePane = singlePane;
+    this.comparePane = el("div", { class: "front-pane hidden" }, [this.frontCompare.element]);
+    card.append(this.frontSwitch.element);
 
     this.pasteCancel = el(
       "button",
@@ -1041,18 +1072,10 @@ export class App {
     );
     this.pasteCancel.classList.add("hidden");
     this.pasteCancel.addEventListener("click", () => this.hidePaste());
-    card.append(
-      el("div", { class: "paste-head" }, [
-        el("h1", {}, ["Clean and reshape tables in your browser"]),
-        this.pasteCancel,
-      ]),
-    );
-    card.append(
-      el("p", { class: "sub" }, [
-        "Drop a messy CSV or Excel file. Type-aware cleanup, transforms and search — all offline, nothing leaves this tab.",
-      ]),
-    );
-    card.append(
+    this.frontTitle = el("h1", {}, [FRONT_COPY.single.title]);
+    this.frontSub = el("p", { class: "sub" }, [FRONT_COPY.single.sub]);
+    card.append(el("div", { class: "paste-head" }, [this.frontTitle, this.pasteCancel]), this.frontSub);
+    singlePane.append(
       el("p", { class: "sub sub-formats" }, [
         "CSV · TSV · PSV · JSON · Excel (.xlsx/.xls) · Parquet · ZIP/GZ/BZ2 — limited only by your browser's memory.",
       ]),
@@ -1067,7 +1090,7 @@ export class App {
     dropzone.append(
       uploadIcon(),
       el("span", { class: "dropzone-main" }, [
-        "Drop a CSV, Excel, JSON or Parquet file here",
+        "Drop a file here, or several to stack them",
       ]),
       el("span", { class: "dropzone-sub" }, ["or click to browse"]),
     );
@@ -1077,11 +1100,8 @@ export class App {
         "0 bytes uploaded · 0 network requests — files are parsed in this browser",
       ]),
     ]);
-    const compareStart = el("button", { class: "ghost small compare-start", type: "button", title: "Choose two files and see what changed between them" }, [
-      "Compare two datasets…",
-    ]);
-    compareStart.addEventListener("click", () => void this.openCompare());
-    card.append(dropzone, privacy, compareStart);
+    singlePane.append(dropzone);
+    card.append(singlePane, this.comparePane, privacy);
 
     this.loadPanel = el("div", {
       class: "load-progress hidden",
@@ -1107,7 +1127,7 @@ export class App {
     this.loadCancel.title = "Stop this import — the current data stays loaded";
     this.loadCancel.addEventListener("click", () => this.cancelLoad());
     this.loadPanel.append(loadHead, loadTrack, this.loadCancel);
-    card.append(this.loadPanel);
+    singlePane.append(this.loadPanel);
 
     const fileInput = el("input", {
       type: "file",
@@ -1130,7 +1150,8 @@ export class App {
     });
 
     card.addEventListener("dragover", (event) => {
-      if (event.dataTransfer === null) return;
+      // Compare mode's A and B areas take their own drops.
+      if (event.dataTransfer === null || this.frontSwitch.selected === "compare") return;
       if (!Array.from(event.dataTransfer.types).includes("Files")) return;
       event.preventDefault();
       dropzone.classList.add("dragging");
@@ -1140,13 +1161,14 @@ export class App {
       dropzone.classList.remove("dragging");
     });
     card.addEventListener("drop", (event) => {
+      if (this.frontSwitch.selected === "compare") return;
       const files = [...(event.dataTransfer?.files ?? [])];
       if (files.length === 0) return;
       event.preventDefault();
       dropzone.classList.remove("dragging");
       void this.loadFiles(files);
     });
-    card.append(fileInput);
+    singlePane.append(fileInput);
 
     const pasteDetails = el("details", { class: "paste-secondary" });
     pasteDetails.append(el("summary", {}, ["Paste rows instead"]));
@@ -1177,14 +1199,14 @@ export class App {
 
     controls.append(delimiterLabel, headerLabel, el("span", { class: "grow" }), loadButton);
     pasteDetails.append(controls);
-    card.append(pasteDetails);
+    singlePane.append(pasteDetails);
     const openWorkspaceButton = el(
       "button",
       { class: "ghost small", type: "button", title: "Open a saved workspace file: it replays its steps, views and charts as soon as you load the same data" },
       ["Open a saved workspace…"],
     ) as HTMLButtonElement;
     openWorkspaceButton.addEventListener("click", () => this.pickWorkspaceFile());
-    card.append(openWorkspaceButton);
+    singlePane.append(openWorkspaceButton);
 
     const pickerHead = el("div", { class: "table-picker-head" });
     this.tablePickerTitle = el("span", { class: "table-picker-title" });
@@ -1193,7 +1215,7 @@ export class App {
     pickerHead.append(this.tablePickerTitle, pickerCancel);
     this.tablePickerList = el("div", { class: "table-picker-list" });
     this.tablePickerEl = el("div", { class: "table-picker hidden" }, [pickerHead, this.tablePickerList]);
-    card.append(this.tablePickerEl);
+    singlePane.append(this.tablePickerEl);
 
     this.statusEl = el("div", { class: "status" });
     card.append(this.statusEl);
@@ -1206,8 +1228,9 @@ export class App {
       this.sampleRequested = true;
       void this.loadFromTextarea();
     });
-    card.append(sampleButton);
+    singlePane.append(sampleButton, buildStackGuide());
 
+    // The main show is the card; the Swiss Army knife (About) and Version sit quietly beneath it.
     view.append(card, buildAbout(), buildVersion());
     return view;
   }
@@ -1905,6 +1928,7 @@ export class App {
         size: file.size,
         prefix: (bytes) => file.slice(0, bytes).arrayBuffer(),
         all: () => file.arrayBuffer(),
+        file,
       })),
       `${files.length} files`,
     );
@@ -1948,8 +1972,13 @@ export class App {
         });
       }
       preflight = buildMultiFilePreflight(samples);
-      const choice = await openMultiFilePreflight(preflight);
+      const choice = await openMultiFilePreflight(preflight, { canCompare: sorted.every((source) => source.file !== undefined) });
       if (choice === null) return;
+      if (choice === "compare") {
+        const [a, b] = sorted;
+        if (a?.file !== undefined && b?.file !== undefined) await this.compareFromFront(a.file, b.file);
+        return;
+      }
       if (choice !== "headerRow") {
         mode = choice;
         break;
@@ -6734,8 +6763,39 @@ export class App {
     this.bannerEl.classList.remove("hidden");
   }
 
+  /** Analyse one table or Compare two tables: swaps the card's drop areas and its heading. */
+  private setFrontMode(mode: FrontMode): void {
+    this.frontSwitch.set(mode);
+    this.singlePane.classList.toggle("hidden", mode !== "single");
+    this.comparePane.classList.toggle("hidden", mode !== "compare");
+    this.frontTitle.textContent = FRONT_COPY[mode].title;
+    this.frontSub.textContent = FRONT_COPY[mode].sub;
+    this.statusEl.textContent = "";
+    this.statusEl.className = "status";
+  }
+
+  /** Both sides chosen on the front page: compare them, and open on Spot the difference. */
+  private async compareFromFront(a: File, b: File): Promise<void> {
+    if (this.lastLoaded !== null) {
+      const steps = this.stepEntries().length;
+      if (steps > 0) {
+        const ok = await openConfirm({
+          title: "Compare and clear the loaded table?",
+          body: `Comparing loads A in place of “${this.datasetName}”, including its ${steps} Recipe step${steps === 1 ? "" : "s"}. To keep them, Cancel and save the Recipe first.`,
+          confirmLabel: "Compare",
+          danger: true,
+        });
+        if (!ok) return;
+      }
+      this.clearData();
+    }
+    await this.openCompare(b, a);
+  }
+
   private showPaste(): void {
     const hasData = this.lastLoaded !== null;
+    // The front page opens on one table every time.
+    this.setFrontMode("single");
     this.pasteView.classList.remove("hidden");
     this.pasteCancel.classList.toggle("hidden", !hasData);
     this.workspace.classList.toggle("hidden", !hasData);
@@ -6905,10 +6965,11 @@ export class App {
 
   /**
    * Opens compare mode over the app. With data loaded it is A; from the
-   * start screen both files are chosen inside, and A loads as the app's data,
-   * so after Exit the work carries on with A.
+   * front page A and B arrive chosen, are compared straight away and open on
+   * Spot the difference. A loads as the app's data, so after Exit the work
+   * carries on with A.
    */
-  private async openCompare(b?: File): Promise<void> {
+  private async openCompare(b?: File, a?: File): Promise<void> {
     if (this.compareMode !== null || this.loading) return;
     const mode = new CompareMode({
       client: this.client,
@@ -6969,7 +7030,7 @@ export class App {
     const behind = [...document.body.children].filter((node): node is HTMLElement => node instanceof HTMLElement && !node.inert);
     for (const node of behind) node.inert = true;
     document.body.append(mode.element);
-    await mode.start(b);
+    await mode.start(b, a);
   }
 
   private updateNewButton(): void {
@@ -7083,6 +7144,8 @@ export class App {
     this.archetypeOverride = null;
     this.sampleNote = null;
     this.workspace.classList.add("hidden");
+    this.setFrontMode("single");
+    this.frontCompare.reset();
     this.pasteView.classList.remove("hidden");
     this.pasteCancel.classList.add("hidden");
     this.updateNewButton();

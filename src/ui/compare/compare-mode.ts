@@ -116,8 +116,20 @@ export class CompareMode {
     this.render();
   }
 
-  /** Opens with B already chosen (Load more → Compare with a file). */
-  async start(b?: File): Promise<void> {
+  /**
+   * Opens with B already chosen (Load more → Compare with a file), or with both
+   * chosen on the front page: then it compares at once, on the suggested key,
+   * and opens on Spot the difference. Setup is a step back.
+   */
+  async start(b?: File, a?: File): Promise<void> {
+    if (a !== undefined && b !== undefined && !this.state.aLoaded) {
+      await this.pickA(a);
+      if (this.state.a === null || this.state.error !== null) return;
+      await this.pickB(b);
+      if (this.state.setup === null || this.state.error !== null) return;
+      await this.run();
+      return;
+    }
     if (this.state.aLoaded && b !== undefined) await this.pickB(b);
   }
 

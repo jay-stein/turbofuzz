@@ -2,7 +2,7 @@ import Papa from "papaparse";
 import { listArchiveEntries, readArchiveEntry, type ArchiveEntry } from "../parse/archive.js";
 import { decompressBzip2 } from "../parse/bz2.js";
 import { combineSheets, type SheetGrid } from "../parse/combine-sheets.js";
-import { listWorkbookSheets, readWorkbookSheet } from "../parse/xlsx.js";
+import { listWorkbookSheets, readWorkbookSheet, type WorkbookSheet } from "../parse/xlsx.js";
 import { listLegacySheets, readLegacySheet } from "../parse/xls.js";
 import { el } from "./dom.js";
 import { setupDialog } from "./dialog.js";
@@ -70,11 +70,40 @@ function ask<T>(title: string, fill: (host: HTMLElement, done: (value: T) => voi
 
 const csvOf = (rows: string[][]): ArrayBuffer => new TextEncoder().encode(Papa.unparse(rows)).buffer as ArrayBuffer;
 
-async function fromWorkbook(name: string, buffer: ArrayBuffer): Promise<ResolvedSource | null> {
+/** A workbook opened for its worksheets: the list (as `listWorkbookSheets` gives it) and a reader for one sheet's cells. */
+export interface OpenedWorkbook {
+  name: string;
+  sheets: WorkbookSheet[];
+  read(sheet: string): Promise<string[][]>;
+}
+
+export function isWorkbookName(name: string): boolean {
+  return WORKBOOK.test(name);
+}
+
+/** Lists a workbook's worksheets (.xlsx natively, .xls through the lazily loaded legacy reader). */
+export async function openWorkbook(name: string, buffer: ArrayBuffer): Promise<OpenedWorkbook> {
   const legacy = /\.xls$/i.test(name) ? await listLegacySheets(buffer, MAX_SHEETS) : null;
   const listing = legacy ?? (await listWorkbookSheets(buffer, MAX_SHEETS));
-  const read = (sheet: string): Promise<string[][]> => (legacy === null ? readWorkbookSheet(buffer, sheet) : readLegacySheet(legacy.workbook, sheet));
   if (listing.sheets.length === 0) throw new Error(`${name} has no worksheets.`);
+  return {
+    name,
+    sheets: listing.sheets,
+    read: (sheet) => (legacy === null ? readWorkbookSheet(buffer, sheet) : readLegacySheet(legacy.workbook, sheet)),
+  };
+}
+
+/** One worksheet as a plain CSV file named "<workbook> — <sheet>.csv", which compare and the loader read like any file. */
+export async function sheetAsFile(book: OpenedWorkbook, sheet: string): Promise<File> {
+  const grid = await book.read(sheet);
+  if (grid.length === 0) throw new Error(`“${sheet}” in ${book.name} has no data.`);
+  return new File([csvOf(grid)], `${baseName(book.name)} — ${sheet}.csv`, { type: "text/csv" });
+}
+
+async function fromWorkbook(name: string, buffer: ArrayBuffer): Promise<ResolvedSource | null> {
+  const book = await openWorkbook(name, buffer);
+  const listing = book;
+  const read = book.read;
   const base = baseName(name);
   const choice =
     listing.sheets.length === 1

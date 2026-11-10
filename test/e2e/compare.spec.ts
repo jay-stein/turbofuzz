@@ -7,6 +7,22 @@ const A = ["id,name,amount,region,old", "1,Ada,10,North,x", "2,Alan,20,South,y",
 const B = ["id,full_name,amount,Region,new", "1,Ada,10,North,p", "3,Grace,31,East,q", "4,Edsger W.,40,West,r", "5,Barbara,50,North,s"].join("\n");
 const file = (name: string, text: string) => ({ name, mimeType: "text/csv", buffer: Buffer.from(text) });
 
+/** The front page's Compare two tables: A and B through their drop areas, then Compare, which opens on Spot the difference. */
+async function compareFromFront(page: Page, a: ReturnType<typeof file>, b: ReturnType<typeof file>): Promise<void> {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto("/");
+  await page.getByRole("radio", { name: /Compare two tables/ }).click();
+  for (const [label, chosen] of [["Drop the first table", a], ["Drop the second table", b]] as const) {
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: new RegExp(label) }).click();
+    await (await chooser).setFiles(chosen);
+  }
+  await page.getByRole("button", { name: "Compare", exact: true }).click();
+  await expect(page.locator(".cmp-step[aria-current=page]")).toContainText("Spot the difference", { timeout: 20_000 });
+}
+
+const frontCompare = (page: Page) => page.getByRole("radio", { name: /Compare two tables/ });
+
 async function loadA(page: Page): Promise<void> {
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.goto("/");
@@ -53,17 +69,14 @@ test("Load more → Compare: the loaded data is A, a key is suggested, a rename 
   // Exit clears both datasets: back to the start screen.
   await mode.getByRole("button", { name: "Exit compare" }).click();
   await expect(mode).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Compare two datasets…" })).toBeVisible();
+  await expect(frontCompare(page)).toBeVisible();
 });
 
-test("from the start screen both files are chosen in compare mode, and A stays loaded after Exit", async ({ page }) => {
-  await page.setViewportSize({ width: 1400, height: 900 });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Compare two datasets…" }).click();
+test("from the front page both files are chosen, compared at once on Spot the difference, and Setup is a step back", async ({ page }) => {
+  await compareFromFront(page, file("before.csv", A), file("after.csv", B));
   const mode = page.getByRole("region", { name: "Compare two datasets" });
-  await mode.getByLabel("Choose the file for A").setInputFiles(file("before.csv", A));
+  await mode.getByRole("button", { name: "Comparison setup" }).click();
   await expect(mode.locator(".cmp-side-a")).toContainText("4 rows × 5 columns");
-  await mode.getByLabel("Choose the file for B").setInputFiles(file("after.csv", B));
   await expect(mode.locator(".cmp-key").first()).toContainText("Suggested");
 
   for (const scheme of ["light", "dark"] as const) {
@@ -78,7 +91,9 @@ test("from the start screen both files are chosen in compare mode, and A stays l
   await expect(mode.getByText("Matched on whole rows")).toBeVisible();
 
   await mode.getByRole("button", { name: "Exit compare" }).click();
-  await expect(page.getByRole("button", { name: "Compare two datasets…" })).toBeVisible();
+  await expect(frontCompare(page)).toBeVisible();
+  // The front page opens on one table again.
+  await expect(page.getByRole("radio", { name: /Analyse one table/ })).toHaveAttribute("aria-checked", "true");
 });
 
 test("B can be a workbook: the worksheets are asked, and the chosen one is compared", async ({ page }) => {
@@ -125,23 +140,20 @@ test("Load more → Append rows stacks a file under the data, columns lined up b
   await expect.poll(() => column(3)).toEqual(["North", "South", "East", "West", "North", "East", "West", "North"]);
 });
 
-test("two files dropped on the empty compare screen fill both sides, the earlier name as A", async ({ page }) => {
+test("two files dropped on the front page's compare area fill both sides, the earlier name as A", async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Compare two datasets…" }).click();
-  const mode = page.getByRole("region", { name: "Compare two datasets" });
-  await expect(mode.getByText("Drop the before file here")).toBeVisible();
-  await expect(mode.getByText("Drop the after file here")).toBeVisible();
+  await frontCompare(page).click();
   const drop = await page.evaluateHandle(([a, b]) => {
     const data = new DataTransfer();
     data.items.add(new File([b], "orders_2026-10.csv", { type: "text/csv" }));
     data.items.add(new File([a], "orders_2026-09.csv", { type: "text/csv" }));
     return data;
   }, [A, B]);
-  await mode.locator(".cmp-page").dispatchEvent("drop", { dataTransfer: drop });
-  await expect(mode.locator(".cmp-side-a")).toContainText("orders_2026-09.csv");
-  await expect(mode.locator(".cmp-side-b")).toContainText("orders_2026-10.csv");
-  await expect(mode.getByRole("button", { name: "Compare", exact: true })).toBeVisible();
+  await page.locator('.fc-drop[data-side="a"]').dispatchEvent("drop", { dataTransfer: drop });
+  const summary = page.locator(".fc-summary");
+  await expect(summary).toContainText(/A\s*orders_2026-09\.csv\s*vs\s*B\s*orders_2026-10\.csv/);
+  await expect(page.getByRole("button", { name: "Compare", exact: true })).toBeEnabled();
 });
 
 test("side by side: counts open their rows, the panes line up with gaps, n finds differences, and one grid shows old under new", async ({ page }) => {
@@ -213,15 +225,8 @@ test("what shifted: no key needed, columns ranked by how far they moved, and a m
     }
     return lines.join("\n");
   };
-  await page.setViewportSize({ width: 1400, height: 900 });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Compare two datasets…" }).click();
+  await compareFromFront(page, file("survey_2025.csv", survey(2025)), file("survey_2026.csv", survey(2026)));
   const mode = page.getByRole("region", { name: "Compare two datasets" });
-  await mode.getByLabel("Choose the file for A").setInputFiles(file("survey_2025.csv", survey(2025)));
-  await expect(mode.locator(".cmp-side-a")).toContainText("80 rows");
-  await mode.getByLabel("Choose the file for B").setInputFiles(file("survey_2026.csv", survey(2026)));
-  await expect(mode.getByRole("radio", { name: /No key: match whole rows/ })).toBeChecked();
-  await mode.getByRole("button", { name: "Compare", exact: true }).click();
   await mode.getByRole("button", { name: "Big Picture" }).click();
 
   await expect(mode.getByRole("heading", { name: "Big Picture" })).toBeVisible();
@@ -298,7 +303,7 @@ test("leaving compare asks first when the data had Recipe steps, then clears bot
   await mode.getByRole("button", { name: "Exit compare" }).click();
   await page.getByRole("button", { name: "Exit and clear" }).click();
   await expect(mode).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Compare two datasets…" })).toBeVisible();
+  await expect(frontCompare(page)).toBeVisible();
 });
 
 test("Changed in: column chips narrow the changed rows to the columns ticked", async ({ page }) => {
