@@ -1802,9 +1802,39 @@ export function computeAggregate(
       }
     }
   }
-  const measuresOut = limited.map((values, m) =>
-    applyPost(values, measures[m].post ?? [], totals, m, shownTimes, rowCount),
-  );
+  // Over time and split by another field, each split value is its own series: a running total,
+  // a rolling mean or a change from the period before is worked out along one series at a time,
+  // never across the rows of different series that happen to sit next to each other.
+  let seriesRows: number[][] | null = null;
+  const firstBy = dimensions[0]?.by;
+  if (dimensions.length > 1 && typeof firstBy === "object" && "time" in firstBy) {
+    const bySeries = new Map<string, number[]>();
+    for (let i = 0; i < finalShown.length; i++) {
+      let key = "";
+      for (let d = 1; d < dimensions.length; d++) key += `${dimValues[d][finalShown[i]]}\u0000`;
+      const rows = bySeries.get(key);
+      if (rows === undefined) bySeries.set(key, [i]);
+      else rows.push(i);
+    }
+    if (bySeries.size > 1) seriesRows = [...bySeries.values()];
+  }
+  const measuresOut = limited.map((values, m) => {
+    const post = measures[m].post ?? [];
+    if (seriesRows === null || post.length === 0) return applyPost(values, post, totals, m, shownTimes, rowCount);
+    const out = new Float64Array(values.length);
+    for (const rows of seriesRows) {
+      const part = applyPost(
+        Float64Array.from(rows, (i) => values[i]),
+        post,
+        totals,
+        m,
+        rows.map((i) => dimTimes[0][finalShown[i]] ?? Number.NaN),
+        rowCount,
+      );
+      rows.forEach((i, position) => (out[i] = part[position]));
+    }
+    return out;
+  });
 
   return {
     labels: finalShown.map((i) => dimensions.map((_, d) => dimValues[d][i]).join(" · ")),

@@ -364,3 +364,37 @@ test("carry fill repeats the previous period instead of zero", () => {
   assert.deepEqual(result.labels, ["2024-01", "2024-02", "2024-03"]);
   assert.deepEqual([...result.measures[0]], [10, 10, 30]);
 });
+
+test("over time and split by a second field, post ops run along each series, not across them", () => {
+  const data = buildDataset("sales", ["month", "region", "value"], [
+    ["2024-01-01", "North", "10"],
+    ["2024-01-01", "South", "1"],
+    ["2024-02-01", "North", "20"],
+    ["2024-02-01", "South", "2"],
+    ["2024-03-01", "North", "30"],
+    ["2024-03-01", "South", "3"],
+  ]);
+  const result = computeAggregate(
+    view({
+      dimensions: [
+        { column: 0, by: { time: "month" } },
+        { column: 1, by: "value" },
+      ],
+      measures: [
+        { column: 2, agg: "sum", post: [{ op: "cumulative" }] },
+        { column: 2, agg: "sum", post: [{ op: "diff" }] },
+      ],
+      sort: { key: "dim0", dir: "asc" },
+    }),
+    data.columns,
+    data.rowCount,
+    allIds(data.rowCount),
+  );
+  const series = (measure: number, region: string): number[] =>
+    [...result.measures[measure]].filter((_, i) => result.dimensions[1][i] === region);
+  assert.deepEqual(series(0, "North"), [10, 30, 60]);
+  assert.deepEqual(series(0, "South"), [1, 3, 6]);
+  assert.deepEqual(series(1, "North").slice(1), [10, 10]);
+  assert.deepEqual(series(1, "South").slice(1), [1, 1]);
+  assert.ok(Number.isNaN(series(1, "South")[0]), "each series starts with no period before it");
+});
