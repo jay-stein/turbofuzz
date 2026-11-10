@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { ColumnFilter } from "../src/search/query-engine.js";
 import { ChartsPanel, type ChartsPanelOptions } from "../src/ui/chart-panel.js";
+import { fieldClick } from "../src/ui/chart-field-rail.js";
 import {
   ChartCard,
   cropDensityGrid,
@@ -4015,6 +4016,45 @@ test("the field list marks what the open chart plots and offers where a field ca
   assert.equal(card.canUndo, true, "a change from the field list can be undone");
   card.undo();
   assert.equal(card.getConfig().groupColumn, -1);
+  panel.dispose();
+  void window;
+});
+
+test("one click on a field puts it in the obvious place, takes it off again, and asks only when there is a choice", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const panel = new ChartsPanel(host, stubOptions());
+  const columns = [...workspaceColumns(), meta({ name: "cost", type: "number", stats: { ...meta().stats, distinct: 900 } })];
+  panel.setColumns(columns);
+  const card = panel.addCard({ kind: "barplot", column: 1, valueColumn: -1 });
+  await tick();
+  const field = (name: string): HTMLButtonElement =>
+    [...host.querySelectorAll<HTMLButtonElement>(".chart-rail-field")].find((item) => item.textContent?.includes(name)) as HTMLButtonElement;
+  const menus = (): number => document.querySelectorAll(".context-menu").length;
+
+  // The only empty place a number fits is Value: no menu.
+  assert.equal(fieldClick(card, 2, columns[2]!).do, "add");
+  field("sales").click();
+  await tick();
+  assert.equal(card.getConfig().valueColumn, 2);
+  assert.equal(menus(), 0, "a field with one obvious place does not open a menu");
+  assert.match(field("sales").textContent ?? "", /Value/, "the list says what the field is on the chart");
+
+  // A field on the chart comes off with the same click.
+  assert.equal(fieldClick(card, 2, columns[2]!).do, "remove");
+  field("sales").click();
+  await tick();
+  assert.equal(card.getConfig().valueColumn ?? -1, -1);
+
+  // The chart's own category cannot come off, so the click asks; so does the menu button, always.
+  assert.equal(fieldClick(card, 1, columns[1]!).do, "ask");
+  field("city").click();
+  assert.equal(menus(), 1);
+  document.querySelector(".context-menu")?.remove();
+
+  // With no chart open a click starts one.
+  assert.deepEqual(fieldClick(null, 1, columns[1]!), { do: "new", kind: "bar" });
   panel.dispose();
   void window;
 });

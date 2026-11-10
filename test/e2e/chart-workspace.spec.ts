@@ -109,7 +109,15 @@ test("twenty categories lie on their side with Top 10, and the type picker keeps
 test("the field list changes the chart, + Add chart opens a new tab, and PNG asks its size when used", async ({ page }) => {
   await open(page);
   await pick(page, "date", "price");
+  // One click: a category has one place to go on a line chart, so no menu opens.
   await page.locator(".chart-rail-field", { hasText: "type" }).click();
+  await expect(page.locator(".context-menu")).toHaveCount(0);
+  await expect(card(page).locator(".chart-legend")).toContainText("organic");
+  await expect(page.locator(".chart-rail-field.used", { hasText: "type" })).toContainText("Group by");
+  // The same click takes it off, and the menu beside the field still has every place it can go.
+  await page.locator(".chart-rail-field", { hasText: "type" }).click();
+  await expect(page.locator(".chart-rail-field.used", { hasText: "type" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Every place type can go" }).click();
   await page.locator(".context-menu .context-item", { hasText: "Group by" }).click();
   await expect(card(page).locator(".chart-legend")).toContainText("organic");
   await expect(page.locator(".chart-rail-field.used", { hasText: "type" })).toHaveCount(1);

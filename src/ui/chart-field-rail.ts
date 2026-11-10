@@ -28,9 +28,38 @@ const GLYPHS: Partial<Record<ColumnMeta["type"], string>> = {
 /** Long enough that scanning stops working and a search earns its place. */
 const SEARCH_ABOVE = 12;
 
+type FieldSlot = ReturnType<ChartCard["fieldSlots"]>[number];
+
+/** What one click on a field does. */
+export type FieldClick =
+  | { do: "add"; slot: FieldSlot }
+  | { do: "remove"; slot: FieldSlot }
+  | { do: "new"; kind: ChartCardKind }
+  | { do: "ask" };
+
 /**
- * The left of the chart workspace: every column, the ones the open chart uses marked.
- * A click says where a field can go on this chart, so no setting has to be hunted for.
+ * One click puts a field in the obvious place: the only place it fits, or the only one still
+ * empty; a field already on the chart comes off. It asks only when there is a real choice
+ * (two free places, or a field that could only replace another), and never leaves the open
+ * chart for a new one without being asked.
+ */
+export function fieldClick(card: ChartCard | null, column: number, meta: ColumnMeta): FieldClick {
+  if (card === null) {
+    const kind = chartKindFor(meta.type);
+    return kind === null ? { do: "ask" } : { do: "new", kind };
+  }
+  const slots = card.fieldSlots(column);
+  const active = slots.filter((slot) => slot.active);
+  if (active.length > 0) return active.length === 1 && active[0]!.clearable ? { do: "remove", slot: active[0]! } : { do: "ask" };
+  if (slots.length === 1) return { do: "add", slot: slots[0]! };
+  const empty = slots.filter((slot) => slot.empty);
+  return empty.length === 1 ? { do: "add", slot: empty[0]! } : { do: "ask" };
+}
+
+/**
+ * The left of the chart workspace: every column, the ones the open chart uses marked with what
+ * they are on it. A click puts a field on the chart or takes it off; the menu beside it has
+ * every place the field can go.
  */
 export class ChartFieldRail {
   readonly root: HTMLElement;
@@ -71,30 +100,67 @@ export class ChartFieldRail {
   sync(): void {
     const card = this.options.activeCard();
     const used = card?.usedFields() ?? new Set<number>();
-    const key = `${this.columns.length}|${this.query}|${[...used].join(",")}`;
+    const roles = card?.fieldRoles() ?? new Map<number, string>();
+    const key = `${this.columns.length}|${this.query}|${[...used].map((column) => `${column}:${roles.get(column) ?? ""}`).join(",")}`;
     if (key === this.drawn) return;
     this.drawn = key;
     const rows: HTMLElement[] = [];
     this.columns.forEach((meta, column) => {
       if (this.query !== "" && !meta.name.toLowerCase().includes(this.query)) return;
-      const row = el(
+      const role = roles.get(column) ?? "";
+      const field = el(
         "button",
         {
           class: `chart-rail-field${used.has(column) ? " used" : ""}`,
           type: "button",
           title: `${meta.name} (${TYPE_LABELS[meta.type]})`,
           "aria-pressed": String(used.has(column)),
-          "aria-haspopup": "menu",
         },
         [
           el("span", { class: "chart-rail-glyph", "aria-hidden": "true" }, [GLYPHS[meta.type] ?? "?"]),
           el("span", { class: "chart-rail-name" }, [meta.name]),
+          ...(role === "" ? [] : [el("span", { class: "chart-rail-role" }, [role])]),
         ],
       );
-      row.addEventListener("click", () => this.openFor(row, column));
-      rows.push(row);
+      // What the click will do, worked out when it is about to matter, not for every field on every paint.
+      const describe = (): void => {
+        field.title = `${meta.name} (${TYPE_LABELS[meta.type]}). ${this.describe(column, meta)}`;
+      };
+      field.addEventListener("pointerenter", describe);
+      field.addEventListener("focus", describe);
+      field.addEventListener("click", () => this.click(field, column));
+      const more = el(
+        "button",
+        {
+          class: "chart-rail-more",
+          type: "button",
+          title: `Every place ${meta.name} can go`,
+          "aria-label": `Every place ${meta.name} can go`,
+          "aria-haspopup": "menu",
+        },
+        ["\u22ef"],
+      );
+      more.addEventListener("click", () => this.openFor(more, column));
+      rows.push(el("div", { class: "chart-rail-row" }, [field, more]));
     });
     this.list.replaceChildren(...rows);
+  }
+
+  private describe(column: number, meta: ColumnMeta): string {
+    const click = fieldClick(this.options.activeCard(), column, meta);
+    if (click.do === "add") return `Click to use it as the ${click.slot.label} of this chart.`;
+    if (click.do === "remove") return `It is the ${click.slot.label} of this chart: click to take it off.`;
+    if (click.do === "new") return "Click to chart it.";
+    return "Click to choose where it goes.";
+  }
+
+  private click(anchor: HTMLElement, column: number): void {
+    const meta = this.columns[column];
+    if (meta === undefined) return;
+    const click = fieldClick(this.options.activeCard(), column, meta);
+    if (click.do === "add" || click.do === "remove") click.slot.toggle();
+    else if (click.do === "new") this.options.onNewChart(click.kind, column);
+    else this.openFor(anchor, column);
   }
 
   private openFor(anchor: HTMLElement, column: number): void {

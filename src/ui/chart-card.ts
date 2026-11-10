@@ -3519,10 +3519,21 @@ export class ChartCard {
     return used;
   }
 
-  /** Where this column can go on this chart. */
-  fieldSlots(column: number): { label: string; active: boolean; clearable: boolean; toggle(): void }[] {
+  /** What each plotted column is on this chart ("Value", "Group by"), for the field list to say. */
+  fieldRoles(): Map<number, string> {
+    const roles = new Map<number, string>();
+    for (const { label, select } of this.fieldControls()) {
+      const index = Number(select.value);
+      if (index >= 0 && !roles.has(index)) roles.set(index, label);
+    }
+    for (const extra of this.extraValues()) if (!roles.has(extra)) roles.set(extra, "Value");
+    return roles;
+  }
+
+  /** Where this column can go on this chart. `empty`: the place has no field yet, so taking it replaces nothing. */
+  fieldSlots(column: number): { label: string; active: boolean; clearable: boolean; empty: boolean; toggle(): void }[] {
     const value = String(column);
-    const out: { label: string; active: boolean; clearable: boolean; toggle(): void }[] = [];
+    const out: { label: string; active: boolean; clearable: boolean; empty: boolean; toggle(): void }[] = [];
     for (const { label, select } of this.fieldControls()) {
       const option = [...select.options].find((candidate) => candidate.value === value);
       if (option === undefined || option.disabled) continue;
@@ -3534,6 +3545,7 @@ export class ChartCard {
         label,
         active: select.value === value,
         clearable,
+        empty: Number(select.value) < 0,
         toggle: () => {
           this.noteBeforeChange();
           select.value = select.value === value ? "-1" : value;
@@ -3545,7 +3557,7 @@ export class ChartCard {
     if (this.allowsExtraValues() && column !== this.config.valueColumn && isNumericType(this.meta(column)?.type ?? "string")) {
       const active = this.extraValues().includes(column);
       if (active || this.extraValues().length < MAX_VALUES - 1) {
-        out.push({ label: "Another value", active, clearable: true, toggle: () => this.toggleExtraValue(column) });
+        out.push({ label: "Another value", active, clearable: true, empty: true, toggle: () => this.toggleExtraValue(column) });
       }
     }
     return out;

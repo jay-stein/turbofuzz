@@ -17566,3 +17566,51 @@ button.cmp-change-name:hover {
 .chart-sidebar .chart-extra-add {
   width: 100%;
 }
+
+/* The field list: a click puts a field on the chart; its menu sits beside it and shows on hover. */
+.chart-rail-row {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  min-width: 0;
+}
+.chart-rail-row > .chart-rail-field {
+  flex: 1;
+  min-width: 0;
+}
+.chart-rail-role {
+  margin-left: auto;
+  padding-left: 6px;
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--text-dim);
+}
+.chart-rail-more {
+  flex: none;
+  width: 22px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+}
+.chart-rail-row:hover > .chart-rail-more,
+.chart-rail-more:focus-visible {
+  opacity: 1;
+}
+.chart-rail-more:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+@media (hover: none) {
+  .chart-rail-more {
+    opacity: 1;
+  }
+}
