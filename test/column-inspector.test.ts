@@ -89,6 +89,7 @@ function context(calls: string[], overrides: Partial<ColumnActionContext> = {}):
     onOpenTransform: (preset) => calls.push(`transform:${preset?.type ?? "all"}`),
     onDedupe: (keep) => calls.push(`dedupe:${keep}`),
     onMelt: () => calls.push("melt"),
+    onExplode: () => calls.push("explode"),
     onAllowedValues: (values) => calls.push(`allowed:${values.join("|")}`),
     onCompare: (target, operator, tolerance) => calls.push(`compare:${target}:${operator}:${tolerance}`),
     onCheckFreshness: (days) => calls.push(`fresh:${days}`),

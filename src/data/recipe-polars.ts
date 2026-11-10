@@ -1069,6 +1069,31 @@ function polarsTransformLines(
         }
         break;
       }
+      case "explodeColumn": {
+        const sourceName = names[op.column];
+        if (sourceName === undefined) {
+          lines.push("# explode skipped in the script: the column is no longer in the schema");
+          entries.push({
+            label: `explodeColumn: column ${op.column + 1}`,
+            status: "manual_step_required",
+            note: "the tracked schema no longer has this column",
+          });
+          break;
+        }
+        if (op.regex) {
+          lines.push(`# regex explode: split ${col(sourceName)} on ${py(op.pattern)} with a regex-aware step, then .explode(${py(sourceName)})`);
+          entries.push({
+            label: `explodeColumn: ${sourceName} (regex)`,
+            status: "manual_step_required",
+            note: "Polars str.split is literal; split on the pattern explicitly before exploding",
+          });
+          break;
+        }
+        lines.push(`df = df.with_columns(${col(sourceName)}.str.split(${py(op.pattern)})).explode(${py(sourceName)})`);
+        if (op.trim) lines.push(`df = df.with_columns(${col(sourceName)}.str.strip_chars())`);
+        if (op.dropEmpty) lines.push(`df = df.filter((${col(sourceName)} != "") | ${col(sourceName)}.is_null())`);
+        break;
+      }
       case "splitColumn": {
         const sourceName = names[op.column];
         if (sourceName === undefined) {

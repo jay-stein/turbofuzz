@@ -3873,6 +3873,14 @@ function transformPreviewNotes(
         });
         break;
       }
+      case "explodeColumn": {
+        const added = after.rowCount - running.rowCount;
+        notes.push({
+          op: index,
+          text: `Explodes into ${after.rowCount.toLocaleString()} rows (+${added.toLocaleString()})`,
+        });
+        break;
+      }
       case "melt": {
         const added = after.rowCount - running.rowCount;
         notes.push({

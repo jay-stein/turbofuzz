@@ -32,6 +32,7 @@ import {
 import { openKnnDialog, openKnnResult } from "./knn-dialog.js";
 import { openMeltDialog } from "./melt-dialog.js";
 import { openSpreadDialog } from "./spread-dialog.js";
+import { openExplodeDialog } from "./explode-dialog.js";
 import { openWorkspaceProgress } from "./workspace-progress.js";
 import { buildColumnHealth, buildIssues, type FixStep, type PageIssue } from "../data/dq-issues.js";
 import { columnsIgnoring, idLikeColumns, nearDuplicateFinding } from "../data/near-duplicates.js";
@@ -352,6 +353,7 @@ function extensionOf(name: string): string {
 /** Icons for the toolbar buttons that show only the icon until the pointer or the keyboard reaches them, then spell out their name. */
 const BUTTON_ICONS = {
   melt: '<path d="M5 4v6M10 4v6M15 4v6M20 4v6"/><path d="M12 20V14M12 14l-3 3M12 14l3 3"/>',
+  explode: '<path d="M4 12h5"/><path d="M15 6h5M15 12h5M15 18h5"/><path d="M9 12l3-6h3M9 12h6M9 12l3 6h3"/>',
   spread: '<path d="M12 3v8"/><path d="M12 11 6 17M12 11l6 6"/><path d="M5 21v-3M12 21v-6M19 21v-3"/>',
   convert: '<path d="M7 7h11l-3-3"/><path d="M17 17H6l3 3"/>',
   importSettings: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
@@ -727,6 +729,7 @@ export class App {
   private convertTypesButton!: HTMLButtonElement;
   private meltButton!: HTMLButtonElement;
   private spreadButton!: HTMLButtonElement;
+  private explodeButton!: HTMLButtonElement;
   private headerRowButton!: HTMLButtonElement;
   /** How the current table was read, so the header row can be re-chosen and reloaded. */
   private importSource: ImportSource | null = null;
@@ -1286,6 +1289,18 @@ export class App {
     expandButton(this.spreadButton, "spread", "Spread (pivot wider)…");
     this.spreadButton.addEventListener("click", () => void this.openSpread());
 
+    this.explodeButton = el(
+      "button",
+      {
+        class: "ghost small nav-action explode-button",
+        type: "button",
+        title: "Explode: a cell holding several values (soccer;tennis;golf) becomes one row per value",
+      },
+      [],
+    ) as HTMLButtonElement;
+    expandButton(this.explodeButton, "explode", "Explode to rows…");
+    this.explodeButton.addEventListener("click", () => void this.openExplode());
+
     this.headerRowButton = el(
       "button",
       {
@@ -1322,6 +1337,7 @@ export class App {
         { label: "Convert types", action: () => this.convertTypesButton.click() },
         { label: "Melt: pivot longer (wide → long)…", action: () => this.meltButton.click() },
         { label: "Spread: pivot wider (long → wide)…", action: () => this.spreadButton.click() },
+        { label: "Explode: one row per value in a cell…", action: () => this.explodeButton.click() },
         {
           label: "Import settings…",
           title: this.headerRowButton.title,
@@ -1358,6 +1374,7 @@ export class App {
         this.convertTypesButton,
         this.meltButton,
         this.spreadButton,
+        this.explodeButton,
         this.headerRowButton,
         this.undoButton,
         this.stepsButton,
@@ -7563,6 +7580,7 @@ export class App {
       onOpenTransform: (preset) => this.openTransform(preset),
       onDedupe: (keep) => this.dropDuplicates(keep),
       onMelt: () => void this.openMelt(),
+      onExplode: () => void this.openExplode(column),
       onAllowedValues: (values) => this.checkAllowedValues(column, values),
       onCompare: (target, operator, tolerance) => this.checkPair(column, target, operator, tolerance),
       onCheckFreshness: (days) => this.checkFreshness(column, days),
@@ -8845,6 +8863,28 @@ export class App {
     this.applyTransform(
       [...this.transformOps, op],
       wide > 0 ? `Spread into ${wide} column${wide === 1 ? "" : "s"}` : "Spread into columns",
+      () => this.setView("table"),
+    );
+  }
+
+  /** Explode (pandas explode): a cell with several values becomes one row per value. */
+  private async openExplode(column?: number): Promise<void> {
+    if (this.datasetName === "" || this.loading || this.metas.length === 0) return;
+    let schema: ColumnSchema[] =
+      this.transformBaseSchema.length > 0
+        ? [...this.transformBaseSchema]
+        : this.metas.map((meta) => ({ name: meta.name, numeric: meta.type === "integer" || meta.type === "number" }));
+    for (const op of this.transformOps) schema = schemaAfter(schema, op);
+    const op = await openExplodeDialog({
+      schema,
+      column,
+      rowCount: this.rowCount,
+      preview: (staged) => this.client.previewTransform([...this.transformOps, staged], 6),
+    });
+    if (op === null) return;
+    this.applyTransform(
+      [...this.transformOps, op],
+      `Exploded “${schema[op.column]?.name ?? "column"}” into one row per value`,
       () => this.setView("table"),
     );
   }

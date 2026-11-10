@@ -22,6 +22,7 @@ export function takeKnnFilled(): Map<number, Uint8Array> | null {
   lastKnnFilled = null;
   return filled;
 }
+import { applyExplodeColumn, type ExplodeColumnOp } from "./explode-column.js";
 import { applySplitColumn, type SplitColumnOp } from "./split-column.js";
 import { hashRows, rowsEqual } from "./stats.js";
 import { parseNumber } from "../parse/numbers.js";
@@ -82,6 +83,7 @@ export type TransformOp =
     }
   | CombineDateOp
   | SplitColumnOp
+  | ExplodeColumnOp
   | {
       /** Appends a Yes/No column marking outlier cells (value or length). */
       kind: "flagAnomalies";
@@ -200,6 +202,9 @@ export function applyTransformOps(
         break;
       case "splitColumn":
         current = applySplitColumn(current, op);
+        break;
+      case "explodeColumn":
+        current = applyExplodeColumn(current, op);
         break;
       case "flagAnomalies":
         current = flagAnomaliesColumn(current, op);
@@ -980,6 +985,8 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
         op.dropOriginal ? " (drop original)" : ""
       }`;
     }
+    case "explodeColumn":
+      return `Explode ${quoted(nameAt(op.column))} on ${op.regex ? "regex" : "delimiter"} ${quoted(op.pattern)} into one row per value`;
     case "aggregate": {
       const dims = op.dimensions.map((spec) => {
         const name = quoted(nameAt(spec.column));
@@ -1062,6 +1069,8 @@ export function describeTransformOpDetail(op: TransformOp, headers: readonly str
       )}, dropParts=${op.dropParts})`;
     case "splitColumn":
       return `splitColumn(column=${nameAt(op.column)}, pattern=${JSON.stringify(op.pattern)}, regex=${op.regex}, dropEmpty=${op.dropEmpty}, dropOriginal=${op.dropOriginal}, prefix=${JSON.stringify(op.prefix)})`;
+    case "explodeColumn":
+      return `explodeColumn(column=${nameAt(op.column)}, pattern=${JSON.stringify(op.pattern)}, regex=${op.regex}, trim=${op.trim}, dropEmpty=${op.dropEmpty})`;
     case "aggregate":
       return `aggregate(dimensions=[${op.dimensions
         .map((spec) => nameAt(spec.column))
@@ -1148,6 +1157,8 @@ export function schemaAfter(schema: readonly ColumnSchema[], op: TransformOp): C
       if (!op.dropOriginal) return schema.slice();
       return schema.filter((_, index) => index !== op.column);
     }
+    case "explodeColumn":
+      return schema.map((entry, index) => (index === op.column ? { name: entry.name, numeric: false } : entry));
     case "aggregate": {
       const dims = op.dimensions
         .filter((spec) => schema[spec.column] !== undefined)

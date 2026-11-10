@@ -46,6 +46,7 @@ export interface ColumnActionContext {
   onOpenTransform(preset?: { type: string; column?: number }): void;
   onDedupe(keep: DedupeKeep): void;
   onMelt(): void;
+  onExplode(): void;
   onAllowedValues(values: string[]): void;
   onCompare(target: number, operator: PairOperator, tolerance: number): void;
   onCheckFreshness(days: number): void;
@@ -257,6 +258,7 @@ export function columnActionSections(ctx: ColumnActionContext): ActionSection[] 
   ];
   if (numeric && !temporal) transform.push({ label: "Round…", icon: ICONS.round, run: () => ctx.onOpenTransform({ type: "round", column }) });
   transform.push({ label: "Split column…", icon: ICONS.split, run: () => ctx.onOpenTransform({ type: "splitColumn", column }) });
+  transform.push({ label: "Explode to rows…", hint: "One row per value in a cell, like pandas explode", icon: ICONS.explode, run: () => ctx.onExplode() });
   if (temporal) {
     transform.push({ label: "Combine date/time columns…", icon: ICONS.combine, run: () => ctx.onOpenTransform({ type: "combineDate", column }) });
   }

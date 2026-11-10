@@ -87,6 +87,7 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   { name: "round", aliases: [], hint: "Round a column to N decimals" },
   { name: "fill", aliases: ["impute"], hint: "Fill missing values (mean/median/mode/constant)" },
   { name: "split", aliases: [], hint: "Split a column on a delimiter" },
+  { name: "explode", aliases: [], hint: "One row per value in a cell — “explode sports on ;”" },
   { name: "group", aliases: ["aggregate", "groupby", "group by"], hint: "Aggregate rows into a dataset" },
   { name: "dedupe", aliases: ["deduplicate"], hint: "Remove duplicate rows (keep first)" },
   { name: "drop", aliases: [], hint: "Delete a column" },
@@ -246,6 +247,7 @@ const COLUMN_VERBS = new Set([
   "fill",
   "split",
   "splitregex",
+  "explode",
   "drop",
   "repair",
   "replace",
@@ -333,6 +335,7 @@ function columnFitsVerb(verb: string, meta: ColumnMeta): boolean {
     case "trim":
     case "split":
     case "splitregex":
+    case "explode":
     case "escape":
     case "replace":
       return textish;
@@ -630,6 +633,25 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
           },
         ],
         label: `Split ${columns[index]?.name ?? "column"} on “${pattern}”`,
+      };
+    }
+    case "explode": {
+      const onIndex = rest.toLowerCase().indexOf(" on ");
+      const columnText = onIndex >= 0 ? rest.slice(0, onIndex).trim() : rest;
+      const rawPattern = onIndex >= 0 ? rest.slice(onIndex + 4).trim() : "";
+      const pattern =
+        rawPattern === "space" ? " " : rawPattern === "comma" ? "," : rawPattern === "tab" ? "	" : rawPattern === "semicolon" ? ";" : rawPattern;
+      const index = findColumn(columnText, columns);
+      if (index < 0) {
+        return { kind: "error", message: "Explode needs a column, e.g. “explode sports on ;”." };
+      }
+      if (pattern === "") {
+        return { kind: "error", message: "Explode needs a delimiter, e.g. “explode sports on ;”." };
+      }
+      return {
+        kind: "transform",
+        ops: [{ kind: "explodeColumn", column: index, pattern, regex: false, trim: true, dropEmpty: true }],
+        label: `Explode ${columns[index]?.name ?? "column"} on “${pattern}” into one row per value`,
       };
     }
     case "group": {

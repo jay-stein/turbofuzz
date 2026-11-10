@@ -87,6 +87,7 @@ function remapTransform(
       return { ...op };
     case "drop":
     case "round":
+    case "explodeColumn":
     case "flagAnomalies":
     case "winsorize":
     case "clip": {

@@ -962,6 +962,24 @@ function transformLines(
         }
         break;
       }
+      case "explodeColumn": {
+        const sourceName = names[op.column];
+        if (sourceName === undefined) {
+          lines.push("# explode skipped in the script: the column is no longer in the schema");
+          entries.push({
+            label: `explodeColumn: column ${op.column + 1}`,
+            status: "manual_step_required",
+            note: "the tracked schema no longer has this column",
+          });
+          break;
+        }
+        const source = target(sourceName);
+        lines.push(`${source} = ${source}.str.split(${py(op.pattern)}, regex=${op.regex ? "True" : "False"})`);
+        lines.push(`df = df.explode(${py(sourceName)}, ignore_index=True)`);
+        if (op.trim) lines.push(`${source} = ${source}.str.strip()`);
+        if (op.dropEmpty) lines.push(`df = df[${source} != ""].reset_index(drop=True)`);
+        break;
+      }
       case "splitColumn": {
         const sourceName = names[op.column];
         if (sourceName === undefined) {
