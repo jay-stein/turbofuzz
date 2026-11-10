@@ -3544,8 +3544,24 @@ export class ChartCard {
   /** A view-bound card hides the raw-column pickers; its type comes from the view. */
   private syncSourceControls(): void {
     const bound = this.config.source !== "";
-    // Must agree with renderControls: this runs on filter updates too, and
-    // blindly unhiding the pair controls would leak X/Y into single-axis kinds.
+    const kind = this.config.kind;
+    this.kindSelect.classList.toggle("hidden", bound);
+    this.kindStatic.classList.toggle("hidden", !bound);
+    this.syncFieldVisibility();
+    this.settingsBody.classList.toggle("hidden", bound ? false : !this.canDraw());
+    const pivotMode = kind === "pivotHeatmap" && this.isPivotSource();
+    this.pivotRowWrap.classList.toggle("hidden", !pivotMode);
+    this.pivotColWrap.classList.toggle("hidden", !pivotMode);
+    this.pivotMeasureWrap.classList.toggle("hidden", !pivotMode);
+  }
+
+  /**
+   * Which field and aggregate pickers this chart shows: the one place that decides, for every
+   * chart type and for charts of a Pivot View (which hide the raw-column pickers). Everything
+   * that changes the type, the source, the value or the columns calls this.
+   */
+  private syncFieldVisibility(): void {
+    const bound = this.config.source !== "";
     const kind = this.config.kind;
     const pair = isPairKind(kind);
     const groupable = this.columns.some((meta) => isGroupable(meta));
@@ -3557,8 +3573,6 @@ export class ChartCard {
         this.isDateLike(this.meta(this.config.column)));
     const valueOn =
       measureKinds && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
-    this.kindSelect.classList.toggle("hidden", bound);
-    this.kindStatic.classList.toggle("hidden", !bound);
     const kpiPrimaryHidden =
       kind === "kpi" && !this.columns.some((meta) => this.isDateLike(meta));
     const groupedValue =
@@ -3582,14 +3596,11 @@ export class ChartCard {
     this.weekStartWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || this.resolvedGrain() !== "week");
     this.fiscalWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || (this.resolvedGrain() !== "quarter" && this.resolvedGrain() !== "year"));
     this.valueCalcWrap.classList.toggle("hidden", bound || !valueOn || kind === "treemap");
-    this.xWrap.classList.toggle("hidden", bound || !pair);
-    this.yWrap.classList.toggle("hidden", bound || !pair);
+    // Regions matched by name need no coordinates, so a map of them hides X and Y too.
+    const noAxes = bound || !pair || (this.regionsOn() && this.regions?.usesCoordinates !== true);
+    this.xWrap.classList.toggle("hidden", noAxes);
+    this.yWrap.classList.toggle("hidden", noAxes);
     this.axesPanel.classList.toggle("hidden", bound || kind === "correlation");
-    this.settingsBody.classList.toggle("hidden", bound ? false : !this.canDraw());
-    const pivotMode = kind === "pivotHeatmap" && this.isPivotSource();
-    this.pivotRowWrap.classList.toggle("hidden", !pivotMode);
-    this.pivotColWrap.classList.toggle("hidden", !pivotMode);
-    this.pivotMeasureWrap.classList.toggle("hidden", !pivotMode);
   }
 
   /** Fetches the bound aggregate or pivot result (generation-guarded). */
@@ -5634,16 +5645,7 @@ export class ChartCard {
   private renderControls(): void {
     const kind = this.config.kind;
     const pair = isPairKind(kind);
-    const kpiPrimary =
-      kind !== "kpi" || this.columns.some((meta) => this.isDateLike(meta));
-    this.primaryWrap.classList.toggle(
-      "hidden",
-      pair || kind === "correlation" || !kpiPrimary,
-    );
-    this.axesPanel.classList.toggle(
-      "hidden",
-      this.config.source !== "" || kind === "correlation",
-    );
+    this.syncFieldVisibility();
     this.primaryTagLabel.textContent =
       kind === "histogram"
         ? "Values"
@@ -5671,23 +5673,6 @@ export class ChartCard {
       measureKinds && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
     const groupedValue =
       valueOn && SPLIT_KINDS.includes(kind);
-    this.groupWrap.classList.toggle(
-      "hidden",
-      (!SPLIT_KINDS.includes(kind) && kind !== "histogram" && kind !== "bubble") ||
-        !groupable ||
-        (valueOn && !groupedValue),
-    );
-    const unbound = this.config.source === "";
-    this.valueWrap.classList.toggle("hidden", !measureKinds || !unbound);
-    this.valueAggWrap.classList.toggle("hidden", !measureKinds || !unbound || !valueOn);
-    this.valueGrainWrap.classList.toggle("hidden", !grainKinds || !unbound || !valueOn);
-    this.valueEveryWrap.classList.toggle("hidden", !grainKinds || !unbound || !valueOn || !this.hasExplicitGrain());
-    this.valueFillWrap.classList.toggle("hidden", !grainKinds || !unbound || !valueOn);
-    this.weekStartWrap.classList.toggle("hidden", !grainKinds || !unbound || !valueOn || this.resolvedGrain() !== "week");
-    this.fiscalWrap.classList.toggle("hidden", !grainKinds || !unbound || !valueOn || (this.resolvedGrain() !== "quarter" && this.resolvedGrain() !== "year"));
-    this.valueCalcWrap.classList.toggle("hidden", !unbound || !valueOn || kind === "treemap");
-    this.xWrap.classList.toggle("hidden", !pair);
-    this.yWrap.classList.toggle("hidden", !pair);
     const seriesKind = kind === "scatter" || kind === "density";
     const mapKind = kind === "map";
     this.mapModeWrap.classList.toggle("hidden", !mapKind || this.config.mapMode === "heat" || this.config.mapMode === "regions");
@@ -5944,12 +5929,7 @@ export class ChartCard {
 
   /** Regions matched by name need no coordinates, so their columns would only confuse. */
   private syncRegionAxes(): void {
-    const hide =
-      this.config.source !== "" ||
-      !isPairKind(this.config.kind) ||
-      (this.regionsOn() && this.regions?.usesCoordinates !== true);
-    this.xWrap.classList.toggle("hidden", hide);
-    this.yWrap.classList.toggle("hidden", hide);
+    this.syncFieldVisibility();
     // A choropleth has its own value and colours: the general chart settings would only mislead.
     const regions = this.regionsOn();
     this.bubbleAggField.classList.toggle("hidden", regions);
