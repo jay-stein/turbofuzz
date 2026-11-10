@@ -75,3 +75,28 @@ test("a chart of a pivot follows the pivot when its fields change", async ({ pag
   // The pivot gained a field: the chart's Series list offers it without the chart being rebuilt.
   await expect(picker(page, "Pivot field for the series").locator("option", { hasText: "region" })).toHaveCount(1);
 });
+
+test("Data behind this chart is closed until opened, then shows the pivot's numbers one column per series", async ({ page }) => {
+  await load(page);
+  await page.getByRole("tab", { name: "Pivot View", exact: true }).click();
+  await addField(page, "column", "product");
+  await page.locator(".views-chart-this").first().click();
+  const drawer = card(page).locator(".chart-data-drawer");
+  await expect(drawer.locator(".chart-data-name")).toHaveText("Data behind this chart");
+  await expect(drawer.locator("table")).toHaveCount(0);
+
+  await drawer.locator("summary").click();
+  const head = drawer.locator("thead th");
+  await expect(head.filter({ hasText: "Tea" })).toHaveCount(1);
+  await expect(head.filter({ hasText: "Coffee" })).toHaveCount(1);
+  // Every number in the drawer is a number the pivot shows.
+  const cells = await drawer.locator("tbody td.num").allInnerTexts();
+  expect(cells.length).toBeGreaterThan(1);
+  await page.getByRole("tab", { name: "Pivot View", exact: true }).click();
+  const pivotText = await page.locator(".views-host").innerText();
+  for (const cell of cells.slice(0, 4)) expect(pivotText).toContain(cell);
+
+  // The next chart opens with the drawer as it was left.
+  await page.getByRole("tab", { name: "Chart", exact: true }).click();
+  await expect(card(page).locator(".chart-data-drawer")).toHaveAttribute("open", "");
+});

@@ -1,4 +1,5 @@
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
+import { extractTsv } from "../data/chart-extract.js";
 import type { PivotChartField, PivotChartShape } from "../data/pivot-chart.js";
 import type { GetSliceBreakdownRequest, SliceBreakdownMessage, SliceRegion } from "../worker/protocol.js";
 import {
@@ -753,7 +754,11 @@ export interface ChartSource {
   fields?: { dimensions: PivotChartField[]; measures: string[]; shape: PivotChartShape };
 }
 
-type SettingsGroup = "refine" | "format";
+type SettingsGroup = "refine" | "format" | "data";
+
+/** The drawer shows this much of the chart's data; the download has all of it. */
+const DRAWER_ROWS = 200;
+const DRAWER_COLUMNS = 24;
 
 /** Whether a settings section is open: closed until the person opens it, then as they left it. */
 function readGroupOpen(group: SettingsGroup): boolean {
@@ -3197,6 +3202,118 @@ export class ChartCard {
     this.sidebar.append(refine, format);
   }
 
+  /**
+   * "Data behind this chart": the numbers the chart is drawing, under the chart, so a value can be
+   * checked without leaving for the Table. Closed until opened, then as it was left; its table is
+   * only built while it is open.
+   */
+  private buildDataDrawer(): void {
+    const count = el("span", { class: "chart-data-count" });
+    const copy = el(
+      "button",
+      { class: "ghost small chart-data-copy", type: "button", title: "Copy these rows, tab-separated, to paste into a spreadsheet" },
+      ["Copy"],
+    ) as HTMLButtonElement;
+    const body = el("div", { class: "chart-data-body" });
+    const drawer = el("details", { class: "chart-data-drawer" }, [
+      el("summary", { class: "chart-data-title" }, [el("span", { class: "chart-data-name" }, ["Data behind this chart"]), count]),
+      el("div", { class: "chart-data-bar" }, [el("span", { class: "chart-data-note" }), copy]),
+      body,
+    ]) as HTMLDetailsElement;
+    drawer.open = readGroupOpen("data");
+    drawer.addEventListener("toggle", () => {
+      writeGroupOpen("data", drawer.open);
+      this.drawerKey = "";
+      this.syncDataDrawer();
+    });
+    copy.addEventListener("click", () => {
+      const text = extractTsv(this.dataDrawerRows());
+      void navigator.clipboard?.writeText(text).then(
+        () => (copy.textContent = "Copied"),
+        () => (copy.textContent = "Copy failed"),
+      );
+      window.setTimeout(() => (copy.textContent = "Copy"), 1500);
+    });
+    this.dataDrawer = drawer;
+    this.noteEl.after(drawer);
+  }
+
+  private dataDrawer: HTMLDetailsElement | null = null;
+  private drawerKey = "";
+  private drawerTimer = 0;
+
+  /** After the chart settles: a repaint on every hover must not rebuild a table. */
+  private scheduleDataDrawer(): void {
+    if (this.dataDrawer === null) return;
+    window.clearTimeout(this.drawerTimer);
+    this.drawerTimer = window.setTimeout(() => this.syncDataDrawer(), 120);
+  }
+
+  /** The chart's numbers as a table: a chart split into series reads across, one column per series. */
+  private dataDrawerRows(): string[][] {
+    const aggregate = this.usesAggregate() && this.config.kind !== "pivotHeatmap" ? this.aggregateResult() : null;
+    if (aggregate === null || aggregate.dimensions.length !== 2 || aggregate.groupCount === 0) return this.chartCsvRows();
+    const [axis, series] = aggregate.dimensions as [string[], string[]];
+    const values = aggregate.measures[0] ?? new Float64Array(0);
+    const columns = [...new Set(series)];
+    const columnAt = new Map(columns.map((label, index) => [label, index]));
+    const rowAt = new Map<string, string[]>();
+    for (let i = 0; i < aggregate.groupCount; i++) {
+      const label = axis[i] ?? "";
+      let row = rowAt.get(label);
+      if (row === undefined) {
+        row = [label, ...columns.map(() => "")];
+        rowAt.set(label, row);
+      }
+      const value = values[i];
+      if (value !== undefined && Number.isFinite(value)) row[1 + (columnAt.get(series[i] ?? "") ?? 0)] = String(value);
+    }
+    return [[aggregate.dimensionNames[0] ?? "", ...columns], ...rowAt.values()];
+  }
+
+  private syncDataDrawer(): void {
+    const drawer = this.dataDrawer;
+    if (drawer === null || this.disposed) return;
+    const rows = this.dataDrawerRows();
+    const total = Math.max(0, rows.length - 1);
+    const key = `${drawer.open}|${rows.length}|${rows[0]?.join("\t") ?? ""}|${rows[1]?.join("\t") ?? ""}|${rows[rows.length - 1]?.join("\t") ?? ""}`;
+    if (key === this.drawerKey) return;
+    this.drawerKey = key;
+    drawer.classList.toggle("hidden", total === 0);
+    const count = drawer.querySelector(".chart-data-count");
+    if (count !== null) count.textContent = `${total.toLocaleString()} ${total === 1 ? "row" : "rows"}`;
+    const body = drawer.querySelector(".chart-data-body");
+    const note = drawer.querySelector(".chart-data-note");
+    if (body === null || note === null) return;
+    if (!drawer.open) {
+      body.replaceChildren();
+      return;
+    }
+    const header = (rows[0] ?? []).slice(0, DRAWER_COLUMNS);
+    // A number reads with separators here; the first column is the label and stays as it is.
+    const show = (cell: string, column: number): string => {
+      if (column === 0 || cell === "") return cell;
+      const value = Number(cell);
+      return Number.isFinite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : cell;
+    };
+    const numeric = header.map((_, column) => column > 0 && rows.slice(1, 40).every((row) => row[column] === "" || row[column] === undefined || Number.isFinite(Number(row[column]))));
+    const table = el("table", { class: "chart-data-table" }, [
+      el("thead", {}, [el("tr", {}, header.map((name, column) => el("th", { class: numeric[column] ? "num" : "", scope: "col" }, [name])))]),
+      el(
+        "tbody",
+        {},
+        rows.slice(1, DRAWER_ROWS + 1).map((row) =>
+          el("tr", {}, header.map((_, column) => el("td", { class: numeric[column] ? "num" : "" }, [numeric[column] ? show(row[column] ?? "", column) : (row[column] ?? "")]))),
+        ),
+      ),
+    ]);
+    body.replaceChildren(table);
+    const cut: string[] = [];
+    if (total > DRAWER_ROWS) cut.push(`the first ${DRAWER_ROWS} of ${total.toLocaleString()} rows`);
+    if ((rows[0]?.length ?? 0) > DRAWER_COLUMNS) cut.push(`the first ${DRAWER_COLUMNS} of ${rows[0]?.length} columns`);
+    note.textContent = cut.length === 0 ? "These are the numbers the chart draws." : `Showing ${cut.join(" and ")}. Download data (CSV) in the \u22ef menu has them all.`;
+  }
+
   /** The Refine and Format sections of this card, to bring in step with the other charts' when its tab opens. */
   private readonly settingsGroups: HTMLDetailsElement[] = [];
 
@@ -3231,7 +3348,10 @@ export class ChartCard {
     const colours = this.sidebar.querySelector(".chart-side-settings");
     this.sidebar.insertBefore(el("div", { class: "chart-side-section chart-side-map" }, [this.bubbleSettings, this.dotSettings]), colours);
     this.sidebar.insertBefore(el("div", { class: "chart-side-section chart-side-ref" }, [this.refSection]), colours);
-    if (this.options.sectionedSettings === true) this.groupSettings();
+    if (this.options.sectionedSettings === true) {
+      this.groupSettings();
+      this.buildDataDrawer();
+    }
 
     this.selectionBar = el("div", { class: "chart-selection hidden", role: "group", "aria-label": "Selected in the chart" });
     canvasWrap.append(this.selectionBar);
@@ -4540,6 +4660,7 @@ export class ChartCard {
   /** Repaints the current payloads; used when the lens is re-entered. */
   repaint(): void {
     for (const details of this.settingsGroups) details.open = readGroupOpen(details.dataset.group as SettingsGroup);
+    if (this.dataDrawer !== null) this.dataDrawer.open = readGroupOpen("data");
     // The host may still be hidden at this point; painting then would leave a
     // 1x1 canvas that flashes before the ResizeObserver sees the real size.
     if ((this.canvas.parentElement?.clientWidth ?? 0) <= 1) return;
@@ -8217,6 +8338,7 @@ export class ChartCard {
   }
 
   private render(): void {
+    this.scheduleDataDrawer();
     this.options.onTitleChange?.(this);
     this.syncScope();
     this.syncDeepDive();
