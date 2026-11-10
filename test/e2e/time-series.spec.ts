@@ -29,6 +29,11 @@ function games(): string {
 
 async function openTimeSeries(page: Page): Promise<void> {
   await page.setViewportSize({ width: 1300, height: 900 });
+  // These tests work the settings under Refine and Format, which are closed until opened.
+  await page.addInitScript(() => {
+    localStorage.setItem("turbofuzz.charts.refineOpen", "1");
+    localStorage.setItem("turbofuzz.charts.formatOpen", "1");
+  });
   await page.goto("/");
   await page.locator('input[type="file"]').setInputFiles({ name: "games.csv", mimeType: "text/csv", buffer: Buffer.from(games()) });
   await page.locator(".nav-row").waitFor();

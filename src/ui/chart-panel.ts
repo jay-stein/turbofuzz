@@ -830,7 +830,7 @@ export class ChartsPanel {
    */
   createDetachedCard(root: HTMLElement, preset: Partial<ChartCardConfig>, overrides: Partial<ChartCardOptions> = {}): ChartCard {
     root.classList.add("chart-card");
-    const card = new ChartCard(root, { ...this.cardOptions(), docked: false, ...overrides }, preset);
+    const card = new ChartCard(root, { ...this.cardOptions(), docked: false, sectionedSettings: false, ...overrides }, preset);
     this.detached.push(card);
     this.syncCard(card);
     return card;
@@ -889,6 +889,7 @@ export class ChartsPanel {
         onDuplicate: (target) => this.duplicateCard(target),
         onTitleChange: (target) => this.syncTabLabel(target),
         docked: true,
+        sectionedSettings: true,
         settingsOpen: this.settingsOpen,
         onSettingsToggle: (open) => {
           this.settingsOpen = open;

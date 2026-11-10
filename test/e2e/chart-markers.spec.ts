@@ -11,6 +11,11 @@ function points(): string {
 
 async function openScatter(page: Page): Promise<void> {
   await page.setViewportSize({ width: 1400, height: 1000 });
+  // These tests work the settings under Refine and Format, which are closed until opened.
+  await page.addInitScript(() => {
+    localStorage.setItem("turbofuzz.charts.refineOpen", "1");
+    localStorage.setItem("turbofuzz.charts.formatOpen", "1");
+  });
   await page.goto("/");
   await page.locator('input[type="file"]').setInputFiles({ name: "p.csv", mimeType: "text/csv", buffer: Buffer.from(points()) });
   await page.locator(".nav-row").waitFor();

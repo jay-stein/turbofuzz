@@ -17395,3 +17395,63 @@ button.cmp-change-name:hover {
   font-size: var(--fs-xs);
   color: var(--text-dim);
 }
+
+/* The chart settings in three parts: Data in view, Refine and Format one click away. */
+.chart-side-group {
+  border-top: 1px solid var(--border);
+}
+.chart-side-group-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 2px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.chart-side-group-title::-webkit-details-marker {
+  display: none;
+}
+.chart-side-group-title::before {
+  content: "\25B8";
+  color: var(--text-dim);
+  font-size: 11px;
+  width: 10px;
+}
+.chart-side-group[open] > .chart-side-group-title::before {
+  content: "\25BE";
+}
+.chart-side-group-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+.chart-side-group-hint {
+  color: var(--text-dim);
+  font-size: 11.5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chart-side-group[open] > .chart-side-group-title .chart-side-group-hint {
+  display: none;
+}
+.chart-side-group-title:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.chart-side-group > .chart-side-section:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+.chart-back-to-source {
+  align-self: flex-end;
+}
+/* A section whose every control is hidden for this chart leaves no gap and no dividing line. */
+.chart-card-layout.docked .chart-sidebar .chart-side-section:not(:has(> :not(.hidden))) {
+  display: none;
+}
+.chart-sidebar > .chart-side-group:first-of-type {
+  border-top: 0;
+}

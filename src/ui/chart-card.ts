@@ -479,6 +479,8 @@ export interface ChartCardOptions {
   requestViewAggregate?(source: string, shape?: PivotChartShape): Promise<AggregateMessage | null>;
   /** Go to the Pivot View this chart draws, as it was left. */
   onOpenSource?(source: string): void;
+  /** The Chart page's cards fold their settings into Data, Refine and Format; the Map page's panel stays whole. */
+  sectionedSettings?: boolean;
   /** Worker pivot result for a pivot-bound heatmap card. */
   requestViewPivot?(source: string): Promise<PivotMessage | null>;
   /** Ad-hoc aggregation for the treemap measure (sum of a numeric column). */
@@ -749,6 +751,25 @@ export interface ChartSource {
   name: string;
   kind?: "pivot" | "view";
   fields?: { dimensions: PivotChartField[]; measures: string[]; shape: PivotChartShape };
+}
+
+type SettingsGroup = "refine" | "format";
+
+/** Whether a settings section is open: closed until the person opens it, then as they left it. */
+function readGroupOpen(group: SettingsGroup): boolean {
+  try {
+    return localStorage.getItem(`turbofuzz.charts.${group}Open`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeGroupOpen(group: SettingsGroup, open: boolean): void {
+  try {
+    localStorage.setItem(`turbofuzz.charts.${group}Open`, open ? "1" : "0");
+  } catch {
+    // Remembering is a convenience; the section still opens and closes.
+  }
 }
 
 /** A chart of a pivot split into series draws at most this many groups of bars along its axis. */
@@ -3132,6 +3153,54 @@ export class ChartCard {
   }
 
   /**
+   * The settings panel in three parts. What every chart needs stays in view: its type, its fields
+   * and how they are added up. Refine (calculations, missing periods, top N, a chart's own filter,
+   * reference lines) and Format (titles and colours) are one click away and stay as the person
+   * left them, on every chart.
+   */
+  private groupSettings(): void {
+    const group = (key: SettingsGroup, title: string, hint: string, children: (Element | null)[]): HTMLDetailsElement => {
+      const details = el("details", { class: "chart-side-group", "data-group": key }) as HTMLDetailsElement;
+      details.append(
+        el("summary", { class: "chart-side-group-title" }, [
+          el("span", { class: "chart-side-group-name" }, [title]),
+          el("span", { class: "chart-side-group-hint" }, [hint]),
+        ]),
+        ...children.filter((child): child is Element => child !== null),
+      );
+      details.open = readGroupOpen(key);
+      details.addEventListener("toggle", () => writeGroupOpen(key, details.open));
+      this.settingsGroups.push(details);
+      return details;
+    };
+    const settings = this.sidebar.querySelector(".chart-side-settings");
+    settings?.querySelector(".chart-side-title")?.remove();
+    const refine = group("refine", "Refine", "calculations, top N, filter, reference lines", [
+      el("div", { class: "chart-side-section" }, [
+        this.valueCalcWrap,
+        this.valueEveryWrap,
+        this.valueFillWrap,
+        this.weekStartWrap,
+        this.fiscalWrap,
+      ]),
+      el("div", { class: "chart-side-section chart-side-refine" }, [
+        this.barSettings,
+        this.histogramSettings,
+        this.chartFilterRow,
+        this.errorBarRow,
+        this.correlationSettings,
+      ]),
+      this.sidebar.querySelector(".chart-side-map"),
+      this.sidebar.querySelector(".chart-side-ref"),
+    ]);
+    const format = group("format", "Format", "titles and colours", [settings]);
+    this.sidebar.append(refine, format);
+  }
+
+  /** The Refine and Format sections of this card, to bring in step with the other charts' when its tab opens. */
+  private readonly settingsGroups: HTMLDetailsElement[] = [];
+
+  /**
    * The Chart page's arrangement of the same controls: one headline above the plot, and every
    * setting in one panel beside it, so the plot is never covered while it is being changed.
    */
@@ -3162,6 +3231,7 @@ export class ChartCard {
     const colours = this.sidebar.querySelector(".chart-side-settings");
     this.sidebar.insertBefore(el("div", { class: "chart-side-section chart-side-map" }, [this.bubbleSettings, this.dotSettings]), colours);
     this.sidebar.insertBefore(el("div", { class: "chart-side-section chart-side-ref" }, [this.refSection]), colours);
+    if (this.options.sectionedSettings === true) this.groupSettings();
 
     this.selectionBar = el("div", { class: "chart-selection hidden", role: "group", "aria-label": "Selected in the chart" });
     canvasWrap.append(this.selectionBar);
@@ -4465,6 +4535,7 @@ export class ChartCard {
 
   /** Repaints the current payloads; used when the lens is re-entered. */
   repaint(): void {
+    for (const details of this.settingsGroups) details.open = readGroupOpen(details.dataset.group as SettingsGroup);
     // The host may still be hidden at this point; painting then would leave a
     // 1x1 canvas that flashes before the ResizeObserver sees the real size.
     if ((this.canvas.parentElement?.clientWidth ?? 0) <= 1) return;

@@ -18,6 +18,11 @@ function sales(): string {
 
 async function load(page: Page): Promise<void> {
   await page.setViewportSize({ width: 1500, height: 950 });
+  // These tests work the settings under Refine and Format, which are closed until opened.
+  await page.addInitScript(() => {
+    localStorage.setItem("turbofuzz.charts.refineOpen", "1");
+    localStorage.setItem("turbofuzz.charts.formatOpen", "1");
+  });
   await page.goto("/");
   await page.locator('input[type="file"]').setInputFiles({ name: "sales.csv", mimeType: "text/csv", buffer: Buffer.from(sales()) });
   await page.locator(".nav-row").waitFor();

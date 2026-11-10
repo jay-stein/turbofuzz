@@ -14,6 +14,11 @@ function data(rows: number): string {
 
 async function open(page: Page, rows = 600, fields = ["region", "amount"], kind = "Barplot"): Promise<Locator> {
   await page.setViewportSize({ width: 1440, height: 900 });
+  // These tests work the settings under Refine and Format, which are closed until opened.
+  await page.addInitScript(() => {
+    localStorage.setItem("turbofuzz.charts.refineOpen", "1");
+    localStorage.setItem("turbofuzz.charts.formatOpen", "1");
+  });
   await page.goto("/");
   await page.locator('input[type="file"]').setInputFiles({ name: "d.csv", mimeType: "text/csv", buffer: Buffer.from(data(rows)) });
   await page.locator(".nav-row").waitFor();
