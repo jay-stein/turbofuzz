@@ -260,10 +260,10 @@ export function openChartSetupDialog(
         "aria-label": "Setup treemap aggregation",
       }) as HTMLSelectElement;
       for (const [value, label] of [
-        ["count", "Count"],
-        ["distinct", "Count distinct"],
+        ["count", "Count of values"],
+        ["distinct", "Distinct values"],
         ["sum", "Sum"],
-        ["mean", "Mean"],
+        ["mean", "Average (mean)"],
         ["median", "Median"],
         ["min", "Min"],
         ["max", "Max"],

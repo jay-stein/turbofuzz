@@ -1,4 +1,5 @@
 import { defaultPivotShape, pivotColumnIndexes, type PivotChartField, type PivotChartShape } from "../data/pivot-chart.js";
+import { aggLabel } from "./agg-words.js";
 import type { ColumnMeta, AggregateMessage, PivotMessage } from "../worker/protocol.js";
 import type { PivotDef } from "../data/pivot.js";
 import type { ArchetypeId } from "../data/archetype.js";
@@ -86,20 +87,9 @@ const MAX_VIEWS = 5;
 const DEFAULT_LIMIT = 500;
 const VISIBLE_ROWS = 20;
 
-const AGG_OPTIONS: readonly { value: Aggregate; label: string }[] = [
-  { value: "sum", label: "Sum" },
-  { value: "mean", label: "Mean" },
-  { value: "median", label: "Median" },
-  { value: "min", label: "Min" },
-  { value: "max", label: "Max" },
-  { value: "count", label: "Count of values" },
-  { value: "distinct", label: "Distinct values" },
-  { value: "stddev", label: "Std deviation" },
-  { value: "first", label: "First (by row order)" },
-  { value: "last", label: "Last (by row order)" },
-  { value: "mode", label: "Mode" },
-  { value: "p90", label: "90th percentile" },
-];
+const AGG_OPTIONS: readonly { value: Aggregate; label: string }[] = (
+  ["sum", "mean", "median", "min", "max", "count", "distinct", "stddev", "first", "last", "mode", "p90"] as const
+).map((value) => ({ value, label: aggLabel(value) }));
 
 /** Recurring parts of a date, from the longest cycle to the shortest: the same part from every year, week or day lands together. */
 const DATE_PARTS: readonly { value: DatePart; label: string }[] = [

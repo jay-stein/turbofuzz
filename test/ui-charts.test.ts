@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { ColumnFilter } from "../src/search/query-engine.js";
 import { ChartsPanel, type ChartsPanelOptions } from "../src/ui/chart-panel.js";
+import { aggLabel, aggShort } from "../src/ui/agg-words.js";
 import { fieldClick } from "../src/ui/chart-field-rail.js";
 import {
   ChartCard,
@@ -1255,6 +1256,27 @@ test("the colour map defaults to tab10 and can be changed", async () => {
   assert.equal(card.getConfig().palette, "Set2");
   assert.equal(host.querySelectorAll(".chart-palette-dot").length, 10);
   card.dispose();
+});
+
+test("a chart's aggregation list uses the same words as the Pivot page", async () => {
+  const window = setupDom();
+  captureMockContext(window, []);
+  const host = document.createElement("div");
+  const card = new ChartCard(host, stubCardOptions(), { kind: "barplot", column: 0, valueColumn: 1, valueAgg: "sum" });
+  card.setColumns([
+    meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } }),
+    meta({ name: "sales", type: "number", stats: { ...meta().stats, distinct: 900 } }),
+  ]);
+  await tick();
+  const select = host.querySelector('select[aria-label="Aggregation"]') as HTMLSelectElement;
+  const labels = new Map([...select.options].map((option) => [option.value, option.textContent]));
+  for (const agg of ["mean", "sum", "median", "min", "max", "stddev", "count", "distinct"]) {
+    assert.equal(labels.get(agg), aggLabel(agg), `${agg} reads the same on the chart as on the Pivot page`);
+  }
+  assert.equal(aggLabel("p90"), "90th percentile");
+  assert.equal(aggShort("mean"), "Average");
+  card.dispose();
+  void window;
 });
 
 test("the colour map list is short until More colour maps is chosen, and keeps the map in use", async () => {

@@ -1,4 +1,5 @@
 import { detectGeoPair } from "../data/geo.js";
+import { aggShort } from "./agg-words.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import { aggFor } from "./chart-names.js";
 import {
@@ -51,13 +52,9 @@ const ROLE_WORD: Record<RecRole, string> = {
 };
 
 /** Aggregation chip choices, in cycling order. */
-const AGG_CYCLE: readonly [ValueAgg, string][] = [
-  ["sum", "Total"],
-  ["mean", "Average"],
-  ["median", "Median"],
-  ["min", "Min"],
-  ["max", "Max"],
-];
+const AGG_CYCLE: readonly [ValueAgg, string][] = (["sum", "mean", "median", "min", "max"] as const).map(
+  (value): [ValueAgg, string] => [value, aggShort(value)],
+);
 
 const aggLabel = (agg: ValueAgg): string => AGG_CYCLE.find(([value]) => value === agg)?.[1] ?? agg;
 

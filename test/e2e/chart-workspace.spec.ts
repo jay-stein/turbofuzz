@@ -44,7 +44,7 @@ test("the whole chart is in view: legend, plot and note, at desktop and laptop s
     expect(plot.height).toBeGreaterThan(300);
     expect(plot.y).toBeLessThan(size.height * 0.4);
     // One headline says what it is; the tab names it.
-    await expect(card(page).locator(".chart-headline")).toContainText("Mean of price");
+    await expect(card(page).locator(".chart-headline")).toContainText("Average of price");
     await expect(page.locator(".charts-tab.active")).toHaveText("price over date by type");
   }
 });

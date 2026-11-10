@@ -209,7 +209,7 @@ test("adding a measure chooses the aggregate before adding", async () => {
   assert.ok(columnItem !== undefined, "the column list offers a submenu step");
   (columnItem as unknown as { click(): void }).click();
   const meanItem = [...doc.querySelectorAll(".context-menu .context-item")].find(
-    (item) => item.textContent === "Mean",
+    (item) => item.textContent === "Average (mean)",
   );
   assert.ok(meanItem !== undefined, "the aggregate menu lists every option");
   (meanItem as unknown as { click(): void }).click();

@@ -1705,13 +1705,13 @@ export class ChartCard {
     this.valueAggSelect = this.buildSelect("chart-picker chart-picker-small", "Aggregation");
     (
       [
-        ["mean", "Mean"],
+        ["mean", "Average (mean)"],
         ["sum", "Sum"],
         ["median", "Median"],
         ["min", "Min"],
         ["max", "Max"],
-        ["count", "Count non-null"],
-        ["distinct", "Count distinct"],
+        ["count", "Count of values"],
+        ["distinct", "Distinct values"],
       ] as const
     ).forEach(([value, label]) => {
       this.valueAggSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
@@ -2385,9 +2385,9 @@ export class ChartCard {
       title: "What the bubble area represents: rows per cell or an aggregate of a numeric column",
     }) as HTMLSelectElement;
     for (const [value, label] of [
-      ["count", "Count (rows)"],
+      ["count", "Rows"],
       ["sum", "Sum"],
-      ["mean", "Mean"],
+      ["mean", "Average (mean)"],
       ["min", "Min"],
       ["max", "Max"],
     ] as const) {
@@ -2532,7 +2532,7 @@ export class ChartCard {
     this.dotValuesWrap = dotField("Values", [this.dotValueMinInput, "to", this.dotValueMaxInput], "The value range the radii span: values outside it get the smallest or largest dot, so one extreme cannot shrink the rest");
     this.dotScaleWrap = dotField("Scale", [this.dotScaleSelect], "How value becomes radius");
     this.mapColorAggSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Colour of a place" }) as HTMLSelectElement;
-    for (const [value, label] of [["mean", "Average"], ["sum", "Total"], ["min", "Lowest"], ["max", "Highest"]] as const) {
+    for (const [value, label] of [["mean", "Average (mean)"], ["sum", "Sum"], ["min", "Min"], ["max", "Max"]] as const) {
       this.mapColorAggSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
     }
     this.mapColorAggSelect.addEventListener("change", () => {
@@ -4536,7 +4536,7 @@ export class ChartCard {
     }
     const agg =
       this.config.valueColumn !== undefined && this.config.valueColumn >= 0
-        ? `${this.valueAggSelect.selectedOptions[0]?.textContent ?? this.config.valueAgg ?? "mean"} of ${[this.config.valueColumn, ...this.extraValues()].map(name).join(", ")}`
+        ? `${this.aggPhrase()} of ${[this.config.valueColumn, ...this.extraValues()].map(name).join(", ")}`
         : "rows";
     const overTime =
       this.config.valueColumn !== undefined &&
@@ -5530,39 +5530,45 @@ export class ChartCard {
   }
 
   /** Type-aware aggregation choices for the bound value column. */
+  /** The aggregation as a sentence has it: "Average of price", not the menu's "Average (mean)". */
+  private aggPhrase(): string {
+    const label = this.valueAggSelect.selectedOptions[0]?.textContent ?? this.config.valueAgg ?? "Average";
+    return label.replace(/ \(mean\)$/, "");
+  }
+
   private syncValueAggOptions(): void {
     const meta = this.meta(this.config.valueColumn ?? -1);
     const options: [NonNullable<ChartCardConfig["valueAgg"]>, string][] =
       meta === undefined
-        ? [["mean", "Mean"], ["sum", "Sum"]]
+        ? [["mean", "Average (mean)"], ["sum", "Sum"]]
         : meta.type === "boolean"
           ? [
               ["true", "True count"],
               ["false", "False count"],
               ["truePct", "True % of rows"],
               ["missing", "Missing count"],
-              ["count", "Count non-null"],
-              ["distinct", "Count distinct"],
+              ["count", "Count of values"],
+              ["distinct", "Distinct values"],
               ["mode", "Mode"],
             ]
           : meta.type === "date" || meta.type === "datetime"
             ? [
                 ["min", "Earliest"],
                 ["max", "Latest"],
-                ["count", "Count non-null"],
-                ["distinct", "Count distinct"],
+                ["count", "Count of values"],
+                ["distinct", "Distinct values"],
                 ["mode", "Mode"],
-                ["first", "First (row order)"],
-                ["last", "Last (row order)"],
+                ["first", "First (by row order)"],
+                ["last", "Last (by row order)"],
               ]
             : meta.type === "category" || meta.type === "string" || meta.type === "identifier"
               ? [
-                  ["count", "Count non-null"],
-                  ["distinct", "Count distinct"],
+                  ["count", "Count of values"],
+                  ["distinct", "Distinct values"],
                   ["mode", "Mode"],
                 ]
               : [
-                  ["mean", "Mean"],
+                  ["mean", "Average (mean)"],
                   ["sum", "Sum"],
                   ["median", "Median"],
                   ["min", "Min"],
@@ -5573,10 +5579,10 @@ export class ChartCard {
                   ["p75", "75th percentile"],
                   ["p90", "90th percentile"],
                   ["p95", "95th percentile"],
-                  ["count", "Count non-null"],
-                  ["distinct", "Count distinct"],
-                  ["first", "First (row order)"],
-                  ["last", "Last (row order)"],
+                  ["count", "Count of values"],
+                  ["distinct", "Distinct values"],
+                  ["first", "First (by row order)"],
+                  ["last", "Last (by row order)"],
                   ["mode", "Mode"],
                 ];
     const current = this.config.valueAgg ?? options[0]?.[0];
@@ -7085,9 +7091,7 @@ export class ChartCard {
     const measured = measureColumn >= 0 && measureMeta !== undefined;
     const measureLabel = measured
       ? `${
-          this.valueAggSelect.selectedOptions[0]?.textContent ??
-          this.config.valueAgg ??
-          "Sum"
+          this.aggPhrase()
         } of ${measureMeta.name}`
       : "Count of rows";
     const result = this.treemapResult;
@@ -8950,7 +8954,7 @@ export class ChartCard {
     const valueMeta = this.meta(this.config.valueColumn ?? -1);
     if (valueMeta !== undefined) {
       details.push(
-        `${this.valueAggSelect.selectedOptions[0]?.textContent ?? this.config.valueAgg ?? "mean"} of ${valueMeta.name}`,
+        `${this.aggPhrase()} of ${valueMeta.name}`,
       );
     }
     if (this.config.valueGrain !== undefined && this.config.valueGrain !== "auto") {

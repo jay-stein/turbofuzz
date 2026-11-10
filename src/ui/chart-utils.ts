@@ -1,4 +1,5 @@
 import { nameHas } from "../data/name-hints.js";
+import { aggShort } from "./agg-words.js";
 import {
   formatDurationMs,
   toDateInputValue,
@@ -405,16 +406,16 @@ export function suggestCharts(columns: readonly ColumnMeta[], rowCount = 0): Cha
 }
 
 const AGG_WORDS: Record<string, string> = {
-  sum: "Sum",
-  mean: "Average",
-  avg: "Average",
-  median: "Median",
-  min: "Min",
-  max: "Max",
+  sum: aggShort("sum"),
+  mean: aggShort("mean"),
+  avg: aggShort("mean"),
+  median: aggShort("median"),
+  min: aggShort("min"),
+  max: aggShort("max"),
   count: "Count",
   distinct: "Distinct count",
   stddev: "Std dev",
-  variance: "Variance",
+  variance: aggShort("variance"),
 };
 
 /** "sum(units)" -> "Sum of units", "count(*)" -> "Rows"; anything else is left as written. */
