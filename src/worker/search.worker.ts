@@ -3150,8 +3150,10 @@ function cleanTarget(
   for (const op of ops) {
     switch (op.kind) {
       case "cast":
-        // Casts may keep invalid text or blank it, so let inference decide.
-        type = undefined;
+        // Blanking (or refusing) invalid values leaves only valid ones: the column is the type asked for. Read
+        // again, long all-different whole numbers would come back an ID, and "Convert to Integer" would not stick.
+        // Keeping invalid text leaves a mix, so inference decides.
+        type = op.policy === "keep" ? undefined : op.target;
         if (op.locale !== undefined) numberLocale = op.locale;
         if (op.order !== undefined) dateOrder = readingOrder(op.order);
         break;
@@ -3235,10 +3237,15 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
 
   // A case/trim op that changes nothing should not pay for a full rebuild.
   // Bail out before touching transform state so the UI can simply report a no-op.
+  // A conversion to another type is a change even when every value is already
+  // written right (an ID column of plain numbers converted to Integer).
   const unchanged =
     prepared.length > 0 &&
     prepared.every(({ update, raw }) => {
-      const before = current.columns[update.column].raw;
+      const column = current.columns[update.column];
+      const retype = cleanTarget(update.ops, column).type;
+      if (retype !== undefined && retype !== column.type) return false;
+      const before = column.raw;
       if (raw.length !== before.length) return false;
       for (let i = 0; i < raw.length; i++) {
         if (raw[i] !== before[i]) return false;

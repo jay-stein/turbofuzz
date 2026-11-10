@@ -63,6 +63,20 @@ test("infers identifier for leading zeros and long unique digits", () => {
   );
 });
 
+test("long, all-different amounts are integers, not IDs: by name, by round values, or by varying length", () => {
+  const millions = Array.from({ length: 40 }, (_, i) => String(1_000_000 + i * 250_000));
+  // Round amounts (ending 000) are money, whatever the column is called.
+  assert.equal(ColumnData.create("x", millions).type, "integer");
+  const ragged = Array.from({ length: 40 }, (_, i) => String(1_234_567 * (i + 1) ** 2 + 13));
+  assert.equal(ColumnData.create("x", ragged).type, "integer");
+  // A measure name wins even for unround, fixed-width values.
+  const unround = Array.from({ length: 40 }, (_, i) => String(4_000_001 + i * 7_919));
+  assert.equal(ColumnData.create("gross", unround).type, "integer");
+  assert.equal(ColumnData.create("budget", unround).type, "integer");
+  // The same fixed-width, unround numbers under a neutral name are still an ID.
+  assert.equal(ColumnData.create("account", unround).type, "identifier");
+});
+
 test("infers number", () => {
   assert.equal(inferType(["1,200", "3,400", "500"]), "number");
   assert.equal(inferType(["1.5", "2.75", "3.125"]), "number");

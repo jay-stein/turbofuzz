@@ -5,6 +5,7 @@ import {
   parseTimeOfDay,
   type DateOrder,
 } from "./dates.js";
+import { nameHas } from "../data/name-hints.js";
 import { isNullToken } from "./null-tokens.js";
 import { parseNumber, type NumberLocale } from "./numbers.js";
 import type { ColumnType } from "../types.js";
@@ -218,6 +219,28 @@ export function detectNumberLocale(
   return comma > dot ? "comma" : "dot";
 }
 
+/**
+ * Long, (nearly) all-different whole numbers read as an ID (order and customer numbers) — but not when they are amounts:
+ * a measure-like name (budget, revenue, gross), mostly round values (18000000, 237000000), or lengths that vary by more
+ * than a digit. Read as IDs, money columns lost their thousands separators and their charts.
+ */
+function looksLikeLongId(values: readonly string[], present: number, distinct: number, name: string): boolean {
+  if (present === 0 || distinct / present <= 0.9) return false;
+  const digits = values.map((value) => value.replace(/^[+-]/, "").replace(/\.0+$/, ""));
+  if (!digits.every((value) => value.length >= 7)) return false;
+  if (nameHas(name, "identifierMeasure")) return false;
+  let shortest = Infinity;
+  let longest = 0;
+  let round = 0;
+  for (const value of digits) {
+    if (value.length < shortest) shortest = value.length;
+    if (value.length > longest) longest = value.length;
+    if (value.endsWith("000")) round++;
+  }
+  if (longest - shortest > 1) return false;
+  return round / digits.length < 0.5;
+}
+
 export function inferColumnType(
   sample: readonly string[],
   stats: ColumnStats,
@@ -273,8 +296,7 @@ export function inferColumnType(
   const fractional = numberOk - integerOk;
   const integerLike = integerOk / total >= 0.95 && (fractional < DECIMAL_MIN_COUNT || fractional / total < DECIMAL_SHARE);
   if (integerLike) {
-    const allLong = nonNull.every((value) => value.replace(/^[+-]/, "").length >= 7);
-    if (allLong && present > 0 && distinct / present > 0.9) return { type: "identifier" };
+    if (looksLikeLongId(nonNull, present, distinct, name)) return { type: "identifier" };
     // Small non-negative code columns (Pclass, ratings, weekday numbers) are
     // far more useful as a value list than as a numeric range — but only when
     // written as plain integers; ".0" tails read as measures, not codes, so a

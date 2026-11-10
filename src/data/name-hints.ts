@@ -88,6 +88,7 @@ export const HINT_TOKENS: Readonly<Record<HintGroup, readonly string[]>> = {
     "rate", "percent", "percentage", "pct", "margin", "discount", "unit", "population",
     "area", "temperature", "temp", "speed", "elevation", "latitude", "longitude", "lat",
     "lon", "humidity", "pressure", "volume", "capacity", "height", "width", "length", "depth",
+    "budget", "gross", "salary", "wage", "earnings", "turnover", "assets", "spending", "views", "votes", "likes", "followers",
   ],
   zeroImplausible: [
     "age", "price", "cost", "weight", "height", "glucose", "insulin", "bmi", "moisture",
