@@ -1,3 +1,4 @@
+import { openKindPicker, selectRegion, drawSelection, queuePointer, showTooltipAtPointer, emitHighlight, setLinkedHighlight, cancelSliceFetch, sliceRegions, sliceEntries, scheduleSliceFetch, scheduleSlicePoints, drawSlicePoints, drawLinkedOverlay, drawSliceShare, handleCanvasClick, finishBrush, timeSlotBrush, drawBrushOverlay, onWheel, withoutExcludedBins, syncExclusions, handleCanvasContextMenu, dataPointAt, openExclusionMenu, excludeFromTable, applyHitAction } from "./chart-interaction.js";
 import { allCategoryBars, refreshSeries, refreshTreemap, drawTreemap, refreshText, drawTerms, refreshBox, refreshGroupedBins, widestYLabel, fillTopRounded, drawKpi, drawExtraKind, syncRefLines, drawReferenceLines, axisLabels, drawAxisTitles, drawBars, drawAxes, drawBox } from "./chart-draw-bars.js";
 import { refreshCrosstab, refreshBubble, refreshCorrelation, drawBubble, bubbleFraction, drawBubbleGrid, drawScatterLike, pointSizes, colorBuckets, drawColorBar, colorNote, drawPoints, drawDensity, paintDensityHeat, paintDensityBands, paintContourLines, drawCorrelationNote, pivotHeatmapData, drawPivotHeatmap, drawHeatmap, drawCorrelation } from "./chart-draw-points.js";
 import { syncAnimationOptions, frameWidths, syncFrameOptions, refreshAnimation, animationBlock, setAnimationTime, toggleAnimationSetup, toggleAnimation, setAnimationSpeed, promptAnimationSpeed, playAnimation, stopAnimation, syncAnimationBar, renderAnimationFrames, exportAnimationGif, exportAnimationVideo, drawAnimatedHistogram, drawAnimatedTreemap, drawAnimatedDensity, drawAnimatedBars } from "./chart-draw-animated.js";
@@ -212,7 +213,7 @@ export function fitMapView(
  * How a chart's marks map to values, recorded by the draw routines whose marks are
  * one bar/bin/period per hit region, so a slice of the data can be drawn on them.
  */
-interface ValueScale {
+export interface ValueScale {
   /** Value at the top of the plot. */
   yMax: number;
   top: number;
@@ -237,7 +238,7 @@ export interface BrushRange {
 }
 
 /** Where the plot area sits in data units, recorded by each draw routine for the brush. */
-interface BrushSpace {
+export interface BrushSpace {
   left: number;
   top: number;
   plotW: number;
@@ -857,21 +858,21 @@ export class ChartCard {
   /** Data-space geometry of the last paint, for Shift+drag brushing (null when not brushable). */
   brushSpace: BrushSpace | null = null;
   /** Slice another card's pointer is over; this card outlines the matching marks. */
-  private linked: readonly HitAction[] | null = null;
+  linked: readonly HitAction[] | null = null;
   /** Caption for the linked slice ("East", "18.3 – 18.9"). */
-  private linkedLabel = "";
+  linkedLabel = "";
   /** How the last paint scaled its marks, so another chart's slice can be drawn on them. */
   valueScale: ValueScale | null = null;
   /** The slice's value per mark of this chart (another column's hover), or null. */
-  private sliceValues: Float64Array | null = null;
+  sliceValues: Float64Array | null = null;
   /** Scatter cards: the points of the hovered slice (same scope, other column's rows). */
-  private slicePoints: { x: Float64Array; y: Float64Array; shown: number } | null = null;
-  private sliceTimer: number | null = null;
-  private sliceGeneration = 0;
+  slicePoints: { x: Float64Array; y: Float64Array; shown: number } | null = null;
+  sliceTimer: number | null = null;
+  sliceGeneration = 0;
   /** Whether the last paint outlined anything for the linked slice. */
-  private linkedShown = false;
+  linkedShown = false;
   /** Key of the last slice sent to the panel, so moving within one mark sends nothing. */
-  private emittedKey = "";
+  emittedKey = "";
   /** Live Shift+drag rectangle in canvas pixels. */
   brushDrag: { x0: number; y0: number; x1: number; y1: number } | null = null;
   mapBrushStart: { x: number; y: number } | null = null;
@@ -914,15 +915,15 @@ export class ChartCard {
   private readonly focusButton: HTMLButtonElement;
   readonly pngButton: HTMLButtonElement;
   readonly statsButton: HTMLButtonElement;
-  private kindButton: HTMLButtonElement | null = null;
+  kindButton: HTMLButtonElement | null = null;
   private undoButton: HTMLButtonElement | null = null;
   /** Earlier settings of this chart, newest last, as JSON. */
   private undoStack: string[] = [];
   /** The settings as they were when the person last reached for a control. */
   private undoBefore: string | null = null;
   /** The bar, bin or cell clicked: highlighted, with Filter to this offered beside it. */
-  private selectedRegion: HitRegion | null = null;
-  private selectionBar: HTMLElement | null = null;
+  selectedRegion: HitRegion | null = null;
+  selectionBar: HTMLElement | null = null;
   /** Plot top the docked height was last worked out from: a legend appearing moves it. */
   private dockedTop = -1;  private focusOverlay: HTMLElement | null = null;
   private readonly focusPlaceholder = document.createComment("chart-focus");
@@ -980,7 +981,7 @@ export class ChartCard {
   /** Map viewport in degrees (null = the whole world). */
   mapView: MapViewport | null = null;
   mapMarkers: readonly MapMarkerDraw[] = [];
-  private mapPicker: ((lon: number, lat: number) => void) | null = null;
+  mapPicker: ((lon: number, lat: number) => void) | null = null;
   mapOverlay: MapOverlay | null = null;
   /** Optional user-supplied regions (GeoJSON / zipped Shapefile). */
   readonly regions: MapRegions | null;
@@ -1022,7 +1023,7 @@ export class ChartCard {
   readonly hiddenGroups = new Set<number>();
   statsMs = 0;
 
-  private readonly kindSelect: HTMLSelectElement;
+  readonly kindSelect: HTMLSelectElement;
   private readonly sourceSelect: HTMLSelectElement;
   readonly sourceWrap: HTMLElement;
   private sources: ChartSource[] = [];
@@ -1134,7 +1135,7 @@ export class ChartCard {
   readonly canvas: HTMLCanvasElement;
   private readonly mapControls: HTMLElement;
   readonly canvasWrap: HTMLElement;
-  private readonly scopeEl: HTMLElement;
+  readonly scopeEl: HTMLElement;
   readonly summaryEl: HTMLElement;
   /** One short note under the heading (see lint); dismissed notes stay dismissed. */
   private readonly lintEl = el("div", { class: "chart-lint hidden", role: "note" });
@@ -1145,7 +1146,7 @@ export class ChartCard {
   readonly noteEl: HTMLElement;
   private totalRowCount = 0;
   readonly legendEl: HTMLElement;
-  private readonly tooltipEl: HTMLElement;
+  readonly tooltipEl: HTMLElement;
   readonly settingsBody: HTMLElement;
   private settingsDisclosure: HTMLDetailsElement | null = null;
   sidebar!: HTMLElement;
@@ -1154,11 +1155,11 @@ export class ChartCard {
   sidebarShown = false;
   private settingsDismiss: (() => void) | null = null;
   hitRegions: HitRegion[] = [];
-  private exclusionBar!: HTMLElement;
-  private pointerAt: { x: number; y: number; clientX: number; clientY: number } | null = null;
+  exclusionBar!: HTMLElement;
+  pointerAt: { x: number; y: number; clientX: number; clientY: number } | null = null;
   /** Last hovered/clicked region, retained while the card menu is open. */
-  private lastActionRegion: HitRegion | null = null;
-  private pointerFrame: number | null = null;
+  lastActionRegion: HitRegion | null = null;
+  pointerFrame: number | null = null;
 
   private readonly onResize = (): void => this.scheduleRender(this.options.docked === true);
   private readonly onThemeChange = (): void => this.scheduleRender(true);
@@ -2853,12 +2854,12 @@ export class ChartCard {
   }
 
   /** The settings as they stand, before whatever the person is about to do. */
-  private noteBeforeChange(): void {
+  noteBeforeChange(): void {
     this.undoBefore = JSON.stringify(this.getConfig());
   }
 
   /** Handlers run first, so a real change shows here as a difference from the note above. */
-  private noteAfterChange(): void {
+  noteAfterChange(): void {
     if (this.undoBefore === null) return;
     const now = JSON.stringify(this.getConfig());
     if (now === this.undoBefore) return;
@@ -2904,63 +2905,8 @@ export class ChartCard {
     button.classList.toggle("hidden", this.config.source !== "");
   }
 
-  /** Every chart type as a picture, grouped by the question it answers; ones the data cannot draw say why. */
   private openKindPicker(): void {
-    const anchor = this.kindButton;
-    if (anchor === null) return;
-    // Bar is one choice: the chart keeps the bar kind it has, or takes the one these columns can make.
-    const current = this.config.kind;
-    const barKind = current === "bar" || current === "barplot" ? current : barKindFor(this.columns, this.rowCount);
-    const common = { question: "Most used", kinds: COMMON_KINDS.map((kind) => (kind === "barplot" ? barKind : kind)) };
-    const groups = [common, ...MORE_GROUPS].map((group) =>
-      el("div", { class: "chart-kind-group" }, [
-        el("div", { class: "chart-kind-question" }, [group.question]),
-        el("div", { class: "chart-kind-options" }, group.kinds.map((kind) => {
-          const fit = fitChartKind(kind, this.columns, this.rowCount);
-          const option = el(
-            "button",
-            {
-              class: `chart-kind-option${kind === this.config.kind ? " active" : ""}`,
-              type: "button",
-              title: fit.ok ? `${CHART_KIND_LABELS[kind]}: ${group.question.replace(/\?$/, "").toLowerCase()}` : `${CHART_KIND_LABELS[kind]}: ${fit.reason}`,
-              ...(fit.ok || kind === this.config.kind ? {} : { disabled: "disabled" }),
-            },
-            [kindIcon(kind), el("span", {}, [CHART_KIND_LABELS[kind]])],
-          );
-          option.addEventListener("click", () => {
-            close();
-            this.noteBeforeChange();
-            this.setKind(kind);
-            this.kindSelect.value = kind;
-            this.noteAfterChange();
-            anchor.focus();
-          });
-          return option;
-        })),
-      ]),
-    );
-    const pop = el("div", { class: "chart-kind-pop", role: "dialog", "aria-label": "Chart type" }, groups);
-    const close = (): void => {
-      pop.remove();
-      document.removeEventListener("pointerdown", outside, true);
-      document.removeEventListener("keydown", onKey, true);
-    };
-    const outside = (event: Event): void => {
-      if (!pop.contains(event.target as Node)) close();
-    };
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      close();
-      anchor.focus();
-    };
-    document.addEventListener("pointerdown", outside, true);
-    document.addEventListener("keydown", onKey, true);
-    document.body.append(pop);
-    const rect = anchor.getBoundingClientRect();
-    pop.style.top = `${Math.max(8, Math.min(rect.top, window.innerHeight - pop.offsetHeight - 8))}px`;
-    pop.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
-    pop.querySelector<HTMLElement>(".chart-kind-option.active, .chart-kind-option:not([disabled])")?.focus();
+    return openKindPicker(this);
   }
 
   /** The places a chart of this type has for a field, each one a setting already on the panel. */
@@ -3046,67 +2992,18 @@ export class ChartCard {
     this.sidebarToggle.title = open ? "Give the chart the whole width" : "Show every setting beside the chart";
   }
 
-  /** The bar, bin or cell the person clicked: marked on the plot, with what can be done with it. */
-  private selectRegion(region: HitRegion): void {
-    const same = this.selectedRegion?.lines[0] === region.lines[0];
-    this.clearSelection();
-    this.hideTooltip();
-    if (same) {
-      this.render();
-      return;
-    }
-    this.selectedRegion = region;
-    const bar = this.selectionBar;
-    if (bar !== null) {
-      const name = region.lines[0] ?? "Selection";
-      const filter = el("button", { class: "primary small", type: "button", title: `Filter every page to ${name}` }, ["Filter to this"]);
-      filter.addEventListener("click", () => {
-        const actions = region.actions;
-        this.clearSelection();
-        for (const action of actions) this.applyHitAction(action);
-      });
-      const rows = tableFiltersForHitActions(region.actions);
-      const show = el("button", { class: "ghost small", type: "button", title: `Open the Table on the rows behind ${name}` }, ["Show rows"]);
-      show.addEventListener("click", () => {
-        this.clearSelection();
-        this.render();
-        this.options.onShowRows?.(rows, name);
-      });
-      const dismiss = el("button", { class: "icon-btn", type: "button", title: "Clear the selection", "aria-label": "Clear the selection" }, ["×"]);
-      dismiss.addEventListener("click", () => {
-        this.clearSelection();
-        this.render();
-      });
-      bar.replaceChildren(el("span", { class: "chart-selection-name", title: name }, [name]), filter, ...(this.options.onShowRows === undefined || rows.length === 0 ? [] : [show]), dismiss);
-      bar.classList.remove("hidden");
-    }
-    this.render();
+  selectRegion(region: HitRegion): void {
+    return selectRegion(this, region);
   }
 
-  private clearSelection(): void {
+  clearSelection(): void {
     this.selectedRegion = null;
     this.selectionBar?.classList.add("hidden");
     this.selectionBar?.replaceChildren();
   }
 
-  /** Marks the selected region; if the chart no longer has it (the data changed), the selection ends. */
   private drawSelection(ctx: CanvasRenderingContext2D): void {
-    const selected = this.selectedRegion;
-    if (selected === null) return;
-    const region = this.hitRegions.find((candidate) => candidate.lines[0] === selected.lines[0]);
-    if (region === undefined) {
-      this.clearSelection();
-      return;
-    }
-    ctx.save();
-    ctx.fillStyle = this.primaryColor();
-    ctx.globalAlpha = 0.14;
-    ctx.fillRect(region.x, region.y, region.w, region.h);
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = cssVar("--accent", "#2563eb");
-    ctx.lineWidth = 2;
-    ctx.strokeRect(region.x + 1, region.y + 1, Math.max(0, region.w - 2), Math.max(0, region.h - 2));
-    ctx.restore();
+    return drawSelection(this, ctx);
   }
 
   /**
@@ -5048,7 +4945,7 @@ export class ChartCard {
     return { measures, dimensions };
   }
 
-  private setKind(kind: ChartCardKind): void {
+  setKind(kind: ChartCardKind): void {
     if (kind === this.config.kind) return;
     const { measures, dimensions } = this.fieldsInUse();
     this.config.kind = kind;
@@ -5320,7 +5217,7 @@ export class ChartCard {
   }
 
   /** Category filter choices for this chart, plus its table-filter scope. */
-  private syncChartFilterControls(): void {
+  syncChartFilterControls(): void {
     const categoryIndexes = this.allowedIndexes((meta) => isGroupable(meta));
     let column = this.config.filterColumn ?? -1;
     if (!categoryIndexes.includes(column)) column = -1;
@@ -6196,7 +6093,7 @@ export class ChartCard {
   }
 
   /** The full data range a line/histogram x axis can zoom within. */
-  private xZoomBase(): { min: number; max: number } | null {
+  xZoomBase(): { min: number; max: number } | null {
     if (this.config.kind === "line") {
       const meta = this.meta(this.config.column);
       const min = meta?.stats.min;
@@ -6569,7 +6466,7 @@ export class ChartCard {
    * derived from the width, so reacting to every wrap mutation can oscillate
    * (scrollbar thresholds, sticky layouts). Theme changes force a repaint.
    */
-  private scheduleRender(force = false): void {
+  scheduleRender(force = false): void {
     if (this.disposed) return;
     this.renderForce = this.renderForce || force;
     if (this.renderQueued) return;
@@ -6756,696 +6653,62 @@ export class ChartCard {
     }
   }
 
-  /** Coalesces pointer moves into one tooltip update per animation frame. */
   private queuePointer(event: PointerEvent): void {
-    const rect = this.canvas.getBoundingClientRect();
-    if (this.brushDrag !== null) {
-      this.dragMoved = true;
-      this.brushDrag = {
-        ...this.brushDrag,
-        x1: event.clientX - rect.left,
-        y1: event.clientY - rect.top,
-      };
-      this.hideTooltip();
-      this.render();
-      return;
-    }
-    if (this.config.kind === "map" && this.mapDrag !== null && this.lastFrame !== null) {
-      const frame = this.lastFrame;
-      const dx = (event.clientX - rect.left - this.mapDrag.x) / frame.plotW;
-      const dy = (event.clientY - rect.top - this.mapDrag.y) / frame.plotH;
-      this.dragMoved = true;
-      this.mapDrag = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-      const view = this.mapViewShown();
-      const lonSpan = view.lonMax - view.lonMin;
-      const latSpan = view.latMax - view.latMin;
-      const lonMin = Math.min(
-        180 - lonSpan,
-        Math.max(-180, view.lonMin - dx * lonSpan),
-      );
-      const latMin = Math.min(
-        90 - latSpan,
-        Math.max(-90, view.latMin + dy * latSpan),
-      );
-      this.mapView = { lonMin, lonMax: lonMin + lonSpan, latMin, latMax: latMin + latSpan };
-      this.render();
-      return;
-    }
-    if (this.config.kind === "map" && this.mapBrushStart !== null) {
-      this.dragMoved = true;
-      this.mapBrush = {
-        x0: this.mapBrushStart.x,
-        y0: this.mapBrushStart.y,
-        x1: event.clientX - rect.left,
-        y1: event.clientY - rect.top,
-      };
-      this.render();
-      return;
-    }
-    const dragResult =
-      this.config.kind === "bubble" ? this.bubbleResult : this.seriesResult;
-    if (
-      (this.config.kind === "scatter" ||
-        this.config.kind === "density" ||
-        this.config.kind === "bubble") &&
-      this.plotDrag !== null &&
-      dragResult !== null &&
-      this.lastFrame !== null
-    ) {
-      const frame = this.lastFrame;
-      const result = dragResult;
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      const dx = (x - this.plotDrag.x) / frame.plotW;
-      const dy = (y - this.plotDrag.y) / frame.plotH;
-      this.dragMoved = true;
-      this.plotDrag = { x, y };
-      const view =
-        this.plotView ?? {
-          xMin: result.xMin,
-          xMax: result.xMax,
-          yMin: result.yMin,
-          yMax: result.yMax,
-        };
-      const spanX = view.xMax - view.xMin;
-      const spanY = view.yMax - view.yMin;
-      this.plotView = {
-        xMin: view.xMin - dx * spanX,
-        xMax: view.xMax - dx * spanX,
-        yMin: view.yMin + dy * spanY,
-        yMax: view.yMax + dy * spanY,
-      };
-      this.render();
-      return;
-    }
-    if (
-      (this.config.kind === "line" || this.config.kind === "histogram") &&
-      this.plotDrag !== null &&
-      this.lastFrame !== null
-    ) {
-      const frame = this.lastFrame;
-      const base = this.xZoomBase();
-      const current = this.chartXZoom;
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      if (base === null || current === null) {
-        this.plotDrag = { x, y };
-        return;
-      }
-      const dx = (x - this.plotDrag.x) / frame.plotW;
-      this.dragMoved = true;
-      this.plotDrag = { x, y };
-      const span = current.max - current.min;
-      const min = Math.min(
-        base.max - span,
-        Math.max(base.min, current.min - dx * span),
-      );
-      this.chartXZoom = { min, max: min + span };
-      this.refreshBins();
-      this.render();
-      return;
-    }
-    if (this.config.kind === "bar" && this.plotDrag !== null) {
-      const frame = this.lastFrame;
-      if (frame === null) return;
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      const total = this.allCategoryBars().length;
-      const state = this.barWindow ?? {
-        start: 0,
-        count: Math.max(1, this.config.topN),
-      };
-      const slot = frame.plotW / Math.max(1, state.count);
-      const steps = Math.round((x - this.plotDrag.x) / Math.max(1, slot));
-      if (steps !== 0 && total > 0) {
-        this.dragMoved = true;
-        this.plotDrag = { x, y };
-        const start = Math.min(
-          Math.max(0, total - state.count),
-          Math.max(0, state.start - steps),
-        );
-        this.barWindow = { start, count: state.count };
-        this.render();
-      }
-      return;
-    }
-    if (
-      (this.config.kind === "treemap" || this.config.kind === "terms") &&
-      this.plotDrag !== null
-    ) {
-      const frame = this.lastFrame;
-      if (frame === null) return;
-      const total =
-        this.config.kind === "treemap"
-          ? (this.treemapResult?.labels.length ??
-            this.meta(this.config.column)?.categories?.labels.length ??
-            0)
-          : (this.textResult?.profile.topTerms.length ?? 0);
-      if (total === 0) return;
-      const base =
-        this.config.kind === "treemap"
-          ? Math.max(6, this.config.topN)
-          : Math.max(8, this.config.topN);
-      const state = this.itemWindow ?? { start: 0, count: Math.min(total, base) };
-      const slot = frame.plotW / Math.max(1, state.count - 1);
-      const steps = Math.round((event.clientX - rect.left - this.plotDrag.x) / Math.max(1, slot));
-      if (steps !== 0) {
-        this.dragMoved = true;
-        this.plotDrag = {
-          x: event.clientX - rect.left,
-          y: event.clientY - rect.top,
-        };
-        this.itemWindow =
-          state.count >= total
-            ? null
-            : {
-                count: state.count,
-                start: Math.min(
-                  Math.max(0, total - state.count),
-                  Math.max(0, state.start - steps),
-                ),
-              };
-        this.render();
-      }
-      return;
-    }
-    if (this.config.kind === "correlation" && this.plotDrag !== null) {
-      const result = this.correlationResult;
-      const frame = this.lastFrame;
-      if (result === null || frame === null) return;
-      const total = result.labels.length;
-      const state = this.corrWindow ?? { start: 0, count: total };
-      const slot = frame.plotW / Math.max(1, state.count);
-      const steps = Math.round((event.clientX - rect.left - this.plotDrag.x) / Math.max(1, slot));
-      if (steps !== 0) {
-        this.dragMoved = true;
-        this.plotDrag = {
-          x: event.clientX - rect.left,
-          y: event.clientY - rect.top,
-        };
-        this.corrWindow =
-          state.count >= total
-            ? null
-            : {
-                count: state.count,
-                start: Math.min(
-                  Math.max(0, total - state.count),
-                  Math.max(0, state.start - steps),
-                ),
-              };
-        this.render();
-      }
-      return;
-    }
-    if (this.config.kind === "box" && this.plotDrag !== null) {
-      const result = this.boxResult;
-      const frame = this.lastFrame;
-      if (result === null || frame === null || result.groups.length === 0) return;
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      const total = result.groups.length;
-      const state = this.boxWindow ?? { start: 0, count: total };
-      const slot = frame.plotW / Math.max(1, state.count);
-      const steps = Math.round((x - this.plotDrag.x) / Math.max(1, slot));
-      let yMin = Infinity;
-      let yMax = -Infinity;
-      for (const group of result.groups) {
-        if (group.min < yMin) yMin = group.min;
-        if (group.max > yMax) yMax = group.max;
-      }
-      const spanY = yMax - yMin;
-      const dy = spanY > 0 ? ((y - this.plotDrag.y) / frame.plotH) * spanY : 0;
-      const base = this.boxY ?? { min: yMin, max: yMax };
-      const nextY = {
-        min: Math.max(yMin, base.min + dy),
-        max: Math.min(yMax, base.max + dy),
-      };
-      if (steps !== 0 || dy !== 0) {
-        this.dragMoved = true;
-        this.plotDrag = { x, y };
-        this.boxWindow =
-          state.count >= total
-            ? null
-            : {
-                count: state.count,
-                start: Math.min(
-                  Math.max(0, total - state.count),
-                  Math.max(0, state.start - steps),
-                ),
-              };
-        this.boxY =
-          nextY.max - nextY.min > 0 && (nextY.min > yMin || nextY.max < yMax)
-            ? nextY
-            : null;
-        this.render();
-      }
-      return;
-    }
-    if (this.config.kind === "heatmap" && this.plotDrag !== null) {
-      const result = this.crossResult;
-      const frame = this.lastFrame;
-      if (result === null || frame === null) return;
-      const totalX = result.xLabels.length;
-      const totalY = result.yLabels.length;
-      const state = this.heatWindow ?? {
-        xStart: 0,
-        xCount: totalX,
-        yStart: 0,
-        yCount: totalY,
-      };
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      const cellW = frame.plotW / Math.max(1, state.xCount);
-      const cellH = frame.plotH / Math.max(1, state.yCount);
-      const stepsX = Math.round((x - this.plotDrag.x) / Math.max(1, cellW));
-      const stepsY = Math.round((y - this.plotDrag.y) / Math.max(1, cellH));
-      if ((stepsX !== 0 || stepsY !== 0) && totalX > 0 && totalY > 0) {
-        this.dragMoved = true;
-        this.plotDrag = { x, y };
-        this.heatWindow = {
-          xStart: Math.min(
-            Math.max(0, totalX - state.xCount),
-            Math.max(0, state.xStart - stepsX),
-          ),
-          xCount: state.xCount,
-          yStart: Math.min(
-            Math.max(0, totalY - state.yCount),
-            Math.max(0, state.yStart - stepsY),
-          ),
-          yCount: state.yCount,
-        };
-        this.render();
-      }
-      return;
-    }
-    this.pointerAt = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-      clientX: event.clientX,
-      clientY: event.clientY,
-    };
-    if (this.pointerFrame !== null) return;
-    const run = (): void => {
-      this.pointerFrame = null;
-      if (!this.disposed) this.showTooltipAtPointer();
-    };
-    if (typeof window.requestAnimationFrame === "function") {
-      this.pointerFrame = window.requestAnimationFrame(run);
-    } else {
-      this.pointerFrame = window.setTimeout(run, 16);
-    }
+    return queuePointer(this, event);
   }
 
-  private showTooltipAtPointer(): void {
-    const at = this.pointerAt;
-    if (at === null) return;
-    const region = hitTest(this.hitRegions, at.x, at.y);
-    if (region === null) {
-      this.hideTooltip();
-      return;
-    }
-    this.lastActionRegion = region;
-    this.emitHighlight(region.actions, region.lines[0] ?? "");
-    clear(this.tooltipEl);
-    const title = el("div", { class: "chart-tooltip-title" }, [region.lines[0] ?? "Value"]);
-    this.tooltipEl.append(title);
-    for (const line of region.lines.slice(1)) {
-      this.tooltipEl.append(el("div", { class: "chart-tooltip-row" }, [line]));
-    }
-    const details: string[] = [];
-    const valueMeta = this.meta(this.config.valueColumn ?? -1);
-    if (valueMeta !== undefined) {
-      details.push(
-        `${this.aggPhrase()} of ${valueMeta.name}`,
-      );
-    }
-    if (this.config.valueGrain !== undefined && this.config.valueGrain !== "auto") {
-      details.push(`Bucket: ${describeStep(this.config.valueGrain, this.everyFor(this.config.valueGrain))}`);
-    }
-    if (this.config.binOptions !== null && this.config.kind === "histogram") {
-      details.push(`Bins: ${this.config.binOptions.binCount}`);
-    }
-    if (this.config.groupColumn >= 0) {
-      details.push(`Grouped by ${this.meta(this.config.groupColumn)?.name ?? "group"}`);
-    }
-    details.push(this.scopeEl.textContent ?? "");
-    if (this.canExclude() && (region.actions.length > 0 || (region.contextActions?.length ?? 0) > 0)) {
-      details.push("Right-click to leave this out of this chart");
-    }
-    this.tooltipEl.append(
-      el(
-        "div",
-        { class: "chart-tooltip-detail" },
-        details.filter((line) => line.trim() !== "").map((line) => el("div", {}, [line])),
-      ),
-    );
-    this.tooltipEl.classList.remove("hidden");
-    const cardRect = this.root.getBoundingClientRect();
-    const left = Math.max(
-      4,
-      Math.min(at.clientX - cardRect.left + 14, Math.max(4, cardRect.width - 160)),
-    );
-    const top = Math.max(4, at.clientY - cardRect.top + 16);
-    this.tooltipEl.style.left = `${left}px`;
-    this.tooltipEl.style.top = `${top}px`;
-    this.canvas.classList.toggle("chart-clickable", region.actions.length > 0);
+  showTooltipAtPointer(): void {
+    return showTooltipAtPointer(this);
   }
 
-  /** Tells the panel which slice the pointer is over (null when it leaves a mark). */
-  private emitHighlight(actions: readonly HitAction[] | null, label = ""): void {
-    const usable = actions !== null && actions.length > 0 ? actions : null;
-    const key = usable === null ? "" : JSON.stringify(usable);
-    if (key === this.emittedKey) return;
-    this.emittedKey = key;
-    this.options.onHighlight?.(this, usable, label);
+  emitHighlight(actions: readonly HitAction[] | null, label = ""): void {
+    return emitHighlight(this, actions, label);
   }
 
-  /**
-   * Another card's hovered slice. Marks here over the same column are outlined; marks
-   * over a different column are redrawn with the slice's share of each (a hovered
-   * region in a bar chart shows its share of every week, bin and category here).
-   */
   setLinkedHighlight(actions: readonly HitAction[] | null, label = ""): void {
-    if (JSON.stringify(actions) === JSON.stringify(this.linked)) return;
-    this.linked = actions;
-    this.linkedLabel = label;
-    this.cancelSliceFetch();
-    if (actions !== null) this.scheduleSliceFetch(actions);
-    const matches =
-      actions !== null && this.hitRegions.some((region) => actionsOverlap(actions, region.actions));
-    if (actions === null) {
-      this.sliceValues = null;
-      this.slicePoints = null;
-    }
-    // Nothing to draw before or after: skip the repaint entirely.
-    if (!matches && !this.linkedShown) return;
-    this.scheduleRender(true);
+    return setLinkedHighlight(this, actions, label);
   }
 
-  private cancelSliceFetch(): void {
-    this.sliceGeneration++;
-    if (this.sliceTimer !== null) {
-      window.clearTimeout(this.sliceTimer);
-      this.sliceTimer = null;
-    }
+  cancelSliceFetch(): void {
+    return cancelSliceFetch(this);
   }
 
-  /** The marks as slices of their column, or null when they are not (all-or-nothing per chart). */
-  private sliceRegions(): SliceRegion[] | null {
-    const scale = this.valueScale;
-    if (scale === null || this.hitRegions.length === 0) return null;
-    const regions: SliceRegion[] = this.hitRegions.map((region) => {
-      const only = region.actions.length === 1 ? region.actions[0]! : null;
-      if (only === null || only.column !== scale.regionColumn) return null;
-      if (only.kind === "values") return { kind: "values", code: only.code };
-      if (only.kind === "range") return { kind: "range", min: only.min, max: only.max };
-      return null;
-    });
-    return regions.some((region) => region !== null) ? regions : null;
+  sliceRegions(): SliceRegion[] | null {
+    return sliceRegions(this);
   }
 
-  /** The hovered slice as "keep only these rows" entries, or null when a value cannot be named. */
-  private sliceEntries(actions: readonly HitAction[]): ChartExclusion[] | null {
-    const entries: ChartExclusion[] = [];
-    for (const action of actions) {
-      if (action.kind === "values") {
-        const label = this.meta(action.column)?.categories?.labels[action.code];
-        if (label === undefined) return null;
-        entries.push({ kind: "values", column: action.column, labels: [label] });
-      } else if (action.kind === "range") {
-        entries.push({ kind: "range", column: action.column, min: action.min, max: action.max });
-      } else {
-        entries.push({ kind: "text", column: action.column, query: action.query });
-      }
-    }
-    return entries;
+  sliceEntries(actions: readonly HitAction[]): ChartExclusion[] | null {
+    return sliceEntries(this, actions);
   }
 
-  /** After a short pause on a mark, asks the worker for the slice's share of each mark here. */
-  private scheduleSliceFetch(actions: readonly HitAction[]): void {
-    if (this.config.kind === "scatter") {
-      this.scheduleSlicePoints(actions);
-      return;
-    }
-    const request = this.options.requestSliceBreakdown;
-    const scale = this.valueScale;
-    if (request === undefined || scale === null) return;
-    // Same column: the outline already says it.
-    if (actions.some((action) => action.column === scale.regionColumn)) return;
-    const regions = this.sliceRegions();
-    const slice = this.sliceEntries(actions);
-    if (regions === null || slice === null) return;
-    const generation = this.sliceGeneration;
-    this.sliceTimer = window.setTimeout(() => {
-      this.sliceTimer = null;
-      request({
-        slice,
-        column: scale.regionColumn,
-        regions,
-        ...(scale.measure === null ? {} : { measure: scale.measure }),
-        ...(scale.scoped ? this.chartScope() : {}),
-      })
-        .then((message) => {
-          if (this.disposed || generation !== this.sliceGeneration || this.linked === null) return;
-          this.sliceValues = message.values;
-          this.scheduleRender(true);
-        })
-        .catch(() => {
-          // A failed highlight is only a missing overlay.
-        });
-    }, 70);
+  scheduleSliceFetch(actions: readonly HitAction[]): void {
+    return scheduleSliceFetch(this, actions);
   }
 
-  /**
-   * Scatter: asks for the points of the hovered slice. It is the card's own sample
-   * request with the slice kept (an inverted exclusion), unclipped so the points
-   * land on the axes the plot already has.
-   */
-  private scheduleSlicePoints(actions: readonly HitAction[]): void {
-    const request = this.options.requestSeries;
-    const slice = this.sliceEntries(actions);
-    if (this.seriesResult?.mode !== "points" || slice === null) return;
-    const scope = this.chartScope();
-    const generation = this.sliceGeneration;
-    this.sliceTimer = window.setTimeout(() => {
-      this.sliceTimer = null;
-      request({
-        xColumn: this.config.x,
-        yColumn: this.config.y,
-        colorColumn: -1,
-        sizeColumn: -1,
-        mode: "points",
-        limit: POINT_LIMIT,
-        clip: false,
-        ...scope,
-        chartExclude: [...(scope.chartExclude ?? []), ...slice.map((entry) => ({ ...entry, invert: true }))],
-      })
-        .then((message) => {
-          if (this.disposed || generation !== this.sliceGeneration || this.linked === null) return;
-          if (message.result.mode !== "points") return;
-          this.slicePoints = message.result;
-          this.scheduleRender(true);
-        })
-        .catch(() => {
-          // A failed highlight is only a missing overlay.
-        });
-    }, 70);
+  scheduleSlicePoints(actions: readonly HitAction[]): void {
+    return scheduleSlicePoints(this, actions);
   }
 
-  /** The slice's own points over the scatter, in the highlight colour; returns how many were drawn. */
-  private drawSlicePoints(ctx: CanvasRenderingContext2D, space: BrushSpace): number {
-    const points = this.slicePoints;
-    const yMin = space.yMin ?? 0;
-    const yMax = space.yMax ?? 0;
-    if (points === null || space.xMax <= space.xMin || yMax <= yMin) return 0;
-    const accent = "#e8590c";
-    const xScale = space.plotW / (space.xMax - space.xMin);
-    const yScale = space.plotH / (yMax - yMin);
-    const radius = points.shown <= 5000 ? 2.8 : 2.2;
-    let drawn = 0;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(space.left, space.top, space.plotW, space.plotH);
-    ctx.clip();
-    ctx.fillStyle = accent;
-    ctx.globalAlpha = 0.9;
-    ctx.beginPath();
-    for (let i = 0; i < points.shown; i++) {
-      const x = space.left + (points.x[i]! - space.xMin) * xScale;
-      const y = space.top + space.plotH - (points.y[i]! - yMin) * yScale;
-      if (x < space.left || x > space.left + space.plotW || y < space.top || y > space.top + space.plotH) continue;
-      addMarkerPath(ctx, this.config.markerShape ?? "circle", x, y, radius);
-      drawn++;
-    }
-    ctx.fill();
-    ctx.restore();
-    if (drawn > 0 && this.linkedLabel !== "") {
-      ctx.save();
-      ctx.fillStyle = accent;
-      ctx.font = "600 11px system-ui, sans-serif";
-      ctx.textAlign = "right";
-      ctx.fillText(`Highlighted: ${this.linkedLabel}`, space.left + space.plotW, Math.max(10, space.top - 4));
-      ctx.restore();
-    }
-    return drawn;
+  drawSlicePoints(ctx: CanvasRenderingContext2D, space: BrushSpace): number {
+    return drawSlicePoints(this, ctx, space);
   }
 
-  /** Draws the linked slice: outlines on the same column, the slice's share on others. */
   private drawLinkedOverlay(ctx: CanvasRenderingContext2D): void {
-    const actions = this.linked;
-    let shown = 0;
-    if (actions !== null) {
-      ctx.save();
-      ctx.fillStyle = this.primaryColor();
-      ctx.strokeStyle = this.primaryColor();
-      ctx.lineWidth = 2;
-      for (const region of this.hitRegions) {
-        if (!actionsOverlap(actions, region.actions)) continue;
-        const w = Math.max(3, region.w);
-        ctx.globalAlpha = 0.16;
-        ctx.fillRect(region.x, region.y, w, region.h);
-        ctx.globalAlpha = 0.95;
-        ctx.strokeRect(region.x + 1, region.y + 1, Math.max(1, w - 2), Math.max(1, region.h - 2));
-        shown++;
-      }
-      ctx.restore();
-    }
-    const values = this.sliceValues;
-    const scale = this.valueScale;
-    let sliced = 0;
-    if (actions !== null && values !== null && scale !== null && values.length === this.hitRegions.length) {
-      sliced = this.drawSliceShare(ctx, scale, values);
-    }
-    if (actions !== null && this.slicePoints !== null && this.brushSpace !== null && this.config.kind === "scatter") {
-      sliced = this.drawSlicePoints(ctx, this.brushSpace);
-    }
-    this.linkedShown = shown > 0 || sliced > 0;
-    this.canvas.dataset.linked = String(shown);
-    this.canvas.dataset.slice = String(sliced);
+    return drawLinkedOverlay(this, ctx);
   }
 
-  /** The hovered slice's value on every mark, in the highlight colour; returns how many marks have one. */
-  private drawSliceShare(ctx: CanvasRenderingContext2D, scale: ValueScale, values: Float64Array): number {
-    const accent = "#e8590c";
-    const bottom = scale.top + scale.plotH;
-    const heightOf = (value: number): number =>
-      Math.max(0, Math.min(1, value / Math.max(1e-12, scale.yMax))) * scale.plotH;
-    let drawn = 0;
-    ctx.save();
-    ctx.fillStyle = accent;
-    ctx.strokeStyle = accent;
-    if (scale.mode === "bars") {
-      ctx.globalAlpha = 0.95;
-      this.hitRegions.forEach((region, index) => {
-        const value = values[index] as number;
-        if (!Number.isFinite(value) || value <= 0) return;
-        const h = Math.max(2, heightOf(value));
-        ctx.fillRect(region.x + scale.inset, bottom - h, Math.max(1, scale.barW), h);
-        drawn++;
-      });
-    } else {
-      ctx.lineWidth = 2.5;
-      ctx.globalAlpha = 0.95;
-      let open = false;
-      ctx.beginPath();
-      this.hitRegions.forEach((region, index) => {
-        const value = values[index] as number;
-        if (!Number.isFinite(value)) {
-          open = false;
-          return;
-        }
-        const x = region.x + region.w / 2;
-        const y = bottom - heightOf(value);
-        if (open) ctx.lineTo(x, y);
-        else ctx.moveTo(x, y);
-        open = true;
-        drawn++;
-      });
-      ctx.stroke();
-      if (drawn > 0 && drawn <= 60) {
-        this.hitRegions.forEach((region, index) => {
-          const value = values[index] as number;
-          if (!Number.isFinite(value)) return;
-          ctx.beginPath();
-          ctx.arc(region.x + region.w / 2, bottom - heightOf(value), 2.5, 0, Math.PI * 2);
-          ctx.fill();
-        });
-      }
-    }
-    if (drawn > 0 && this.linkedLabel !== "") {
-      ctx.globalAlpha = 1;
-      ctx.font = "600 11px system-ui, sans-serif";
-      // Right-aligned so it never sits on the chart's own axis label at the left.
-      ctx.textAlign = "right";
-      const last = this.hitRegions[this.hitRegions.length - 1];
-      ctx.fillText(
-        `Highlighted: ${this.linkedLabel}`,
-        last === undefined ? 0 : last.x + last.w,
-        Math.max(10, scale.top - 4),
-      );
-    }
-    ctx.restore();
-    return drawn;
+  drawSliceShare(ctx: CanvasRenderingContext2D, scale: ValueScale, values: Float64Array): number {
+    return drawSliceShare(this, ctx, scale, values);
   }
 
-  private hideTooltip(): void {
+  hideTooltip(): void {
     this.emitHighlight(null);
     this.tooltipEl.classList.add("hidden");
     this.canvas.classList.remove("chart-clickable");
   }
 
   private handleCanvasClick(event: MouseEvent): void {
-    if (this.dragMoved) {
-      this.dragMoved = false;
-      return;
-    }
-    const rect = this.canvas.getBoundingClientRect();
-    if (this.config.kind === "map" && this.mapClusters.length > 0 && this.mapPicker === null) {
-      const cx = event.clientX - rect.left, cy = event.clientY - rect.top;
-      const hit = this.mapClusters.find((c) => (cx - c.x) ** 2 + (cy - c.y) ** 2 <= c.r * c.r);
-      if (hit !== undefined) {
-        // Zoom to the box of the markers it holds, with some air round it; markers at one spot zoom in a fixed step.
-        const lonSpan = Math.max(hit.lonMax - hit.lonMin, 0.02), latSpan = Math.max(hit.latMax - hit.latMin, 0.02);
-        const lonMid = (hit.lonMin + hit.lonMax) / 2, latMid = (hit.latMin + hit.latMax) / 2;
-        const view = this.mapViewShown(), aspect = (view.lonMax - view.lonMin) / (view.latMax - view.latMin);
-        let w = lonSpan * 1.6, h = latSpan * 1.6;
-        if (w / h < aspect) w = h * aspect; else h = w / aspect;
-        this.mapView = { lonMin: lonMid - w / 2, lonMax: lonMid + w / 2, latMin: latMid - h / 2, latMax: latMid + h / 2 };
-        this.render();
-        return;
-      }
-    }
-    if (this.config.kind === "map" && this.mapPicker !== null && this.lastFrame !== null) {
-      const frame = this.lastFrame;
-      const view = this.mapViewShown();
-      const fx = (event.clientX - rect.left - frame.left) / frame.plotW;
-      const fy = (event.clientY - rect.top - frame.top) / frame.plotH;
-      if (fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1) {
-        this.mapPicker(view.lonMin + fx * (view.lonMax - view.lonMin), view.latMax - fy * (view.latMax - view.latMin));
-      }
-      return;
-    }
-    const region = hitTest(
-      this.hitRegions,
-      event.clientX - rect.left,
-      event.clientY - rect.top,
-    );
-    if (this.options.docked === true) {
-      // A click marks; filtering every page is a second, named step.
-      if (region === null || region.actions.length === 0) {
-        if (this.selectedRegion !== null) {
-          this.clearSelection();
-          this.render();
-        }
-        return;
-      }
-      this.lastActionRegion = region;
-      this.selectRegion(region);
-      return;
-    }
-    if (region === null) return;
-    this.lastActionRegion = region;
-    for (const action of region.actions) this.applyHitAction(action);
+    return handleCanvasClick(this, event);
   }
 
   private beginMapBrush(event: PointerEvent): void {
@@ -7456,328 +6719,31 @@ export class ChartCard {
     return endMapBrush(this, event);
   }
 
-  /**
-   * Shift+drag release: converts the pixel rectangle into data ranges on the
-   * plotted columns and hands them to the table filters. Drags under 6 px are
-   * ignored; one-axis charts (line, histogram) use the horizontal extent only.
-   */
   finishBrush(drag: { x0: number; y0: number; x1: number; y1: number }): void {
-    const space = this.brushSpace;
-    this.render();
-    if (space === null || this.options.onBrush === undefined) return;
-    const clamp = (value: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, value));
-    const left = space.left;
-    const right = space.left + space.plotW;
-    const top = space.top;
-    const bottom = space.top + space.plotH;
-    const px0 = clamp(Math.min(drag.x0, drag.x1), left, right);
-    const px1 = clamp(Math.max(drag.x0, drag.x1), left, right);
-    const py0 = clamp(Math.min(drag.y0, drag.y1), top, bottom);
-    const py1 = clamp(Math.max(drag.y0, drag.y1), top, bottom);
-    const twoAxes = space.yColumn !== undefined && space.yMin !== undefined && space.yMax !== undefined;
-    if (px1 - px0 < 6 || (twoAxes && py1 - py0 < 6)) return;
-    if (space.slots !== undefined) {
-      const slotW = space.plotW / Math.max(1, space.slots.count);
-      const last = space.slots.count - 1;
-      const first = clamp(Math.floor((px0 - left) / slotW), 0, last);
-      const end = clamp(Math.floor((px1 - left) / slotW), first, last);
-      const range = space.slots.range(first, end);
-      if (range !== null) this.options.onBrush([{ column: space.xColumn, ...range }]);
-      return;
-    }
-    const xSpan = space.xMax - space.xMin;
-    const xWidth = Math.max(1e-9, space.plotW * space.xFraction);
-    const toX = (x: number): number => space.xMin + clamp((x - left) / xWidth, 0, 1) * xSpan;
-    const ranges: BrushRange[] = [this.roundedRange(space.xColumn, toX(px0), toX(px1))];
-    if (twoAxes) {
-      const yMin = space.yMin as number;
-      const yMax = space.yMax as number;
-      const toY = (y: number): number => yMax - ((y - top) / space.plotH) * (yMax - yMin);
-      ranges.push(this.roundedRange(space.yColumn as number, toY(py1), toY(py0)));
-    }
-    this.options.onBrush(ranges);
+    return finishBrush(this, drag);
   }
 
-  /**
-   * Brush geometry for an aggregated time axis: slot i covers [times[i], the next
-   * period) so a selection of slots a..b is the dates from the start of a to the
-   * end of b. The last period is as long as the one before it.
-   */
   timeSlotBrush(times: readonly number[], column: number, frame: Frame): BrushSpace | null {
-    if (times.length === 0 || column < 0) return null;
-    const end = (i: number): number => {
-      const next = times[i + 1];
-      if (next !== undefined && Number.isFinite(next)) return next - 1;
-      const here = times[i] as number;
-      const previous = times[i - 1];
-      return previous !== undefined && Number.isFinite(previous) ? here + (here - previous) - 1 : here;
-    };
-    return {
-      left: frame.left,
-      top: frame.top,
-      plotW: frame.plotW,
-      plotH: frame.plotH,
-      xColumn: column,
-      xMin: 0,
-      xMax: 1,
-      xFraction: 1,
-      slots: {
-        count: times.length,
-        range: (first, last) => {
-          const min = times[first];
-          if (min === undefined || !Number.isFinite(min) || !Number.isFinite(times[last])) return null;
-          return { min, max: end(last) };
-        },
-      },
-    };
+    return timeSlotBrush(this, times, column, frame);
   }
 
   /** Whole-number columns get whole-number bounds so the edge rows stay in. */
-  private roundedRange(column: number, min: number, max: number): BrushRange {
+  roundedRange(column: number, min: number, max: number): BrushRange {
     if (this.meta(column)?.type === "integer") {
       return { column, min: Math.floor(min), max: Math.ceil(max) };
     }
     return { column, min, max };
   }
 
-  /** The live Shift+drag selection: a rectangle, or a full-height band on one-axis charts. */
   private drawBrushOverlay(ctx: CanvasRenderingContext2D): void {
-    const space = this.brushSpace;
-    if (this.brushDrag === null || space === null) return;
-    const clampX = (x: number): number => Math.max(space.left, Math.min(space.left + space.plotW, x));
-    const clampY = (y: number): number => Math.max(space.top, Math.min(space.top + space.plotH, y));
-    const x = Math.min(clampX(this.brushDrag.x0), clampX(this.brushDrag.x1));
-    const w = Math.abs(clampX(this.brushDrag.x1) - clampX(this.brushDrag.x0));
-    const oneAxis = space.yColumn === undefined;
-    const y = oneAxis ? space.top : Math.min(clampY(this.brushDrag.y0), clampY(this.brushDrag.y1));
-    const h = oneAxis ? space.plotH : Math.abs(clampY(this.brushDrag.y1) - clampY(this.brushDrag.y0));
-    ctx.save();
-    ctx.fillStyle = this.primaryColor();
-    ctx.globalAlpha = 0.15;
-    ctx.fillRect(x, y, w, h);
-    ctx.globalAlpha = 0.9;
-    ctx.strokeStyle = this.primaryColor();
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x + 0.5, y + 0.5, w, h);
-    ctx.restore();
+    return drawBrushOverlay(this, ctx);
   }
 
-  /** Wheel zoom on the map, anchored at the pointer; clamped to the world. */
   private onWheel(event: WheelEvent): void {
-    const kind = this.config.kind;
-    // The wheel scrolls the page unless the person asks to zoom: a chart fills the screen, and
-    // trapping the wheel there hides whatever is below it. A map keeps plain wheel zoom, as maps do.
-    if (kind !== "map" && !event.ctrlKey && !event.metaKey) return;
-    if (
-      (kind !== "map" &&
-        kind !== "scatter" &&
-        kind !== "density" &&
-        kind !== "bubble" &&
-        kind !== "line" &&
-        kind !== "histogram" &&
-        kind !== "bar" &&
-        kind !== "heatmap" &&
-        kind !== "box" &&
-        kind !== "correlation" &&
-        kind !== "treemap" &&
-        kind !== "terms") ||
-      this.lastFrame === null
-    ) {
-      return;
-    }
-    const frame = this.lastFrame;
-    const rect = this.canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-    if (
-      x < frame.left ||
-      x > frame.left + frame.plotW ||
-      y < frame.top ||
-      y > frame.top + frame.plotH
-    ) {
-      return;
-    }
-    const tx = (x - frame.left) / frame.plotW;
-    const ty = 1 - (y - frame.top) / frame.plotH;
-    const factor = event.deltaY < 0 ? 0.8 : 1.25;
-    if (kind === "line" || kind === "histogram") {
-      const base = this.xZoomBase();
-      if (base === null) return;
-      const current = this.chartXZoom ?? base;
-      const minSpan = Math.max(1e-9, (base.max - base.min) / 1000);
-      const zoomed = zoomPlotBounds(
-        { xMin: current.min, xMax: current.max, yMin: 0, yMax: 1 },
-        { x: tx, y: 0.5 },
-        factor,
-        minSpan,
-      );
-      const min = Math.max(base.min, zoomed.xMin);
-      const max = Math.min(base.max, zoomed.xMax);
-      if (!(max > min)) return;
-      event.preventDefault();
-      this.chartXZoom = { min, max };
-      this.refreshBins();
-      this.render();
-      return;
-    }
-    if (kind === "bar") {
-      const total = this.allCategoryBars().length;
-      if (total === 0) return;
-      event.preventDefault();
-      const current = this.barWindow ?? {
-        start: 0,
-        count: Math.max(1, this.config.topN),
-      };
-      const count = Math.min(total, Math.max(3, Math.round(current.count * factor)));
-      const center = current.start + current.count / 2;
-      const start = Math.min(
-        Math.max(0, total - count),
-        Math.max(0, Math.round(center - count / 2)),
-      );
-      this.barWindow = { start, count };
-      this.render();
-      return;
-    }
-    if (kind === "treemap" || kind === "terms") {
-      const total =
-        kind === "treemap"
-          ? (this.treemapResult?.labels.length ??
-            this.meta(this.config.column)?.categories?.labels.length ??
-            0)
-          : (this.textResult?.profile.topTerms.length ?? 0);
-      if (total === 0) return;
-      event.preventDefault();
-      const base = kind === "treemap" ? Math.max(6, this.config.topN) : Math.max(8, this.config.topN);
-      const current = this.itemWindow ?? { start: 0, count: Math.min(total, base) };
-      const count = Math.min(total, Math.max(2, Math.round(current.count * factor)));
-      const center = current.start + current.count / 2;
-      const start = Math.min(
-        Math.max(0, total - count),
-        Math.max(0, Math.round(center - count / 2)),
-      );
-      this.itemWindow = count >= total ? null : { start, count };
-      this.render();
-      return;
-    }
-    if (kind === "correlation") {
-      const result = this.correlationResult;
-      if (result === null || result.labels.length < 2) return;
-      event.preventDefault();
-      const total = result.labels.length;
-      const current = this.corrWindow ?? { start: 0, count: total };
-      const count = Math.min(total, Math.max(2, Math.round(current.count * factor)));
-      const center = current.start + current.count / 2;
-      const start = Math.min(
-        Math.max(0, total - count),
-        Math.max(0, Math.round(center - count / 2)),
-      );
-      this.corrWindow = count >= total ? null : { start, count };
-      this.render();
-      return;
-    }
-    if (kind === "box") {
-      const result = this.boxResult;
-      if (result === null || result.groups.length === 0) return;
-      event.preventDefault();
-      const total = result.groups.length;
-      const current = this.boxWindow ?? { start: 0, count: total };
-      const count = Math.min(total, Math.max(1, Math.round(current.count * factor)));
-      const center = current.start + current.count / 2;
-      const start = Math.min(
-        Math.max(0, total - count),
-        Math.max(0, Math.round(center - count / 2)),
-      );
-      let yMin = Infinity;
-      let yMax = -Infinity;
-      for (const group of result.groups) {
-        if (group.min < yMin) yMin = group.min;
-        if (group.max > yMax) yMax = group.max;
-      }
-      if (!(yMax > yMin)) {
-        yMin -= 1;
-        yMax += 1;
-      }
-      const base = this.boxY ?? { min: yMin, max: yMax };
-      const zoomed = zoomPlotBounds(
-        { xMin: 0, xMax: 1, yMin: base.min, yMax: base.max },
-        { x: 0.5, y: ty },
-        factor,
-        Math.max(1e-9, (yMax - yMin) / 1000),
-      );
-      this.boxWindow = count >= total ? null : { start, count };
-      this.boxY = {
-        min: Math.max(yMin, zoomed.yMin),
-        max: Math.min(yMax, zoomed.yMax),
-      };
-      this.render();
-      return;
-    }
-    if (kind === "heatmap") {
-      const result = this.crossResult;
-      if (result === null) return;
-      const totalX = result.xLabels.length;
-      const totalY = result.yLabels.length;
-      if (totalX === 0 || totalY === 0) return;
-      event.preventDefault();
-      const current = this.heatWindow ?? {
-        xStart: 0,
-        xCount: totalX,
-        yStart: 0,
-        yCount: totalY,
-      };
-      const nextX = Math.max(1, Math.min(totalX, Math.round(current.xCount * factor)));
-      const nextY = Math.max(1, Math.min(totalY, Math.round(current.yCount * factor)));
-      const anchorX = current.xStart + tx * current.xCount;
-      const anchorY = current.yStart + (1 - ty) * current.yCount;
-      const xStart = Math.max(
-        0,
-        Math.min(totalX - nextX, Math.round(anchorX - tx * nextX)),
-      );
-      const yStart = Math.max(
-        0,
-        Math.min(totalY - nextY, Math.round(anchorY - (1 - ty) * nextY)),
-      );
-      this.heatWindow =
-        nextX >= totalX && nextY >= totalY
-          ? null
-          : { xStart, xCount: nextX, yStart, yCount: nextY };
-      this.render();
-      return;
-    }
-    if (kind === "map") {
-      event.preventDefault();
-      this.zoomMap(factor, tx, ty);
-      return;
-    }
-    const result = kind === "bubble" ? this.bubbleResult : this.seriesResult;
-    if (result === null) return;
-    event.preventDefault();
-    const base =
-      this.plotView ?? {
-        xMin: result.xMin,
-        xMax: result.xMax,
-        yMin: result.yMin,
-        yMax: result.yMax,
-      };
-    const minSpan = Math.max(
-      1e-12,
-      Math.min(base.xMax - base.xMin, base.yMax - base.yMin) / 2000,
-    );
-    const zoomed = zoomPlotBounds(base, { x: tx, y: ty }, factor, minSpan);
-    const clamped = {
-      xMin: Math.max(result.xMin, zoomed.xMin),
-      xMax: Math.min(result.xMax, zoomed.xMax),
-      yMin: Math.max(result.yMin, zoomed.yMin),
-      yMax: Math.min(result.yMax, zoomed.yMax),
-    };
-    this.plotView =
-      clamped.xMax - clamped.xMin > 0 && clamped.yMax - clamped.yMin > 0
-        ? clamped
-        : null;
-    this.render();
+    return onWheel(this, event);
   }
 
-  private zoomMap(factor: number, tx = 0.5, ty = 0.5): void {
+  zoomMap(factor: number, tx = 0.5, ty = 0.5): void {
     return zoomMap(this, factor, tx, ty);
   }
 
@@ -7862,26 +6828,12 @@ export class ChartCard {
     return out;
   }
 
-  /** Zeroes histogram bins whose centre lies inside a range excluded on this column. */
   withoutExcludedBins(bins: number[], min: number, max: number): number[] {
-    const ranges = this.excludes().filter(
-      (entry): entry is Extract<ChartExclusion, { kind: "range" }> =>
-        entry.kind === "range" && entry.column === this.config.column,
-    );
-    if (ranges.length === 0 || bins.length === 0 || !(max > min)) return bins;
-    const width = (max - min) / bins.length;
-    return bins.map((count, index) => {
-      const centre = min + (index + 0.5) * width;
-      const inside = ranges.some(
-        (range) =>
-          (range.min === null || centre >= range.min) && (range.max === null || centre <= range.max),
-      );
-      return inside ? 0 : count;
-    });
+    return withoutExcludedBins(this, bins, min, max);
   }
 
   /** Readable range bounds for a column: dates as dates, numbers trimmed. */
-  private boundFormatter(column: number): (value: number) => string {
+  boundFormatter(column: number): (value: number) => string {
     const type = this.meta(column)?.type;
     if (type === "date" || type === "datetime") {
       return (value) => {
@@ -7903,292 +6855,39 @@ export class ChartCard {
   }
 
   /** True when this card can leave things out (it draws from the table, not a bound view). */
-  private canExclude(): boolean {
+  canExclude(): boolean {
     return this.config.source === "";
   }
 
-  private setExcludes(next: ChartExclusion[]): void {
+  setExcludes(next: ChartExclusion[]): void {
     this.config.excludes = next.length > 0 ? next : undefined;
     this.syncExclusions();
     // Re-request every data path with the new scope, then repaint.
     this.setFiltered(this.facets, this.histograms);
   }
 
-  /** The row of "Left out: Spain ×" chips above the chart. */
   private syncExclusions(): void {
-    const list = this.excludes();
-    clear(this.exclusionBar);
-    this.exclusionBar.classList.toggle("hidden", list.length === 0);
-    if (list.length === 0) return;
-    this.exclusionBar.append(el("span", { class: "chart-exclusions-label" }, ["Left out:"]));
-    const chips = exclusionChips(
-      list,
-      (column) => this.meta(column)?.name ?? "column",
-      (column) => this.boundFormatter(column),
-    );
-    for (const chip of chips) {
-      const button = el(
-        "button",
-        {
-          class: "chart-exclusion-chip",
-          type: "button",
-          title: `Put back: ${chip.text}`,
-          "aria-label": `Put back ${chip.text}`,
-        },
-        [chip.text, el("span", { class: "chart-exclusion-x", "aria-hidden": "true" }, [" ×"])],
-      ) as HTMLButtonElement;
-      button.addEventListener("click", () => this.setExcludes(removeChip(this.excludes(), chip)));
-      this.exclusionBar.append(button);
-    }
-    if (chips.length > 1) {
-      const clearAll = el("button", { class: "ghost small", type: "button" }, ["Put all back"]);
-      clearAll.addEventListener("click", () => this.setExcludes([]));
-      this.exclusionBar.append(clearAll);
-    }
+    return syncExclusions(this);
   }
 
   private handleCanvasContextMenu(event: MouseEvent): void {
-    const rect = this.canvas.getBoundingClientRect();
-    const region = hitTest(
-      this.hitRegions,
-      event.clientX - rect.left,
-      event.clientY - rect.top,
-    );
-    const actions =
-      region === null
-        ? []
-        : region.actions.length > 0
-          ? region.actions
-          : (region.contextActions ?? []);
-    const point = actions.length === 0 ? this.dataPointAt(event.clientX, event.clientY) : null;
-    const hasExclusions = this.excludes().length > 0;
-    if (actions.length === 0 && point === null && !hasExclusions) return;
-    event.preventDefault();
-    this.openExclusionMenu(actions, { x: event.clientX, y: event.clientY }, point);
+    return handleCanvasContextMenu(this, event);
   }
 
-  /**
-   * Data coordinates under the pointer for the plots that draw raw points or
-   * cells (scatter, density, bubble), so a right-click can trim everything
-   * beyond that point on either axis.
-   */
-  private dataPointAt(clientX: number, clientY: number): { x: number; y: number } | null {
-    const kind = this.config.kind;
-    if (kind !== "scatter" && kind !== "density" && kind !== "bubble") return null;
-    const result = kind === "bubble" ? this.bubbleResult : this.seriesResult;
-    const frame = this.lastFrame;
-    if (result === null || frame === null || !(frame.plotW > 0) || !(frame.plotH > 0)) return null;
-    const rect = this.canvas.getBoundingClientRect();
-    const px = clientX - rect.left;
-    const py = clientY - rect.top;
-    if (px < frame.left || px > frame.left + frame.plotW) return null;
-    if (py < frame.top || py > frame.top + frame.plotH) return null;
-    const view = this.plotView ?? {
-      xMin: result.xMin,
-      xMax: result.xMax,
-      yMin: result.yMin,
-      yMax: result.yMax,
-    };
-    if (![view.xMin, view.xMax, view.yMin, view.yMax].every(Number.isFinite)) return null;
-    return {
-      x: view.xMin + ((px - frame.left) / frame.plotW) * (view.xMax - view.xMin),
-      y: view.yMax - ((py - frame.top) / frame.plotH) * (view.yMax - view.yMin),
-    };
+  dataPointAt(clientX: number, clientY: number): { x: number; y: number } | null {
+    return dataPointAt(this, clientX, clientY);
   }
 
-  /**
-   * Right-click menu built from what the clicked shape stands for: a category
-   * value, a numeric range or a text term. Every entry is chart-local unless
-   * it says "table"; exclusions never touch the table or other cards.
-   */
-  openExclusionMenu(
-    actions: readonly HitAction[],
-    at: { x: number; y: number },
-    point: { x: number; y: number } | null = null,
-  ): void {
-    const items: MenuItem[] = [];
-    if (point !== null && this.canExclude()) {
-      const axes: { column: number; value: number; name: string }[] = [
-        { column: this.config.x, value: point.x, name: this.meta(this.config.x)?.name ?? "X" },
-        { column: this.config.y, value: point.y, name: this.meta(this.config.y)?.name ?? "Y" },
-      ];
-      for (const axis of axes) {
-        if (axis.column < 0 || !Number.isFinite(axis.value)) continue;
-        const rounded = Number(axis.value.toPrecision(4));
-        const text = rounded.toLocaleString("en-US", { maximumFractionDigits: 6 });
-        items.push(
-          {
-            label: `Leave out rows where ${axis.name} is above ${text}`,
-            title: "Trim everything beyond this point on this axis, in this chart only",
-            action: () =>
-              this.setExcludes(
-                addExclusion(this.excludes(), {
-                  kind: "range",
-                  column: axis.column,
-                  min: rounded,
-                  max: null,
-                }),
-              ),
-          },
-          {
-            label: `Leave out rows where ${axis.name} is below ${text}`,
-            title: "Trim everything beyond this point on this axis, in this chart only",
-            action: () =>
-              this.setExcludes(
-                addExclusion(this.excludes(), {
-                  kind: "range",
-                  column: axis.column,
-                  min: null,
-                  max: rounded,
-                }),
-              ),
-          },
-        );
-      }
-    }
-    const multiple = actions.length > 1;
-    if (this.canExclude()) {
-      for (const action of actions) {
-        const column = this.meta(action.column);
-        const where = multiple && column !== undefined ? ` (${column.name})` : "";
-        if (action.kind === "values") {
-          const label = column?.categories?.labels[action.code];
-          if (label === undefined) continue;
-          const shown = label === "" ? "(empty)" : label;
-          items.push({
-            label: `Leave out “${shown}”${where}`,
-            title: "Remove these rows from this chart only; click the chip to put them back",
-            action: () =>
-              this.setExcludes(
-                addExclusion(this.excludes(), { kind: "values", column: action.column, labels: [label] }),
-              ),
-          });
-          items.push({
-            label: `Show only “${shown}”${where}`,
-            title: "Keep just these rows in this chart",
-            action: () => {
-              this.config.filterColumn = action.column;
-              this.config.filterCode = action.code;
-              this.setFiltered(this.facets, this.histograms);
-              this.syncChartFilterControls();
-            },
-          });
-        } else if (action.kind === "range") {
-          const text = describeRange(action.min, action.max, this.boundFormatter(action.column));
-          const name = column?.name ?? "values";
-          items.push({
-            label: `Leave out ${name} ${text}`,
-            title: "Remove values in this range from this chart only",
-            action: () =>
-              this.setExcludes(
-                addExclusion(this.excludes(), {
-                  kind: "range",
-                  column: action.column,
-                  min: action.min,
-                  max: action.max,
-                }),
-              ),
-          });
-        } else {
-          items.push({
-            label: `Leave out rows containing “${action.query}”${where}`,
-            title: "Remove matching rows from this chart only",
-            action: () =>
-              this.setExcludes(
-                addExclusion(this.excludes(), {
-                  kind: "text",
-                  column: action.column,
-                  query: action.query,
-                }),
-              ),
-          });
-        }
-      }
-    }
-    // The click behaviour, spelled out, for anyone who wanted the table instead.
-    if (actions.length > 0 && this.options.onFilter !== undefined) {
-      const first = actions[0]!;
-      const described =
-        first.kind === "values"
-          ? `“${this.meta(first.column)?.categories?.labels[first.code] ?? "value"}”`
-          : first.kind === "range"
-            ? describeRange(first.min, first.max, this.boundFormatter(first.column))
-            : `“${first.query}”`;
-      items.push({
-        label: `Filter the table to ${described}`,
-        title: "Same as clicking it: an ordinary table filter you can clear in the filter list",
-        action: () => {
-          for (const action of actions) this.applyHitAction(action);
-        },
-      });
-      if (first.kind === "values") {
-        items.push({
-          label: `Leave ${described} out of the table too`,
-          title: "A table filter that keeps every other value",
-          action: () => this.excludeFromTable(first.column, first.code),
-        });
-      }
-    }
-    if (this.excludes().length > 0) {
-      items.push({
-        label: `Put back everything left out (${exclusionChips(this.excludes(), () => "").length})`,
-        action: () => this.setExcludes([]),
-      });
-    }
-    if (items.length === 0) return;
-    openMenu(this.canvas, items, "context-menu", at);
+  openExclusionMenu(actions: readonly HitAction[], at: { x: number; y: number }, point: { x: number; y: number } | null = null): void {
+    return openExclusionMenu(this, actions, at, point);
   }
 
-  /** Table filter keeping every value of a column except one. */
-  private excludeFromTable(column: number, code: number): void {
-    const onFilter = this.options.onFilter;
-    const total = this.meta(column)?.categories?.labels.length ?? 0;
-    if (onFilter === undefined || total === 0) return;
-    const current = this.options.currentFilter?.(column) ?? null;
-    const base =
-      current?.kind === "values" ? current.selected : Array.from({ length: total }, (_, i) => i);
-    const selected = base.filter((value) => value !== code);
-    if (selected.length === 0) return;
-    onFilter(column, { kind: "values", selected });
+  excludeFromTable(column: number, code: number): void {
+    return excludeFromTable(this, column, code);
   }
 
-  private applyHitAction(action: HitAction): void {
-    const onFilter = this.options.onFilter;
-    if (onFilter === undefined) return;
-    const current = this.options.currentFilter?.(action.column) ?? null;
-    if (action.kind === "text") {
-      const same =
-        current?.kind === "text" &&
-        current.mode === "contains" &&
-        current.query === action.query;
-      onFilter(
-        action.column,
-        same ? null : { kind: "text", mode: "contains", query: action.query },
-      );
-      return;
-    }
-    if (action.kind === "range") {
-      const same =
-        current?.kind === "range" &&
-        current.min === action.min &&
-        current.max === action.max;
-      if (same) onFilter(action.column, null);
-      else onFilter(action.column, { kind: "range", min: action.min, max: action.max });
-      return;
-    }
-    const total = this.meta(action.column)?.categories?.labels.length ?? 0;
-    let selected: number[];
-    if (current?.kind === "values") {
-      selected = current.selected.filter((code) => code !== action.code);
-      if (selected.length === current.selected.length) selected.push(action.code);
-    } else {
-      selected = [action.code];
-    }
-    if (selected.length === 0 || (total > 0 && selected.length === total)) {
-      onFilter(action.column, null);
-    } else {
-      onFilter(action.column, { kind: "values", selected });
-    }
+  applyHitAction(action: HitAction): void {
+    return applyHitAction(this, action);
   }
 
   drawPlotMessage(ctx: CanvasRenderingContext2D, frame: Frame, message: string): void {
