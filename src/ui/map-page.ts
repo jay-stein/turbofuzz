@@ -244,7 +244,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     if (names === "") {
       empty.replaceChildren(
         el("p", {}, [
-          "No latitude and longitude columns found, so the map shows your markers only. To plot rows, the table needs two number columns in degrees: a latitude (-90 to 90) and a longitude (-180 to 180), found by name (lat, latitude, lon, lng, longitude) or by range. A table of named places can still be mapped: choose Choropleth above and load a boundary file.",
+          "No latitude and longitude columns found, so the map shows your markers only. To plot rows, the table needs two number columns in degrees, named for what they are: a latitude (lat, latitude) and a longitude (lon, lng, longitude). Columns are only used when their names say so; a column of prices or ages is never taken for a coordinate. A table of named places can still be mapped: choose Choropleth above and load a boundary file.",
         ]),
       );
     }

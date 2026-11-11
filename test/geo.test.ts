@@ -78,7 +78,7 @@ test("invalid coordinates return null", () => {
   assert.equal(parseLatitude("1 2 3 4"), null, "too many parts");
 });
 
-test("detectGeoPair prefers names, then ranges", () => {
+test("detectGeoPair needs both columns named", () => {
   const named = detectGeoPair([
     num("id", 1, 1000),
     num("pickup_latitude", -37.9, -37.7),
@@ -90,12 +90,14 @@ test("detectGeoPair prefers names, then ranges", () => {
     reason: "pickup_latitude/pickup_longitude read as latitude/longitude",
   });
 
-  const ranged = detectGeoPair([
-    num("x", -122.5, -122.3),
-    num("y", 37.7, 37.9),
-  ]);
-  assert.equal(ranged?.lat, 1);
-  assert.equal(ranged?.lon, 0, "the column beyond ±90 is the longitude");
+  // Values that merely fit the ranges are not enough: only the names count.
+  assert.equal(detectGeoPair([num("x", -122.5, -122.3), num("y", 37.7, 37.9)]), null);
+  assert.equal(
+    detectGeoPair([num("price", 100, 170), num("age", 20, 80), num("rooms", 1, 6)]),
+    null,
+    "a price and an age fit the ranges but are not coordinates",
+  );
+  assert.equal(detectGeoPair([num("lat", 51.4, 51.6), num("price", 100, 170)]), null, "a named latitude does not adopt any column that fits");
 
   const latOnly = detectGeoPair([
     num("lat", 51.4, 51.6),

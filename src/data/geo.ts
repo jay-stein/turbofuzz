@@ -104,34 +104,21 @@ export function matchGeoName(name: string): "lat" | "lon" | null {
   if (LON_NAME.test(name)) return "lon";
   for (const token of name.toLowerCase().split(/[^a-z]+/)) {
     if (token.length < 4 || CONFUSABLE.has(token)) continue;
+    // The nearer word wins, so "lngitude" is a longitude and not a latitude two edits away.
+    let best: "lat" | "lon" | null = null;
+    let bestDistance = Infinity;
     for (const target of ["latitude", "longitude"] as const) {
       const max = token.length >= 8 ? 2 : 1;
       if (Math.abs(token.length - target.length) > max) continue;
-      if (editDistance(token, target) <= max) {
-        return target === "latitude" ? "lat" : "lon";
+      const distance = editDistance(token, target);
+      if (distance <= max && distance < bestDistance) {
+        best = target === "latitude" ? "lat" : "lon";
+        bestDistance = distance;
       }
     }
+    if (best !== null) return best;
   }
   return null;
-}
-
-function numericRange(meta: ColumnMeta): { min: number; max: number } | null {
-  const { min, max } = meta.stats;
-  if (min === null || max === null || !Number.isFinite(min) || !Number.isFinite(max)) {
-    return null;
-  }
-  return { min, max };
-}
-
-/** A numeric column whose values fit latitude/longitude bounds. */
-function fitsLatitude(meta: ColumnMeta): boolean {
-  const range = numericRange(meta);
-  return range !== null && range.min >= -90 && range.max <= 90;
-}
-
-function fitsLongitude(meta: ColumnMeta): boolean {
-  const range = numericRange(meta);
-  return range !== null && range.min >= -180 && range.max <= 180;
 }
 
 export interface GeoPair {
@@ -143,15 +130,10 @@ export interface GeoPair {
   reason: string;
 }
 
-/** Values that sit beyond the latitude range prove a longitude column
- * (Sydney ≥ 90, Los Angeles ≤ −90, global data spans ±180). */
-function beyondLatitudeRange(range: { min: number; max: number }): boolean {
-  return range.min >= 90 || range.max <= -90;
-}
-
 /**
- * Finds a latitude/longitude pair: name matches win, then numeric ranges that
- * fit the bounds. The two columns must be distinct and numeric (integer/number).
+ * Finds a latitude/longitude pair by column NAME only (lat, latitude, lon, lng, longitude, and typos of
+ * them). A number column is never taken for a coordinate just because its values fit: a price or an
+ * age would be. Both columns must be named, distinct and numeric (integer/number).
  */
 export function detectGeoPair(
   columns: readonly ColumnMeta[],
@@ -178,48 +160,5 @@ export function detectGeoPair(
     };
   }
 
-  // Range evidence: a longitude must extend beyond the latitude range (±90)
-  // or span a whole hemisphere to prove it is not another latitude-like column.
-  const lonLike = entries.find((entry) => {
-    const range = numericRange(entry.meta);
-    return range !== null && range.min >= -180 && range.max <= 180 && beyondLatitudeRange(range);
-  });
-  const latLike = entries.find(
-    (entry) => entry.index !== lonLike?.index && fitsLatitude(entry.meta),
-  );
-  if (latLike !== undefined && lonLike !== undefined) {
-    return {
-      lat: latLike.index,
-      lon: lonLike.index,
-      reason: `${latLike.meta.name}/${lonLike.meta.name} values sit in latitude/longitude ranges`,
-    };
-  }
-
-  // Names alone: latitude named, longitude named, already handled; one name
-  // plus a plausible range is enough (e.g. "lat" + unnamed coordinate column).
-  if (namedLat !== undefined) {
-    const partner = entries.find(
-      (entry) => entry.index !== namedLat.index && fitsLongitude(entry.meta),
-    );
-    if (partner !== undefined) {
-      return {
-        lat: namedLat.index,
-        lon: partner.index,
-        reason: `${namedLat.meta.name} + ${partner.meta.name} read as latitude/longitude`,
-      };
-    }
-  }
-  if (namedLon !== undefined) {
-    const partner = entries.find(
-      (entry) => entry.index !== namedLon.index && fitsLatitude(entry.meta),
-    );
-    if (partner !== undefined) {
-      return {
-        lat: partner.index,
-        lon: namedLon.index,
-        reason: `${partner.meta.name} + ${namedLon.meta.name} read as latitude/longitude`,
-      };
-    }
-  }
   return null;
 }
