@@ -1,3 +1,4 @@
+import { errorBarExtract, errorBarBlock, syncResearchControls, syncErrorBarControls, refreshErrorBars, cancelErrorBars, showErrorBarProgress, hideErrorBarProgress, errorBarAt, drawWhisker, appendErrorBarNote } from "./chart-error-bars.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import { ChartDataDrawer } from "./chart-data-drawer.js";
 import { cssVar, focusIcon, missingOrTokens, movieIcon, pngIcon, readGroupOpen, writeGroupOpen, type SettingsGroup } from "./chart-card-parts.js";
@@ -734,7 +735,7 @@ interface BubbleLayer {
   color: string;
 }
 
-interface Frame {
+export interface Frame {
   ui: number;
   left: number;
   right: number;
@@ -808,9 +809,9 @@ export function cropDensityGrid(
 const KDE_SIGMA_BINS = 1.4;
 
 /** Single-series bars and lines of a statistic. */
-const ERROR_BAR_KINDS: ReadonlySet<ChartCardKind> = new Set<ChartCardKind>(["line", "bar", "barplot"]);
-const ERROR_BARS_ASK_CERTAINTY: ReadonlySet<IntervalKind> = new Set<IntervalKind>(["ci", "bootstrap", "se"]);
-const TIME_SERIES_WARNING = "Warning: periods in a time series are related, not independent, so these intervals are likely too narrow";
+export const ERROR_BAR_KINDS: ReadonlySet<ChartCardKind> = new Set<ChartCardKind>(["line", "bar", "barplot"]);
+export const ERROR_BARS_ASK_CERTAINTY: ReadonlySet<IntervalKind> = new Set<IntervalKind>(["ci", "bootstrap", "se"]);
+export const TIME_SERIES_WARNING = "Warning: periods in a time series are related, not independent, so these intervals are likely too narrow";
 
 /** Map joins these only in one dot per place: see animatesPlaces. */
 const ANIMATED_KINDS: ReadonlySet<ChartCardKind> = new Set<ChartCardKind>(["bar", "bubble", "histogram", "treemap", "density", "map"]);
@@ -824,13 +825,13 @@ export class ChartCard {
   private valueGeneration = 0;
   /** Same for the bound view or pivot request, which sibling refreshes must not discard. */
   private viewGeneration = 0;
-  private config = chartConfigWithDefaults();
+  config = chartConfigWithDefaults();
   private columns: ColumnMeta[] = [];
   private facets: Record<number, number[]> = {};
   private histograms: Record<number, number[]> = {};
   private rowCount = 0;
   private generation = 0;
-  private disposed = false;
+  disposed = false;
 
   private pickerSignature = "";
   private binResult: ChartBins | null = null;
@@ -907,7 +908,7 @@ export class ChartCard {
   private readonly animateButton: HTMLButtonElement;
   private readonly focusButton: HTMLButtonElement;
   readonly pngButton: HTMLButtonElement;
-  private readonly statsButton: HTMLButtonElement;
+  readonly statsButton: HTMLButtonElement;
   private kindButton: HTMLButtonElement | null = null;
   private undoButton: HTMLButtonElement | null = null;
   /** Earlier settings of this chart, newest last, as JSON. */
@@ -937,16 +938,16 @@ export class ChartCard {
   private readonly dotValuesWrap: HTMLElement;
   private readonly dotScaleSelect: HTMLSelectElement;
   private readonly dotScaleWrap: HTMLElement;
-  private readonly errorBarRow: HTMLElement;
-  private readonly errorBarInput: HTMLInputElement;
-  private readonly errorBarSelect: HTMLSelectElement;
-  private readonly errorBarHint: HTMLElement;
-  private errorBarResult: ErrorBarsMessage | null = null;
-  private errorBarIndex = new Map<string, number>();
-  private errorBarJob: { cancel: () => void } | null = null;
-  private errorBarRun = 0;
-  private errorBarProgress: HTMLElement | null = null;
-  private errorBarProgressTimer: number | null = null;
+  readonly errorBarRow: HTMLElement;
+  readonly errorBarInput: HTMLInputElement;
+  readonly errorBarSelect: HTMLSelectElement;
+  readonly errorBarHint: HTMLElement;
+  errorBarResult: ErrorBarsMessage | null = null;
+  errorBarIndex = new Map<string, number>();
+  errorBarJob: { cancel: () => void } | null = null;
+  errorBarRun = 0;
+  errorBarProgress: HTMLElement | null = null;
+  errorBarProgressTimer: number | null = null;
   private readonly mapColorAggSelect: HTMLSelectElement;
   private readonly mapColorAggWrap: HTMLElement;
   private readonly mapColorScaleSelect: HTMLSelectElement;
@@ -1127,7 +1128,7 @@ export class ChartCard {
   private readonly yUnitInput: HTMLInputElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly mapControls: HTMLElement;
-  private readonly canvasWrap: HTMLElement;
+  readonly canvasWrap: HTMLElement;
   private readonly scopeEl: HTMLElement;
   private readonly summaryEl: HTMLElement;
   /** One short note under the heading (see lint); dismissed notes stay dismissed. */
@@ -1136,7 +1137,7 @@ export class ChartCard {
   private readonly dataIssueEl: HTMLElement;
   private readonly deepDiveEl: HTMLElement;
   private issueSignature = "";
-  private readonly noteEl: HTMLElement;
+  readonly noteEl: HTMLElement;
   private totalRowCount = 0;
   private readonly legendEl: HTMLElement;
   private readonly tooltipEl: HTMLElement;
@@ -1170,7 +1171,7 @@ export class ChartCard {
 
   constructor(
     root: HTMLElement,
-    private readonly options: ChartCardOptions,
+    readonly options: ChartCardOptions,
     preset?: Partial<ChartCardConfig>,
   ) {
     this.root = root;
@@ -3759,7 +3760,7 @@ export class ChartCard {
   }
 
   /** Implicit view definition: the measure aggregated over time, categories or bins. */
-  private valueViewDef(): ViewDef | null {
+  valueViewDef(): ViewDef | null {
     if (!this.usesValueAggregate() || this.options.requestAggregate === undefined) return null;
     const column = this.config.valueColumn ?? -1;
     if (column < 0) return null;
@@ -4497,45 +4498,8 @@ export class ChartCard {
     return done();
   }
 
-  /** The bars' numbers and how they were made, so a chart's uncertainty can leave with it. */
   private errorBarExtract(aggregate: AggregateMessage, facts: [string, string][], table: (name: string, rows: string[][]) => void): void {
-    if (!this.errorBarsOn()) return;
-    const message = this.errorBarResult;
-    if (message === null) {
-      facts.push(["Error bars", "Still being worked out; open this again when the chart has them"]);
-      return;
-    }
-    const kind = this.errorBarKind();
-    const method: Record<IntervalKind, string> = {
-      ci: (this.config.valueAgg ?? "mean") === "median"
-        ? "95% confidence interval for the median: exact binomial ranks, approximated by a normal above 1,000 rows; none below 6 rows"
-        : "95% confidence interval for the average: Student's t, the average ± t × standard error",
-      bootstrap: `95% percentile bootstrap: ${message.resamples.toLocaleString()} resamples with replacement of each group's rows, seed ${message.seed}. The same data gives the same bars`,
-      se: "The average ± 1 standard error (standard deviation ÷ √rows): about 68% coverage if the rows are roughly normal",
-      sd: "The average ± 1 sample standard deviation: how varied the rows are, not how well the average is known",
-      pi: "The 2.5th to 97.5th percentile of the rows: how varied they are, not how well the statistic is known",
-    };
-    facts.push(["Error bars", method[kind]]);
-    facts.push(["Error bars took", `${(message.ms / 1000).toFixed(2)} seconds`]);
-    if (aggregate.dimensionIsTime[0] === true && ERROR_BARS_ASK_CERTAINTY.has(kind)) facts.push(["Warning", TIME_SERIES_WARNING]);
-    const names = aggregate.dimensionNames;
-    const rows: string[][] = [[...names, "statistic", "low", "high", "minus", "plus", "rows", ...(message.bootSe === null ? [] : ["bootstrap_se"])]];
-    message.keys.forEach((_, index) => {
-      const center = message.center[index]!;
-      const low = message.low[index]!;
-      const high = message.high[index]!;
-      rows.push([
-        ...(message.labels[index] ?? []),
-        num(center),
-        num(low),
-        num(high),
-        num(center - low),
-        num(high - center),
-        String(message.n[index]!),
-        ...(message.bootSe === null ? [] : [num(message.bootSe[index])]),
-      ]);
-    });
-    table("Error bars", rows);
+    return errorBarExtract(this, aggregate, facts, table);
   }
 
   /** The bins a histogram draws, with their edges: the automatic ones (on a log-like scale when skewed) or the chosen. */
@@ -7231,163 +7195,50 @@ export class ChartCard {
     this.render();
   }
 
-  /** Why this chart cannot have error bars; null when it can. */
-  private errorBarBlock(): string | null {
-    if (this.config.source !== "") return "Set Source to Table: a Pivot View's rows are already rolled up";
-    if ((this.config.valueColumn ?? -1) < 0) return "Choose a Value column and a statistic such as Average";
-    const block = statisticBlock(this.config.valueAgg ?? "mean");
-    if (block !== null) return block;
-    if ((this.config.valueCalc ?? "") !== "") return "Turn off the calculation first: bars describe the plain statistic";
-    if ((this.config.groupColumn ?? -1) >= 0) return "Not available with Group by yet: Extract stats and the single-series chart have them";
-    return null;
+  errorBarBlock(): string | null {
+    return errorBarBlock(this);
   }
 
   /** The kind of bar in use: the one chosen when it suits the statistic, else the natural one. */
-  private errorBarKind(): IntervalKind {
+  errorBarKind(): IntervalKind {
     const agg = this.config.valueAgg ?? "mean";
     const chosen = this.config.errorBarKind;
     return chosen !== undefined && intervalBlock(chosen, agg) === null ? chosen : defaultInterval(agg);
   }
 
-  private errorBarsOn(): boolean {
+  errorBarsOn(): boolean {
     return this.config.errorBars === true && ERROR_BAR_KINDS.has(this.config.kind) && this.errorBarBlock() === null;
   }
 
-  /** Error bars and Extract stats are for research: General mode leaves them off the panel, unless a chart already has bars. */
   private syncResearchControls(): void {
-    const research = this.options.research?.() !== false;
-    this.statsButton.classList.toggle("hidden", !research);
-    this.syncErrorBarControls();
+    return syncResearchControls(this);
   }
 
-  private syncErrorBarControls(): void {
-    const relevant = ERROR_BAR_KINDS.has(this.config.kind) && (this.options.research?.() !== false || this.config.errorBars === true);
-    this.errorBarRow.classList.toggle("hidden", !relevant);
-    if (!relevant) return;
-    const block = this.errorBarBlock();
-    const agg = this.config.valueAgg ?? "mean";
-    this.errorBarInput.disabled = block !== null;
-    this.errorBarInput.checked = this.config.errorBars === true && block === null;
-    this.errorBarInput.parentElement!.title = block ?? "Show how uncertain or how varied each value is";
-    const on = this.errorBarInput.checked;
-    this.errorBarSelect.classList.toggle("hidden", !on);
-    for (const option of this.errorBarSelect.options) {
-      const why = intervalBlock(option.value as IntervalKind, agg);
-      option.disabled = why !== null;
-      const entry = INTERVAL_KINDS.find((item) => item.id === option.value);
-      option.title = why ?? entry?.asks ?? "";
-    }
-    const kind = this.errorBarKind();
-    this.errorBarSelect.value = kind;
-    this.errorBarHint.textContent = block ?? (on ? (INTERVAL_KINDS.find((item) => item.id === kind)?.asks ?? "") : "");
-    this.errorBarHint.classList.toggle("hidden", this.errorBarHint.textContent === "");
+  syncErrorBarControls(): void {
+    return syncErrorBarControls(this);
   }
 
-  /** Fetches the bars; only one job runs at a time, and a new one stops the last. */
   private refreshErrorBars(): void {
-    this.errorBarRun++;
-    this.errorBarJob?.cancel();
-    this.errorBarJob = null;
-    this.hideErrorBarProgress();
-    this.errorBarResult = null;
-    this.errorBarIndex = new Map();
-    const request = this.options.requestErrorBars;
-    const view = this.valueViewDef();
-    if (!this.errorBarsOn() || request === undefined || view === null) return;
-    const run = this.errorBarRun;
-    const kind = this.errorBarKind();
-    const job = request({ view, kind }, (progress) => {
-      if (run === this.errorBarRun) this.showErrorBarProgress(progress);
-    });
-    this.errorBarJob = job;
-    // A quick job should not flash a dialog at anyone.
-    if (kind === "bootstrap") {
-      this.errorBarProgressTimer = window.setTimeout(() => {
-        if (run === this.errorBarRun && this.errorBarJob !== null) this.showErrorBarProgress(null);
-      }, 200);
-    }
-    void job.done
-      .then((message) => {
-        if (run !== this.errorBarRun || this.disposed) return;
-        this.errorBarJob = null;
-        this.hideErrorBarProgress();
-        if (message.cancelled) return;
-        this.errorBarResult = message;
-        this.errorBarIndex = new Map(message.keys.map((key, index) => [key, index]));
-        this.render();
-      })
-      .catch(() => {
-        if (run !== this.errorBarRun) return;
-        this.errorBarJob = null;
-        this.hideErrorBarProgress();
-      });
+    return refreshErrorBars(this);
   }
 
-  private cancelErrorBars(): void {
-    this.errorBarRun++;
-    this.errorBarJob?.cancel();
-    this.errorBarJob = null;
-    this.hideErrorBarProgress();
-    this.config.errorBars = false;
-    this.syncErrorBarControls();
-    this.render();
-    this.noteEl.append(" · Error bars turned off: resampling was cancelled");
+  cancelErrorBars(): void {
+    return cancelErrorBars(this);
   }
 
-  /** The dialog over the chart while resampling: a donut, how far, how long, and a way out. */
-  private showErrorBarProgress(progress: ErrorBarsProgressMessage | null): void {
-    if (this.errorBarProgressTimer !== null && progress !== null) {
-      window.clearTimeout(this.errorBarProgressTimer);
-      this.errorBarProgressTimer = null;
-    }
-    let box = this.errorBarProgress;
-    if (box === null) {
-      const cancel = el("button", { class: "ghost small", type: "button" }, ["Cancel"]) as HTMLButtonElement;
-      cancel.addEventListener("click", () => this.cancelErrorBars());
-      box = el("div", { class: "chart-progress", role: "status", "aria-live": "polite" }, [
-        el("div", { class: "chart-progress-donut", "aria-hidden": "true" }, [el("span", { class: "chart-progress-percent" }, ["0%"])]),
-        el("div", { class: "chart-progress-text" }, [
-          el("strong", {}, ["Resampling for error bars"]),
-          el("span", { class: "chart-progress-detail" }, ["Starting…"]),
-          el("span", { class: "chart-progress-time" }, [""]),
-        ]),
-        cancel,
-      ]);
-      box.dataset.started = String(performance.now());
-      this.canvasWrap.append(box);
-      this.errorBarProgress = box;
-    }
-    if (progress === null) return;
-    const share = progress.total === 0 ? 0 : progress.done / progress.total;
-    (box.querySelector(".chart-progress-percent") as HTMLElement).textContent = `${Math.round(share * 100)}%`;
-    (box.querySelector(".chart-progress-donut") as HTMLElement).style.setProperty("--done", `${share * 360}deg`);
-    (box.querySelector(".chart-progress-detail") as HTMLElement).textContent =
-      `Resample ${progress.resample.toLocaleString()} of ${progress.resamples.toLocaleString()}${progress.groups > 1 ? `, group ${progress.group.toLocaleString()} of ${progress.groups.toLocaleString()}` : ""}`;
-    const elapsed = (performance.now() - Number(box.dataset.started)) / 1000;
-    const left = share > 0.02 ? (elapsed / share) * (1 - share) : Number.NaN;
-    (box.querySelector(".chart-progress-time") as HTMLElement).textContent = Number.isFinite(left) ? `About ${left < 1 ? "a second" : `${Math.ceil(left)} seconds`} left` : "";
+  showErrorBarProgress(progress: ErrorBarsProgressMessage | null): void {
+    return showErrorBarProgress(this, progress);
   }
 
-  private hideErrorBarProgress(): void {
-    if (this.errorBarProgressTimer !== null) {
-      window.clearTimeout(this.errorBarProgressTimer);
-      this.errorBarProgressTimer = null;
-    }
-    this.errorBarProgress?.remove();
-    this.errorBarProgress = null;
+  hideErrorBarProgress(): void {
+    return hideErrorBarProgress(this);
   }
 
-  /** A mark's bars, by its labels rather than its place, since the chart can sort its groups. */
   private errorBarAt(result: AggregateMessage, index: number): { low: number; high: number; n: number } | null {
-    if (this.errorBarResult === null) return null;
-    const at = this.errorBarIndex.get(errorBarKey(result.dimensions.map((values) => values[index] ?? "")));
-    if (at === undefined) return null;
-    const low = this.errorBarResult.low[at]!;
-    const high = this.errorBarResult.high[at]!;
-    return Number.isFinite(low) && Number.isFinite(high) ? { low, high, n: this.errorBarResult.n[at]! } : null;
+    return errorBarAt(this, result, index);
   }
 
-  private errorBarName(): string {
+  errorBarName(): string {
     const kind = this.errorBarKind();
     return kind === "ci" ? "95% CI" : kind === "bootstrap" ? "95% CI (bootstrap)" : kind === "se" ? "± 1 standard error" : kind === "sd" ? "± 1 standard deviation" : "Middle 95% of rows";
   }
@@ -7399,35 +7250,11 @@ export class ChartCard {
   }
 
   private drawWhisker(ctx: CanvasRenderingContext2D, frame: Frame, x0: number, y0: number, x1: number, y1: number): void {
-    const cap = 3.5 * frame.ui;
-    const across = x0 === x1;
-    ctx.strokeStyle = frame.text;
-    ctx.globalAlpha = 0.85;
-    ctx.lineWidth = Math.max(1, 1.3 * frame.ui);
-    ctx.beginPath();
-    ctx.moveTo(x0, y0);
-    ctx.lineTo(x1, y1);
-    for (const [x, y] of [[x0, y0], [x1, y1]] as const) {
-      ctx.moveTo(across ? x - cap : x, across ? y : y - cap);
-      ctx.lineTo(across ? x + cap : x, across ? y : y + cap);
-    }
-    ctx.stroke();
-    ctx.globalAlpha = 1;
+    return drawWhisker(this, ctx, frame, x0, y0, x1, y1);
   }
 
-  /** What the bars are, in the note under the chart, with the warning a time series needs. */
   private appendErrorBarNote(result: AggregateMessage | null): void {
-    if (!this.errorBarsOn()) return;
-    if (this.errorBarResult === null) {
-      if (this.errorBarJob !== null) this.noteEl.append(" · Working out the error bars…");
-      return;
-    }
-    const message = this.errorBarResult;
-    const missing = message.low.filter((value) => !Number.isFinite(value)).length;
-    const parts = [`Error bars: ${this.errorBarName()}`];
-    if (missing > 0) parts.push(`${missing.toLocaleString()} ${missing === 1 ? "group has" : "groups have"} too few rows for a bar`);
-    if (result?.dimensionIsTime[0] === true && ERROR_BARS_ASK_CERTAINTY.has(this.errorBarKind())) parts.push(TIME_SERIES_WARNING);
-    this.noteEl.append(` · ${parts.join(" · ")}`);
+    return appendErrorBarNote(this, result);
   }
 
   /** A map animates its places: each dot stays put while its size and colour change. */
@@ -8007,7 +7834,7 @@ export class ChartCard {
     }
   }
 
-  private render(): void {
+  render(): void {
     if (this.options.sectionedSettings === true) this.dataDrawer.schedule();
     this.options.onTitleChange?.(this);
     this.syncScope();
