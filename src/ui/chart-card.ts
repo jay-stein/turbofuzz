@@ -1,3 +1,4 @@
+import { dataDrawerRows, undo, setColumns, setSources, refreshView, aggregateResult, valueViewDef, refreshValue, syncScope, syncNote, lintNote, syncSummaryText, issueColumns, syncDataIssues, fieldsInUse, setKind, dropSettingsTheNewKindCannotUse, refreshForConfig, setPrimaryColumn, applyColumnDefaults, defaultStepFor, defaultTitle, seriesTarget, resetBinRange, commitBinOptions, refreshBins, xZoomBase, chartScope, canvasLabel, boundFormatter, canDraw } from "./chart-card-data.js";
 import { groupSettings, dock, fieldSlots, toggleSidebar, syncSettingsOpen, bindSettingsDismiss, renderSourceOptions, syncSourceControls, syncFieldVisibility, toggleExtraValue, syncExtraValues, setViewShape, pivotRailItems, syncViewShapeOptions, syncPivotOptions, allowsPrimary, syncValueAggOptions, syncOptions, syncChartFilterControls, fillColumnSelect, renderControls, fillPaletteOptions, syncPalette, applyPalette , forgetSettingsDisclosure } from "./chart-card-settings.js";
 import { importChartSpecFile, exportPng, openStats, chartExtract, drawnBins, histogramExtract, exportCsv, chartCsvRows, gridCsvRows, syncDeepDive, openCardMenu, toggleFocus, closeFocus, openExportMenu, downloadChartSpec, downloadChartCode, downloadBlob } from "./chart-card-export.js";
 import { openKindPicker, selectRegion, drawSelection, queuePointer, showTooltipAtPointer, emitHighlight, setLinkedHighlight, cancelSliceFetch, sliceRegions, sliceEntries, scheduleSliceFetch, scheduleSlicePoints, drawSlicePoints, drawLinkedOverlay, drawSliceShare, handleCanvasClick, finishBrush, timeSlotBrush, drawBrushOverlay, onWheel, withoutExcludedBins, syncExclusions, handleCanvasContextMenu, dataPointAt, openExclusionMenu, excludeFromTable, applyHitAction } from "./chart-interaction.js";
@@ -828,9 +829,9 @@ export class ChartCard {
   readonly root: HTMLElement;
 
   /** Staleness token for the value-aggregate request only. */
-  private valueGeneration = 0;
+  valueGeneration = 0;
   /** Same for the bound view or pivot request, which sibling refreshes must not discard. */
-  private viewGeneration = 0;
+  viewGeneration = 0;
   config = chartConfigWithDefaults();
   columns: ColumnMeta[] = [];
   facets: Record<number, number[]> = {};
@@ -843,7 +844,7 @@ export class ChartCard {
   binResult: ChartBins | null = null;
   lineBinResult: ChartBins | null = null;
   lineBinRange: { min: number; max: number } | null = null;
-  private lineBinSignature = "";
+  lineBinSignature = "";
   binMedian: number | null = null;
   seriesResult: SeriesPoints | SeriesGrid | null = null;
   /** Decoded 110m basemap for map cards (shared module cache, first paint). */
@@ -918,9 +919,9 @@ export class ChartCard {
   kindButton: HTMLButtonElement | null = null;
   undoButton: HTMLButtonElement | null = null;
   /** Earlier settings of this chart, newest last, as JSON. */
-  private undoStack: string[] = [];
+  undoStack: string[] = [];
   /** The settings as they were when the person last reached for a control. */
-  private undoBefore: string | null = null;
+  undoBefore: string | null = null;
   /** The bar, bin or cell clicked: highlighted, with Filter to this offered beside it. */
   selectedRegion: HitRegion | null = null;
   selectionBar: HTMLElement | null = null;
@@ -1042,7 +1043,7 @@ export class ChartCard {
   ) as HTMLButtonElement;
   readonly extraValuesWrap = el("div", { class: "chart-extra-values hidden", role: "group", "aria-label": "More values" });
   extraValuesKey = "";
-  private viewResult: AggregateMessage | null = null;
+  viewResult: AggregateMessage | null = null;
   /** A view-bound card cannot change type, so its real type is shown as text. */
   readonly kindStatic = el("span", { class: "chart-kind-static hidden" });
   pivotResult: PivotMessage | null = null;
@@ -1081,7 +1082,7 @@ export class ChartCard {
   readonly filterRespectInput: HTMLInputElement;
   readonly chartFilterRow: HTMLElement;
   /** Aggregate result for the card's own value-over-time line. */
-  private valueResult: AggregateMessage | null = null;
+  valueResult: AggregateMessage | null = null;
   readonly xSelect: HTMLSelectElement;
   readonly ySelect: HTMLSelectElement;
   readonly colorSelect: HTMLSelectElement;
@@ -1128,7 +1129,7 @@ export class ChartCard {
   readonly multiInput: HTMLInputElement;
   private readonly swatches: HTMLButtonElement[] = [];
   readonly hexInput: HTMLInputElement;
-  private readonly titleInput: HTMLInputElement;
+  readonly titleInput: HTMLInputElement;
   private readonly xTitleInput: HTMLInputElement;
   private readonly yTitleInput: HTMLInputElement;
   private readonly yUnitInput: HTMLInputElement;
@@ -1138,13 +1139,13 @@ export class ChartCard {
   readonly scopeEl: HTMLElement;
   readonly summaryEl: HTMLElement;
   /** One short note under the heading (see lint); dismissed notes stay dismissed. */
-  private readonly lintEl = el("div", { class: "chart-lint hidden", role: "note" });
-  private readonly dismissedNotes = new Set<string>();
-  private readonly dataIssueEl: HTMLElement;
+  readonly lintEl = el("div", { class: "chart-lint hidden", role: "note" });
+  readonly dismissedNotes = new Set<string>();
+  readonly dataIssueEl: HTMLElement;
   readonly deepDiveEl: HTMLElement;
-  private issueSignature = "";
+  issueSignature = "";
   readonly noteEl: HTMLElement;
-  private totalRowCount = 0;
+  totalRowCount = 0;
   readonly legendEl: HTMLElement;
   readonly tooltipEl: HTMLElement;
   readonly settingsBody: HTMLElement;
@@ -2732,26 +2733,8 @@ export class ChartCard {
 
   readonly dataDrawer = new ChartDataDrawer(() => this.dataDrawerRows());
 
-  /** The chart's numbers as a table: a chart split into series reads across, one column per series. */
   private dataDrawerRows(): string[][] {
-    const aggregate = this.usesAggregate() && this.config.kind !== "pivotHeatmap" ? this.aggregateResult() : null;
-    if (aggregate === null || aggregate.dimensions.length !== 2 || aggregate.groupCount === 0) return this.chartCsvRows();
-    const [axis, series] = aggregate.dimensions as [string[], string[]];
-    const values = aggregate.measures[0] ?? new Float64Array(0);
-    const columns = [...new Set(series)];
-    const columnAt = new Map(columns.map((label, index) => [label, index]));
-    const rowAt = new Map<string, string[]>();
-    for (let i = 0; i < aggregate.groupCount; i++) {
-      const label = axis[i] ?? "";
-      let row = rowAt.get(label);
-      if (row === undefined) {
-        row = [label, ...columns.map(() => "")];
-        rowAt.set(label, row);
-      }
-      const value = values[i];
-      if (value !== undefined && Number.isFinite(value)) row[1 + (columnAt.get(series[i] ?? "") ?? 0)] = String(value);
-    }
-    return [[aggregate.dimensionNames[0] ?? "", ...columns], ...rowAt.values()];
+    return dataDrawerRows(this);
   }
 
   /** The Refine and Format sections of this card, to bring in step with the other charts' when its tab opens. */
@@ -2777,7 +2760,7 @@ export class ChartCard {
     this.syncUndo();
   }
 
-  private syncUndo(): void {
+  syncUndo(): void {
     if (this.undoButton !== null) this.undoButton.disabled = this.undoStack.length === 0;
   }
 
@@ -2785,24 +2768,8 @@ export class ChartCard {
     return this.undoStack.length > 0;
   }
 
-  /** Puts the chart back as it was before its last change. */
   undo(): void {
-    const previous = this.undoStack.pop();
-    if (previous === undefined) return;
-    this.config = chartConfigWithDefaults(JSON.parse(previous) as Partial<ChartCardConfig>);
-    this.undoBefore = previous;
-    this.hiddenGroups.clear();
-    this.plotView = null;
-    this.mapView = null;
-    this.chartXZoom = null;
-    this.barWindow = null;
-    this.clearSelection();
-    this.pickerSignature = "";
-    this.titleInput.value = this.config.title;
-    this.setColumns(this.columns);
-    this.refreshForConfig();
-    this.syncUndo();
-    this.options.onTitleChange?.(this);
+    return undo(this);
   }
 
   syncKindButton(): void {
@@ -2941,34 +2908,7 @@ export class ChartCard {
   }
 
   setColumns(columns: ColumnMeta[]): void {
-    this.columns = columns;
-    const kept = sanitizeExclusions(this.config.excludes, columns.length);
-    this.config.excludes = kept.length > 0 ? kept : undefined;
-    this.plotView = null;
-    this.mapView = null;
-    this.chartXZoom = null;
-    this.barWindow = null;
-    this.generation++;
-    this.pickerSignature = "";
-    this.syncOptions();
-    this.syncPlaceholder();
-    this.syncSourceControls();
-    this.regions?.syncColumns();
-    this.regions?.refresh();
-    this.renderControls();
-    this.refreshBins();
-    this.refreshSeries();
-    this.refreshTreemap();
-    this.refreshText();
-    this.refreshBox();
-    this.refreshCrosstab();
-    this.refreshBubble();
-    this.refreshMapGrid();
-    this.refreshAnimation();
-    this.refreshCorrelation();
-    this.refreshGroupedBins();
-    this.refreshValue();
-    this.render();
+    return setColumns(this, columns);
   }
 
   /**
@@ -2980,22 +2920,12 @@ export class ChartCard {
     this.hiddenGroups.clear();
     this.setColumns(this.columns);
   }
-  /** The sources a card can bind to (the table plus each saved view). */
+
   setSources(sources: ChartSource[]): void {
-    this.sources = sources;
-    this.renderSourceOptions();
-    this.syncSourceControls();
-    this.syncScope();
-    if (
-      this.config.source !== "" &&
-      sources.some((source) => source.id === this.config.source)
-    ) {
-      this.generation++;
-      this.refreshView();
-    }
+    return setSources(this, sources);
   }
 
-  private renderSourceOptions(): void {
+  renderSourceOptions(): void {
     return renderSourceOptions(this);
   }
 
@@ -3007,54 +2937,8 @@ export class ChartCard {
     return syncFieldVisibility(this);
   }
 
-  /** Fetches the bound aggregate or pivot result (generation-guarded). */
   refreshView(): void {
-    if (this.config.source === "") {
-      this.viewResult = null;
-      this.pivotResult = null;
-      this.render();
-      return;
-    }
-    const source = this.config.source;
-    const generation = ++this.viewGeneration;
-    if (this.config.kind === "pivotHeatmap") {
-      const pivotSource =
-        this.sources.find((entry) => entry.id === source)?.kind === "pivot";
-      if (!pivotSource || this.options.requestViewPivot === undefined) {
-        this.pivotResult = null;
-        this.render();
-        return;
-      }
-      void this.options
-        .requestViewPivot(source)
-        .then((message) => {
-          if (generation !== this.viewGeneration || this.disposed || this.config.source !== source) return;
-          this.pivotResult = message;
-          this.syncPivotOptions();
-          this.render();
-        })
-        .catch(() => {
-          this.pivotResult = null;
-          this.render();
-        });
-      return;
-    }
-    if (this.options.requestViewAggregate === undefined) {
-      this.viewResult = null;
-      this.render();
-      return;
-    }
-    void this.options
-      .requestViewAggregate(source, this.viewShape() ?? undefined)
-      .then((message) => {
-        if (generation !== this.viewGeneration || this.disposed || this.config.source !== source) return;
-        this.viewResult = message;
-        this.syncSummary();
-        this.render();
-      })
-      .catch(() => {
-        // Keep the last result as the fallback.
-      });
+    return refreshView(this);
   }
 
   /** Whether this chart can draw more than one value: a line or bars of the table, not already split by a field. */
@@ -3129,7 +3013,7 @@ export class ChartCard {
     return syncViewShapeOptions(this);
   }
 
-  private syncPivotOptions(): void {
+  syncPivotOptions(): void {
     return syncPivotOptions(this);
   }
 
@@ -3153,58 +3037,11 @@ export class ChartCard {
   }
 
   aggregateResult(): AggregateMessage | null {
-    const result = this.config.source !== "" ? this.viewResult : this.valueResult;
-    if (result === null) return null;
-    const order = this.config.chartSort ?? "none";
-    if (order === "none" || result.groupCount < 2) return result;
-    const indexes = Array.from({ length: result.groupCount }, (_, index) => index);
-    const dimension = result.dimensions[0] ?? [];
-    const times = result.dimensionTimes[0];
-    const measure = result.measures[0];
-    const compare = (a: number, b: number): number => {
-      let delta = 0;
-      if (order === "valueDesc" || order === "valueAsc") {
-        const av = measure?.[a] ?? Number.NaN;
-        const bv = measure?.[b] ?? Number.NaN;
-        const af = Number.isFinite(av);
-        const bf = Number.isFinite(bv);
-        delta = !af && !bf ? 0 : !af ? 1 : !bf ? -1 : order === "valueDesc" ? bv - av : av - bv;
-      } else if (order === "timeAsc" || order === "timeDesc") {
-        const at = times?.[a] ?? Number.NaN;
-        const bt = times?.[b] ?? Number.NaN;
-        const af = Number.isFinite(at);
-        const bf = Number.isFinite(bt);
-        delta = !af && !bf ? 0 : !af ? 1 : !bf ? -1 : order === "timeAsc" ? at - bt : bt - at;
-      } else {
-        delta = String(dimension[a] ?? "").localeCompare(String(dimension[b] ?? ""), undefined, {
-          numeric: true,
-        });
-        if (order === "labelDesc") delta = -delta;
-      }
-      return delta === 0 ? a - b : delta;
-    };
-    indexes.sort(compare);
-    return {
-      ...result,
-      labels: indexes.map((index) => result.labels[index] ?? ""),
-      dimensions: result.dimensions.map((values) =>
-        indexes.map((index) => values[index] ?? ""),
-      ),
-      dimensionTimes: result.dimensionTimes.map((values) =>
-        Float64Array.from(indexes, (index) => values[index] ?? Number.NaN),
-      ),
-      measures: result.measures.map((values) =>
-        Float64Array.from(indexes, (index) => values[index] ?? Number.NaN),
-      ),
-      partials:
-        result.partials === null || result.partials === undefined
-          ? result.partials
-          : indexes.map((index) => result.partials?.[index] === true),
-    };
+    return aggregateResult(this);
   }
 
   /** The time dimension with the card's calendar options (week start, financial year). */
-  private timeBy(grain: TimeGrain): { time: TimeGrain; every?: number; weekStart?: 0 | 1; fiscalStartMonth?: number } {
+  timeBy(grain: TimeGrain): { time: TimeGrain; every?: number; weekStart?: 0 | 1; fiscalStartMonth?: number } {
     const every = this.everyFor(grain);
     return {
       time: grain,
@@ -3248,146 +3085,12 @@ export class ChartCard {
     return describeStep(grain, this.everyFor(grain), plural);
   }
 
-  /** Implicit view definition: the measure aggregated over time, categories or bins. */
   valueViewDef(): ViewDef | null {
-    if (!this.usesValueAggregate() || this.options.requestAggregate === undefined) return null;
-    const column = this.config.valueColumn ?? -1;
-    if (column < 0) return null;
-    const datedColumn = this.isDateLike(this.meta(this.config.column));
-    // Lines and small multiples run over time; a slopegraph or waterfall does
-    // when its column is a date, and over category values otherwise.
-    const line =
-      this.config.kind === "line" ||
-      this.config.kind === "smallmultiples" ||
-      ((this.config.kind === "slopegraph" || this.config.kind === "waterfall") && datedColumn);
-    const kpi = this.config.kind === "kpi";
-    const histogram = this.config.kind === "histogram";
-    if ((this.config.kind === "line" || this.config.kind === "smallmultiples") && !datedColumn) return null;
-    // A KPI with a date column reads the series (latest bucket + comparison);
-    // without one it is the grand total over every filtered row.
-    const overTime = kpi && this.isDateLike(this.meta(this.config.column));
-    if (!line && !kpi && this.config.column < 0) return null;
-    const grain =
-      this.config.valueGrain === undefined || this.config.valueGrain === "auto"
-        ? this.config.kind === "slopegraph"
-          ? this.slopeGrainFor(this.config.column)
-          : this.defaultGrainFor(this.config.column)
-        : this.config.valueGrain;
-    // Split-by: line/bar cards with a Group draw one series per group value
-    // (dimension 2); the renderer pivots the returned groups into series.
-    const groupMetaForSplit = this.meta(this.config.groupColumn);
-    const split =
-      (line || SPLIT_KINDS.includes(this.config.kind)) &&
-      this.config.groupColumn >= 0 &&
-      groupMetaForSplit !== undefined &&
-      isGroupable(groupMetaForSplit);
-    const binCount = Math.max(
-      1,
-      Math.min(256, Math.floor(this.config.binOptions?.binCount ?? DEFAULT_BIN_COUNT) || 32),
-    );
-    const calc = this.config.valueCalc;
-    const post =
-      calc === undefined
-        ? undefined
-        : calc === "rolling7"
-          ? ([{ op: "rolling", window: 7 }] as const)
-          : ([{ op: calc }] as const);
-    const valueAgg = this.config.valueAgg ?? "mean";
-    const fillPolicy = this.fillPolicy();
-    const measure: MeasureSpec =
-      valueAgg === "true" || valueAgg === "false" || valueAgg === "missing"
-        ? {
-            column: null,
-            agg: "count",
-            where:
-              valueAgg === "missing"
-                ? { column, isNull: true }
-                : {
-                    column,
-                    values:
-                      valueAgg === "true"
-                        ? ["true", "yes", "y", "t", "1"]
-                        : ["false", "no", "n", "f", "0"],
-                  },
-          }
-        : valueAgg === "truePct"
-          ? {
-              column: null,
-              agg: "count",
-              where: { column, values: ["true", "yes", "y", "t", "1"] },
-              post: [{ op: "pctRows" }],
-            }
-          : {
-              column,
-              agg: valueAgg as Aggregate,
-              ...(post === undefined ? {} : { post: [...post] }),
-            };    return {
-      id: "card-value",
-      name: this.config.title.trim() === "" ? this.defaultTitle() : this.config.title.trim(),
-      dimensions:
-        line || overTime
-          ? split
-            ? [
-                { column: this.config.column, by: this.timeBy(grain) },
-                { column: this.config.groupColumn, by: "value" },
-              ]
-            : [{ column: this.config.column, by: this.timeBy(grain) }]
-          : histogram
-            ? [{ column: this.config.column, by: { bin: { n: binCount } } }]
-            : kpi
-              ? []
-              : split
-                ? [
-                    { column: this.config.column, by: "value" },
-                    { column: this.config.groupColumn, by: "value" },
-                  ]
-                : [{ column: this.config.column, by: "value" }],
-      measures: [
-        measure,
-        ...this.extraValues().map((extra): MeasureSpec => ({
-          column: extra,
-          agg: valueAgg as Aggregate,
-          ...(post === undefined ? {} : { post: [...post] }),
-        })),
-      ],
-      fill: line && !split ? (fillPolicy === "zero" ? "zero" : fillPolicy === "carry" ? "carry" : "none") : "none",
-      ...(line && !split && fillPolicy === "gap" ? { showGaps: true } : {}),
-      sort:
-        line || overTime || histogram
-          ? { key: "dim0", dir: "asc" }
-          : { key: "m0", dir: "desc" },
-      limit: 5000,
-      respectFilters: this.config.respectFilters !== false,
-      filterColumn: this.config.filterColumn ?? -1,
-      filterCode: this.config.filterCode ?? -1,
-      ...(this.excludes().length > 0 ? { exclude: this.excludes() } : {}),
-    };
+    return valueViewDef(this);
   }
 
-  /** Fetches the card's own value-over-time aggregate (generation-guarded). */
   refreshValue(): void {
-    this.syncErrorBarControls();
-    const def = this.valueViewDef();
-    if (def === null) {
-      this.valueGeneration++;
-      if (this.valueResult !== null) this.valueResult = null;
-      return;
-    }
-    // Own counter: the sibling refreshes (line bins, series, ...) bump
-    // `generation` right after this call and used to discard this response,
-    // leaving a freshly added chart on "no groups to draw yet".
-    const generation = ++this.valueGeneration;
-    void this.options
-      .requestAggregate(def)
-      .then((message) => {
-        if (generation !== this.valueGeneration || this.disposed || !this.usesValueAggregate()) return;
-        this.valueResult = message;
-        this.refreshErrorBars();
-        this.render();
-      })
-      .catch(() => {
-        // Keep the last result as the fallback.
-      });
+    return refreshValue(this);
   }
 
   setFiltered(
@@ -3426,39 +3129,15 @@ export class ChartCard {
     this.syncScope();
   }
 
-  private syncScope(): void {
-    const view = this.sources.find((source) => source.id === this.config.source);
-    const total = this.totalRowCount > 0 ? this.totalRowCount : this.rowCount;
-    const scope = describeScope({
-      total,
-      visible: this.rowCount,
-      viewName: view?.name ?? null,
-    });
-    const filterColumn = this.config.filterColumn ?? -1;
-    const filterCode = this.config.filterCode ?? -1;
-    const filterLabel =
-      filterColumn >= 0 && filterCode >= 0
-        ? this.meta(filterColumn)?.categories?.labels[filterCode]
-        : undefined;
-    const chartFilter =
-      filterLabel === undefined
-        ? ""
-        : ` · chart: ${this.meta(filterColumn)?.name ?? "value"} = ${filterLabel}`;
-    const calc =
-      this.config.valueCalc === undefined
-        ? ""
-        : ` · calc: ${this.valueCalcSelect.selectedOptions[0]?.textContent ?? this.config.valueCalc}`;
-    this.scopeEl.textContent =
-      (view === undefined ? `Table · ${scope}` : scope) + chartFilter + calc;
-    this.scopeEl.classList.toggle("hidden", total === 0 && this.rowCount === 0);
-    this.syncSummary();
+  syncScope(): void {
+    return syncScope(this);
   }
 
   /**
    * The chart's real type. A view bar that sums or averages a column is a
    * barplot; "Count plot" would misdescribe it.
    */
-  private viewKindLabel(): string {
+  viewKindLabel(): string {
     const kind = this.config.kind;
     if (kind === "bar" && this.config.source !== "") {
       const measure = this.viewResult?.measureNames[0];
@@ -3473,295 +3152,24 @@ export class ChartCard {
     this.syncNote();
   }
 
-  /** The most useful lint note for this chart, if any; errors before warnings. */
-  private syncNote(): void {
-    const note = this.lintNote();
-    this.lintEl.classList.toggle("hidden", note === null);
-    if (note === null) {
-      delete this.lintEl.dataset.msg;
-      this.lintEl.replaceChildren();
-      return;
-    }
-    if (this.lintEl.dataset.msg === note.msg) return;
-    this.lintEl.dataset.msg = note.msg;
-    this.lintEl.className = `chart-lint ${note.level}`;
-    const dismiss = el("button", { class: "chart-lint-x", type: "button", title: "Dismiss this note", "aria-label": "Dismiss this note" }, ["×"]);
-    dismiss.addEventListener("click", () => {
-      this.dismissedNotes.add(note.msg);
-      delete this.lintEl.dataset.msg;
-      this.syncNote();
-    });
-    this.lintEl.replaceChildren(el("span", {}, [note.msg]), dismiss);
+  syncNote(): void {
+    return syncNote(this);
   }
 
-  private lintNote(): LintNote | null {
-    const config = this.config;
-    if (config.kind === "pivotHeatmap" || config.source !== "" || this.columns.length === 0) return null;
-    const type =
-      config.kind === "barplot" ? "barplot" : config.kind === "bar" ? "countplot" : config.kind === "line" ? "timeseries" : null;
-    if (type === null) return null;
-    const rec = (index: number): RecColumn | null => {
-      const meta = this.meta(index);
-      return meta === undefined ? null : toRecColumn(meta, index, this.rowCount);
-    };
-    const fields = [rec(config.valueColumn ?? -1), rec(config.column)].filter((c): c is RecColumn => c !== null);
-    const distinct = this.meta(type === "timeseries" ? config.groupColumn : config.column)?.stats.distinct ?? 0;
-    const notes = lint(
-      {
-        type,
-        cfg: { agg: config.valueAgg, topN: config.groupOther ? config.topN : null },
-        fields,
-        categories: type === "timeseries" ? undefined : distinct,
-        series: type === "timeseries" ? Math.min(distinct, Math.max(6, config.topN)) : undefined,
-      },
-      this.rowCount,
-    ).filter((note) => !this.dismissedNotes.has(note.msg));
-    // A time series is always charted over a date, so the "needs a date" error only
-    // applies when the fields really lack one.
-    notes.sort((a, b) => Number(b.level === "error") - Number(a.level === "error"));
-    return notes[0] ?? null;
+  lintNote(): LintNote | null {
+    return lintNote(this);
   }
 
   private syncSummaryText(): void {
-    const source =
-      this.config.source === ""
-        ? this.options.tableSourceLabel?.() ?? "Table"
-        : (this.sources.find((entry) => entry.id === this.config.source)?.name ?? "View");
-    if (this.config.kind === "pivotHeatmap") {
-      const data = this.pivotHeatmapData();
-      this.summaryEl.textContent =
-        data === null
-          ? `Pivot heatmap from ${source}`
-          : `Pivot heatmap of ${data.measureName} by ${data.rowName} and ${data.colName} from ${source}`;
-      return;
-    }
-    const kind = this.viewKindLabel();
-    this.kindStatic.textContent = this.config.source === "" ? "" : kind;
-    if (this.config.source !== "") {
-      const result = this.viewResult;
-      if (result === null) {
-        this.summaryEl.textContent = `${kind} from view: ${source}`;
-        return;
-      }
-      const groups = result.groupCount;
-      const measureName = plainMeasureName(result.measureNames[0] ?? "measure");
-      this.summaryEl.textContent =
-        result.dimensionNames.length >= 2
-          ? `${result.dimensionIsTime[0] === true ? "Lines" : "Bars"} from view: ${measureName} by ${result.dimensionNames[0]}, one series per ${result.dimensionNames[1]}`
-          : `${kind} from view: ${measureName} by ${result.dimensionNames[0] || "group"}` +
-            ` · ${groups.toLocaleString()} ${groups === 1 ? "group" : "groups"}`;
-      return;
-    }
-    const name = (index: number): string => this.meta(index)?.name ?? "value";
-    if (isPairKind(this.config.kind)) {
-      this.summaryEl.textContent = `${kind}: ${name(this.config.y)} vs ${name(this.config.x)}${this.options.docked === true ? "" : ` from ${source}`}`;
-      return;
-    }
-    const agg =
-      this.config.valueColumn !== undefined && this.config.valueColumn >= 0
-        ? `${this.aggPhrase()} of ${[this.config.valueColumn, ...this.extraValues()].map(name).join(", ")}`
-        : "rows";
-    const overTime =
-      this.config.valueColumn !== undefined &&
-      this.config.valueColumn >= 0 &&
-      this.isDateLike(this.meta(this.config.column)) &&
-      (this.config.kind === "line" || this.config.kind === "smallmultiples");
-    const by =
-      this.config.column < 0
-        ? ""
-        : overTime
-          ? ` per ${this.stepNoun()} (${name(this.config.column)})`
-          : ` by ${name(this.config.column)}`;
-    const group =
-      this.config.groupColumn >= 0 ? ` grouped by ${name(this.config.groupColumn)}` : "";
-    const calc =
-      this.config.valueCalc === undefined
-        ? ""
-        : ` with ${this.valueCalcSelect.selectedOptions[0]?.textContent ?? this.config.valueCalc}`;
-    // Docked, the scope sits beside this line and already names the source.
-    this.summaryEl.textContent = `${kind}: ${agg}${by}${group}${calc}${this.options.docked === true ? "" : ` from ${source}`}`;
+    return syncSummaryText(this);
   }
 
-  /** Columns whose missing/placeholder state can affect this chart. */
-  private issueColumns(): number[] {
-    if (this.config.source !== "" || this.config.kind === "pivotHeatmap") return [];
-    const indexes = new Set<number>();
-    const add = (index: number | undefined): void => {
-      if (index !== undefined && index >= 0) indexes.add(index);
-    };
-    switch (this.config.kind) {
-      case "scatter":
-      case "density":
-      case "bubble":
-        add(this.config.x);
-        add(this.config.y);
-        add(this.config.colorColumn);
-        add(this.config.sizeColumn);
-        break;
-      case "heatmap":
-      case "box":
-        add(this.config.x);
-        add(this.config.y);
-        break;
-      case "map":
-        add(this.config.x);
-        add(this.config.y);
-        add(this.config.colorColumn);
-        break;
-      case "kpi":
-      case "barplot":
-      case "dotplot":
-      case "waterfall":
-        add(this.config.valueColumn);
-        add(this.config.column);
-        break;
-      case "stacked100":
-      case "smallmultiples":
-      case "slopegraph":
-        add(this.config.valueColumn);
-        add(this.config.column);
-        add(this.config.groupColumn);
-        break;
-      case "correlation":
-        for (const index of this.config.correlationColumns) add(index);
-        break;
-      case "line":
-        add(this.config.groupColumn);
-        add(this.config.valueColumn);
-        add(this.config.column);
-        break;
-      default:
-        add(this.config.column);
-        break;
-    }
-    return [...indexes].filter((index) => this.meta(index)?.role !== "provenance");
+  issueColumns(): number[] {
+    return issueColumns(this);
   }
 
-  /** Explain missing/unknown categories and offer filter/fix actions. */
   private syncDataIssues(): void {
-    const issues = this.issueColumns()
-      .map((index) => {
-        const meta = this.meta(index);
-        if (meta === undefined) return null;
-        const missing = meta.stats.nulls;
-        const tokens = meta.nullTokens.filter(
-          (token) => token.label !== "" && token.count > 0,
-        );
-        const sentinels = meta.suggestions.filter(
-          (suggestion): suggestion is Extract<ColumnSuggestion, { kind: "sentinel" }> =>
-            suggestion.kind === "sentinel",
-        );
-        if (missing === 0 && tokens.length === 0 && sentinels.length === 0) return null;
-        const active =
-          this.options.currentFilter?.(index)?.kind === "blank" &&
-          (this.options.currentFilter?.(index) as { negate?: boolean } | null)?.negate === false;
-        return { index, meta, missing, tokens, sentinels, active };
-      })
-      .filter((issue): issue is NonNullable<typeof issue> => issue !== null);
-    const signature = issues
-      .map((issue) => `${issue.meta.name}:${issue.missing}:${issue.tokens.length}:${issue.active}`)
-      .join("|");
-    if (signature === this.issueSignature) return;
-    this.issueSignature = signature;
-    clear(this.dataIssueEl);
-    this.dataIssueEl.classList.toggle("hidden", issues.length === 0);
-    if (issues.length === 0) return;
-    this.dataIssueEl.append(
-      el("span", { class: "chart-issue-heading" }, ["Data issues"]),
-    );
-    for (const issue of issues.slice(0, 2)) {
-      const row = el("div", { class: "chart-issue-row" });
-      const tokenCount = issue.tokens.reduce((sum, token) => sum + token.count, 0);
-      const details = [`${issue.missing.toLocaleString()} missing`];
-      if (tokenCount > 0) details.push(`${tokenCount.toLocaleString()} placeholders`);
-      if (issue.sentinels.length > 0) {
-        details.push(
-          issue.sentinels
-            .map((suggestion) => `"${suggestion.value}" in ${suggestion.count.toLocaleString()}`)
-            .join(", "),
-        );
-      }
-      row.append(
-        el("span", { class: "chart-issue-label", title: details.join(" - ") }, [
-          `${issue.meta.name}: ${details.join(" - ")}`,
-        ]),
-      );
-      if (missingOrTokens(issue.missing, tokenCount) && this.options.onFilterTable !== undefined) {
-        const filter = el(
-          "button",
-          {
-            class: "chart-issue-chip warn",
-            type: "button",
-            "aria-pressed": issue.active ? "true" : "false",
-            title: `Filter the table to rows where ${issue.meta.name} is blank`,
-          },
-          [`Filter: ${issue.missing.toLocaleString()} missing`],
-        ) as HTMLButtonElement;
-        filter.addEventListener("click", () =>
-          this.options.onFilterTable?.(
-            [{ column: issue.index, filter: { kind: "blank", negate: false } }],
-            `${issue.meta.name} is blank`,
-          ),
-        );
-        row.append(filter);
-      }
-      if (this.options.onShowRows !== undefined) {
-        const show = el(
-          "button",
-          { class: "chart-issue-chip", type: "button", title: "Show the affected rows" },
-          ["Show rows"],
-        ) as HTMLButtonElement;
-        show.addEventListener("click", () =>
-          this.options.onShowRows?.(
-            [{ column: issue.index, filter: { kind: "blank", negate: false } }],
-            `${issue.meta.name} is blank`,
-          ),
-        );
-        row.append(show);
-      }
-      if (tokenCount > 0 && this.options.onConvertToken !== undefined) {
-        const fix = el(
-          "button",
-          {
-            class: "chart-issue-chip fix",
-            type: "button",
-            title: "Preview-free null-policy change; undo is available in the status bar",
-          },
-          [`Fix: convert ${tokenCount.toLocaleString()} placeholders`],
-        ) as HTMLButtonElement;
-        fix.addEventListener("click", () =>
-          this.options.onConvertToken?.(
-            issue.index,
-            issue.tokens.map((token) => token.label),
-          ),
-        );
-        row.append(fix);
-      }
-      const sentinel = issue.sentinels[0];
-      if (sentinel !== undefined && this.options.onSuggestion !== undefined) {
-        const fix = el(
-          "button",
-          {
-            class: "chart-issue-chip fix",
-            type: "button",
-            title: "Use the existing null-policy action; undo is available in the status bar",
-          },
-          [`Fix: treat "${sentinel.value}" as missing`],
-        ) as HTMLButtonElement;
-        fix.addEventListener("click", () =>
-          this.options.onSuggestion?.(issue.index, sentinel),
-        );
-        row.append(fix);
-      }
-      this.dataIssueEl.append(row);
-    }
-    if (issues.length > 2) {
-      this.dataIssueEl.append(
-        el("span", { class: "chart-issue-more" }, [
-          `+${issues.length - 2} more column${issues.length - 2 === 1 ? "" : "s"}`,
-        ]),
-      );
-    }
+    return syncDataIssues(this);
   }
   refresh(): void {
     this.generation++;
@@ -3964,7 +3372,7 @@ export class ChartCard {
   syncValueAggOptions(): void {
     return syncValueAggOptions(this);
   }
-  private defaultCorrelationColumns(): number[] {
+  defaultCorrelationColumns(): number[] {
     return this.allowedIndexes(
       (meta) =>
         isNumericType(meta.type) &&
@@ -3973,158 +3381,31 @@ export class ChartCard {
     ).slice(0, 8);
   }
 
-  /**
-   * The fields a chart was using, so a new chart type starts from them: its measures (numeric
-   * columns plotted as values), then the date and category columns it was split or laid out by.
-   */
-  private fieldsInUse(): { measures: number[]; dimensions: number[] } {
-    const c = this.config;
-    const pair = isPairKind(c.kind);
-    const used = pair ? [c.y, c.x] : [c.valueColumn ?? -1, c.column, c.groupColumn];
-    const measures: number[] = [];
-    const dimensions: number[] = [];
-    for (const index of used) {
-      const meta = this.meta(index);
-      if (meta === undefined) continue;
-      const measure = isNumericType(meta.type) && (pair || index === c.valueColumn || !isGroupable(meta));
-      const list = measure ? measures : dimensions;
-      if (!list.includes(index)) list.push(index);
-    }
-    return { measures, dimensions };
+  fieldsInUse(): { measures: number[]; dimensions: number[] } {
+    return fieldsInUse(this);
   }
 
   setKind(kind: ChartCardKind): void {
-    if (kind === this.config.kind) return;
-    const { measures, dimensions } = this.fieldsInUse();
-    this.config.kind = kind;
-    this.plotView = null;
-    this.mapView = null;
-    this.mapGrid = null;
-    this.chartXZoom = null;
-    this.barWindow = null;
-    if (isPairKind(kind)) {
-      const xAllowed = this.allowedIndexes((meta) => this.allowsX(meta));
-      const yAllowed = this.allowedIndexes((meta) => this.allowsY(meta));
-      // Keep what was charted: a measure goes on Y, and X takes the next field that fits.
-      const fromField = [...dimensions, ...measures];
-      const y = measures.find((index) => yAllowed.includes(index));
-      if (y !== undefined) this.config.y = y;
-      const x = fromField.find((index) => index !== this.config.y && xAllowed.includes(index));
-      if (x !== undefined) this.config.x = x;
-      if (!xAllowed.includes(this.config.x)) this.config.x = xAllowed[0] ?? -1;
-      if (!yAllowed.includes(this.config.y) || (this.config.y === this.config.x && yAllowed.length > 1)) {
-        this.config.y = yAllowed.find((index) => index !== this.config.x) ?? yAllowed[0] ?? -1;
-      }
-    } else if (kind === "correlation") {
-      const numeric = this.defaultCorrelationColumns();
-      this.config.correlationColumns = this.config.correlationColumns.filter((index) =>
-        numeric.includes(index),
-      );
-      if (this.config.correlationColumns.length < 2) {
-        this.config.correlationColumns = numeric.slice(0, 6);
-      }
-    } else {
-      const primary = this.allowedIndexes((meta) => this.allowsPrimary(meta));
-      const takesValue = VALUE_AGGREGATE_KINDS.includes(kind) || kind === "treemap";
-      // A chart of one column plots the measure itself; one with a Value keeps the measure there
-      // and is laid out by the date or category it had.
-      const lead = kind === "histogram" ? [...measures, ...dimensions] : [...dimensions, ...measures];
-      const column = lead.find((index) => primary.includes(index));
-      if (column !== undefined) this.config.column = column;
-      if (!primary.includes(this.config.column)) this.config.column = primary[0] ?? -1;
-      // A count plot counts rows; every other chart with a Value keeps the measure.
-      if (takesValue && kind !== "histogram" && kind !== "bar") {
-        const value = measures.find((index) => index !== this.config.column);
-        if (value !== undefined && (this.config.valueColumn ?? -1) < 0) this.config.valueColumn = value;
-      } else if (kind === "histogram") this.config.valueColumn = -1;
-      if (kind === "histogram") this.applyColumnDefaults();
-    }
-    this.dropSettingsTheNewKindCannotUse();
-    this.pickerSignature = "";
-    this.refreshForConfig();
+    return setKind(this, kind);
   }
 
-  /**
-   * After a change of chart type: settings that made sense on the old chart and say nothing on
-   * the new one are cleared, so the title never reads "by usertype grouped by usertype" or keeps
-   * a year-over-year change on bars of categories.
-   */
-  private dropSettingsTheNewKindCannotUse(): void {
-    const kind = this.config.kind;
-    if (isPairKind(kind) || kind === "correlation") return;
-    // Splitting a chart by the field it is already laid out by gives one series per bar.
-    if (this.config.groupColumn >= 0 && this.config.groupColumn === this.config.column) {
-      this.config.groupColumn = -1;
-      this.hiddenGroups.clear();
-    }
-    // These calculations compare each period with the one before it: they need a date axis.
-    const calc = this.config.valueCalc;
-    const needsTime = calc === "rolling7" || calc === "diff" || calc === "pctChange" || calc === "yoy" || calc === "cumulative";
-    if (needsTime && !this.isDateLike(this.meta(this.config.column))) this.config.valueCalc = undefined;
+  dropSettingsTheNewKindCannotUse(): void {
+    return dropSettingsTheNewKindCannotUse(this);
   }
 
-  /** Refetches and repaints everything a whole-chart settings change can touch. */
-  private refreshForConfig(): void {
-    this.generation++;
-    this.syncOptions();
-    this.syncPlaceholder();
-    this.renderControls();
-    this.refreshBins();
-    this.refreshValue();
-    this.refreshSeries();
-    this.refreshTreemap();
-    this.refreshText();
-    this.refreshBox();
-    this.refreshCrosstab();
-    this.refreshBubble();
-    this.refreshMapGrid();
-    this.refreshAnimation();
-    this.refreshCorrelation();
-    this.refreshGroupedBins();
-    if (this.config.source !== "") this.refreshView();
-    this.render();
+  refreshForConfig(): void {
+    return refreshForConfig(this);
   }
 
   private setPrimaryColumn(index: number): void {
-    if (index === this.config.column) return;
-    this.config.column = index;
-    this.chartXZoom = null;
-    this.barWindow = null;
-    if (this.config.kind === "histogram") this.applyColumnDefaults();
-    this.dropSettingsTheNewKindCannotUse();
-    this.groupSelect.value = String(this.config.groupColumn);
-    this.valueCalcSelect.value = this.config.valueCalc ?? "";
-    this.generation++;
-    this.syncPlaceholder();
-    this.renderControls();
-    this.refreshBins();
-    this.refreshGroupedBins();
-    this.refreshTreemap();
-    this.refreshText();
-    this.render();
+    return setPrimaryColumn(this, index);
   }
 
-  private applyColumnDefaults(): void {
-    const meta = this.meta(this.config.column);
-    this.binResult = null;
-    this.chartXZoom = null;
-    if (meta === undefined) {
-      this.config.binOptions = null;
-      return;
-    }
-    // A KDE curve adds noise on low-cardinality columns.
-    this.config.kde = meta.stats.distinct >= 30;
-    const suggested = suggestedBinRange(meta);
-    this.config.binOptions = {
-      min: suggested.min,
-      max: suggested.max,
-      binCount: DEFAULT_BIN_COUNT,
-      overflow: suggested.overflow,
-    };
-    this.config.binClipped = suggested.clipped;
+  applyColumnDefaults(): void {
+    return applyColumnDefaults(this);
   }
 
-  private syncOptions(): void {
+  syncOptions(): void {
     return syncOptions(this);
   }
 
@@ -4167,7 +3448,7 @@ export class ChartCard {
   }
 
   /** A slopegraph compares whole periods, so it buckets coarser than a time series. */
-  private slopeGrainFor(column: number): TimeGrain {
+  slopeGrainFor(column: number): TimeGrain {
     const meta = this.meta(column);
     const min = meta?.stats.min;
     const max = meta?.stats.max;
@@ -4181,22 +3462,8 @@ export class ChartCard {
     return this.defaultStepFor(column).grain;
   }
 
-  /**
-   * Automatic bucket for a date column: a short span of timestamps gets minutes
-   * or half-hours (about sixty points), longer ones day, week or month.
-   */
   defaultStepFor(column: number): { grain: TimeGrain; every: number } {
-    const meta = this.meta(column);
-    const min = meta?.stats.min;
-    const max = meta?.stats.max;
-    if (typeof min !== "number" || typeof max !== "number" || !(max > min)) return { grain: "month", every: 1 };
-    const days = (max - min) / 86_400_000;
-    if (days <= 2) {
-      return meta?.type === "date" ? { grain: "day", every: 1 } : autoShortStep(max - min);
-    }
-    if (days <= 120) return { grain: "day", every: 1 };
-    if (days <= 840) return { grain: "week", every: 1 };
-    return { grain: "month", every: 1 };
+    return defaultStepFor(this, column);
   }
 
   fillColumnSelect(select: HTMLSelectElement, allowed: readonly number[], slotIndex: number, leading: HTMLOptionElement[] = []): void {
@@ -4306,11 +3573,11 @@ export class ChartCard {
     });
   }
 
-  private syncPlaceholder(): void {
+  syncPlaceholder(): void {
     this.titleInput.placeholder = this.defaultTitle();
   }
 
-  private pairLabel(separator: string): string {
+  pairLabel(separator: string): string {
     const x = this.meta(this.config.x)?.name ?? "";
     const y = this.meta(this.config.y)?.name ?? "";
     if (x === "" || y === "") return CHART_KIND_LABELS[this.config.kind];
@@ -4332,7 +3599,7 @@ export class ChartCard {
   }
 
   /** "average_price over date", "total_volume by geography": what an aggregate chart shows, for its tab and placeholder. */
-  private aggregateTitle(): string {
+  aggregateTitle(): string {
     if (this.config.source !== "") return this.sources.find((source) => source.id === this.config.source)?.name ?? "View";
     const measure = this.meta(this.config.valueColumn ?? -1)?.name ?? "Rows";
     const dimension = this.meta(this.config.column)?.name;
@@ -4343,42 +3610,11 @@ export class ChartCard {
   }
 
   defaultTitle(): string {
-    if (this.config.kind === "kpi") {
-      const measure = this.meta(this.config.valueColumn ?? -1)?.name ?? "Count of rows";
-      return defaultChartTitle(measure);
-    }
-    if (this.config.kind === "pivotHeatmap") {
-      const data = this.pivotHeatmapData();
-      return data === null
-        ? "Pivot heatmap"
-        : defaultChartTitle(`${data.measureName} by ${data.rowName} x ${data.colName}`);
-    }
-    if (this.usesAggregate()) return this.aggregateTitle();
-    if (this.config.kind === "map") return "Map";
-    if (isPairKind(this.config.kind)) {
-      return defaultChartTitle(this.pairLabel("vs"));
-    }
-    if (this.config.kind === "correlation") {
-      return defaultChartTitle("Correlation");
-    }
-    return defaultChartTitle(this.meta(this.config.column)?.name ?? "");
+    return defaultTitle(this);
   }
 
-  /** The series a line card plots, when the Time Series page can read it. */
   seriesTarget(): ChartSeriesTarget | null {
-    if (this.config.kind !== "line" || this.config.source !== "" || this.options.onDeepDive === undefined) return null;
-    if (this.options.research?.() === false) return null;
-    if (!this.isDateLike(this.meta(this.config.column))) return null;
-    const value = this.config.valueColumn ?? -1;
-    return {
-      dateColumn: this.config.column,
-      groupColumn: this.config.groupColumn,
-      valueColumn: value >= 0 && this.meta(value) !== undefined ? value : -1,
-      valueAgg: this.config.valueAgg,
-      // The bucket the value line draws (count lines bin by span, so the page picks).
-      grain: value >= 0 ? this.resolvedGrain() : "auto",
-      every: value >= 0 ? this.everyFor(this.resolvedGrain()) : 1,
-    };
+    return seriesTarget(this);
   }
 
   private syncDeepDive(): void {
@@ -4400,42 +3636,11 @@ export class ChartCard {
   }
 
   private resetBinRange(): void {
-    const meta = this.meta(this.config.column);
-    if (meta === undefined) return;
-    const histogram = meta.histogram;
-    let min = meta.stats.min ?? histogram?.min ?? 0;
-    let max = meta.stats.max ?? histogram?.max ?? 1;
-    if (!(max > min)) {
-      min -= 1;
-      max += 1;
-    }
-    this.config.binOptions = { min, max, binCount: DEFAULT_BIN_COUNT, overflow: false };
-    this.config.binClipped = false;
-    this.renderControls();
-    this.refreshBins();
-    this.render();
+    return resetBinRange(this);
   }
 
   private commitBinOptions(): void {
-    const min = parseChartNumber(this.minInput.value);
-    const max = parseChartNumber(this.maxInput.value);
-    const bins = Number(this.binsInput.value);
-    if (min === null || max === null || !Number.isFinite(bins)) {
-      this.renderControls();
-      return;
-    }
-    this.config.binOptions = {
-      min,
-      max,
-      binCount: Math.max(1, Math.min(256, Math.floor(bins))),
-      overflow: this.overflowInput.checked,
-    };
-    this.config.binClipped = false;
-    // A manual range is the new full view; any drag-zoom no longer applies.
-    this.chartXZoom = null;
-    this.renderControls();
-    this.refreshBins();
-    this.render();
+    return commitBinOptions(this);
   }
 
   /**
@@ -4443,7 +3648,7 @@ export class ChartCard {
    * fixed 64-bin histogram, which turns date-only data into an hourly comb.
    * One extra bucket because the last edge is inclusive of the maximum.
    */
-  private preferredLineBins(spanMs: number): number {
+  preferredLineBins(spanMs: number): number {
     const day = 86_400_000;
     const clamp = (count: number): number => Math.max(2, Math.min(256, count));
     if (!(spanMs > 0)) return 48;
@@ -4455,122 +3660,23 @@ export class ChartCard {
   }
 
   refreshBins(): void {
-    if (this.config.kind === "line") {
-      const meta = this.meta(this.config.column);
-      const fullMin = meta?.stats.min;
-      const fullMax = meta?.stats.max;
-      if (
-        meta === undefined ||
-        (meta.type !== "date" && meta.type !== "datetime") ||
-        typeof fullMin !== "number" ||
-        typeof fullMax !== "number" ||
-        !(fullMax > fullMin)
-      ) {
-        this.lineBinResult = null;
-        return;
-      }
-      const min = this.chartXZoom?.min ?? fullMin;
-      const max = this.chartXZoom?.max ?? fullMax;
-      if (!(max > min)) {
-        this.lineBinResult = null;
-        return;
-      }
-      const binCount = this.preferredLineBins(max - min);
-      // The same column and span produce the same buckets: don't re-request on
-      // every filter push (each response used to trigger another repaint).
-      const signature = `${this.config.column}|${binCount}|${min}|${max}|${JSON.stringify(this.excludes())}`;
-      if (this.lineBinSignature === signature && this.lineBinResult !== null) return;
-      this.lineBinSignature = signature;
-      const generation = ++this.generation;
-      this.lineBinRange = { min, max };
-      void this.options
-        .requestBins(
-          this.config.column,
-          { min, max, binCount, overflow: false },
-          this.excludes().length > 0 ? this.excludes() : undefined,
-        )
-        .then((bins) => {
-          if (generation !== this.generation || this.disposed) return;
-          this.lineBinResult = bins;
-          this.render();
-        })
-        .catch(() => {
-          // Keep the automatic histogram as the fallback.
-        });
-      this.binResult = null;
-      return;
-    }
-    this.lineBinResult = null;
-    this.lineBinRange = null;
-    if (this.config.kind !== "histogram") {
-      this.binResult = null;
-      return;
-    }
-    const meta = this.meta(this.config.column);
-    if (meta === undefined || !isNumericType(meta.type) || this.config.binOptions === null) {
-      this.binResult = null;
-      return;
-    }
-    const generation = ++this.generation;
-    const column = this.config.column;
-    const zoom = this.chartXZoom;
-    const binOptions =
-      zoom === null
-        ? this.config.binOptions
-        : {
-            ...this.config.binOptions,
-            min: zoom.min,
-            max: zoom.max,
-          };
-    void this.options
-      .requestBins(column, binOptions, this.excludes().length > 0 ? this.excludes() : undefined)
-      .then((bins) => {
-        if (generation !== this.generation || this.disposed) return;
-        this.binResult = bins;
-        this.binMedian = bins.median;
-        this.render();
-      })
-      .catch(() => {
-        // Keep the automatic histogram as the fallback.
-      });
+    return refreshBins(this);
   }
 
   allCategoryBars(): CategoryBar[] {
     return allCategoryBars(this);
   }
 
-  /** The full data range a line/histogram x axis can zoom within. */
   xZoomBase(): { min: number; max: number } | null {
-    if (this.config.kind === "line") {
-      const meta = this.meta(this.config.column);
-      const min = meta?.stats.min;
-      const max = meta?.stats.max;
-      return typeof min === "number" && typeof max === "number" && max > min
-        ? { min, max }
-        : null;
-    }
-    if (this.config.kind === "histogram") {
-      const options = this.config.binOptions;
-      return options !== null && options.max > options.min
-        ? { min: options.min, max: options.max }
-        : null;
-    }
-    return null;
+    return xZoomBase(this);
   }
 
-  /** Worker scope for the card's own category filter and table-filter toggle. */
   chartScope(): {
     chartFilter?: { column: number; code: number };
     chartExclude?: ChartExclusion[];
     respectFilters: boolean;
   } {
-    const column = this.config.filterColumn ?? -1;
-    const code = this.config.filterCode ?? -1;
-    return {
-      ...(column >= 0 && code >= 0 ? { chartFilter: { column, code } } : {}),
-      ...this.excludeScope(),
-      respectFilters: this.config.respectFilters !== false,
-    };
+    return chartScope(this);
   }
 
   excludes(): ChartExclusion[] {
@@ -4587,7 +3693,7 @@ export class ChartCard {
     return refreshSeries(this);
   }
 
-  private refreshTreemap(): void {
+  refreshTreemap(): void {
     return refreshTreemap(this);
   }
 
@@ -4595,7 +3701,7 @@ export class ChartCard {
     return drawTreemap(this, ctx, frame);
   }
 
-  private refreshText(): void {
+  refreshText(): void {
     return refreshText(this);
   }
 
@@ -4603,11 +3709,11 @@ export class ChartCard {
     return drawTerms(this, ctx, frame);
   }
 
-  private refreshBox(): void {
+  refreshBox(): void {
     return refreshBox(this);
   }
 
-  private refreshCrosstab(): void {
+  refreshCrosstab(): void {
     return refreshCrosstab(this);
   }
 
@@ -4627,7 +3733,7 @@ export class ChartCard {
     return meta !== undefined && isGroupable(meta) ? this.config.groupColumn : undefined;
   }
 
-  private refreshBubble(): void {
+  refreshBubble(): void {
     return refreshBubble(this);
   }
 
@@ -4670,7 +3776,7 @@ export class ChartCard {
     return syncErrorBarControls(this);
   }
 
-  private refreshErrorBars(): void {
+  refreshErrorBars(): void {
     return refreshErrorBars(this);
   }
 
@@ -4791,11 +3897,11 @@ export class ChartCard {
     return exportAnimationVideo(this);
   }
 
-  private refreshCorrelation(): void {
+  refreshCorrelation(): void {
     return refreshCorrelation(this);
   }
 
-  private refreshGroupedBins(): void {
+  refreshGroupedBins(): void {
     return refreshGroupedBins(this);
   }
 
@@ -4943,54 +4049,8 @@ export class ChartCard {
       : "";
   }
 
-  /** Generated text alternative for the canvas, updated on every redraw. */
   private canvasLabel(): string {
-    const rows = this.rowCount.toLocaleString();
-    const name = (index: number): string => this.meta(index)?.name ?? "";
-    switch (this.config.kind) {
-      case "line": {
-        const group = this.meta(this.config.groupColumn);
-        return group === undefined
-          ? `Line chart of ${name(this.config.column)}, ${rows} rows shown`
-          : `Line chart of ${name(this.config.column)} by ${group.name}, ${rows} rows shown`;
-      }
-      case "bar":
-        return `Bar chart of ${name(this.config.column)} (a count of rows), ${rows} rows shown`;
-      case "dotplot":
-      case "stacked100":
-      case "smallmultiples":
-      case "slopegraph":
-      case "waterfall": {
-        const group = this.meta(this.config.groupColumn);
-        return `${CHART_KIND_LABELS[this.config.kind]} of ${this.config.valueAgg ?? "mean"}(${name(
-          this.config.valueColumn ?? -1,
-        )}) by ${name(this.config.column)}${group === undefined ? "" : ` and ${group.name}`}, ${rows} rows shown`;
-      }
-      case "barplot":
-        return `Bar chart of ${this.config.valueAgg ?? "mean"}(${name(
-          this.config.valueColumn ?? -1,
-        )}) by ${name(this.config.column)}, ${rows} rows shown`;
-      case "scatter":
-        return `Scatter of ${name(this.config.x)} vs ${name(this.config.y)}, ${rows} rows shown`;
-      case "density":
-        return `Density plot of ${name(this.config.x)} vs ${name(this.config.y)}, ${rows} rows shown`;
-      case "box":
-        return `Box plot of ${name(this.config.x)} by ${name(this.config.y)}, ${rows} rows shown`;
-      case "treemap":
-        return `Treemap of ${name(this.config.column)}, ${rows} rows shown`;
-      case "terms":
-        return `Top terms in ${name(this.config.column)}, ${rows} rows shown`;
-      case "heatmap":
-        return `Heatmap of ${name(this.config.x)} × ${name(this.config.y)}, ${rows} rows shown`;
-      case "correlation":
-        return `Correlation matrix of ${this.config.correlationColumns.length} columns, ${rows} rows shown`;
-      default: {
-        const column = name(this.config.column);
-        return column === ""
-          ? `Histogram, ${rows} rows shown`
-          : `Histogram of ${column}, ${rows} rows shown`;
-      }
-    }
+    return canvasLabel(this);
   }
 
   private queuePointer(event: PointerEvent): void {
@@ -5172,21 +4232,8 @@ export class ChartCard {
     return withoutExcludedBins(this, bins, min, max);
   }
 
-  /** Readable range bounds for a column: dates as dates, numbers trimmed. */
   boundFormatter(column: number): (value: number) => string {
-    const type = this.meta(column)?.type;
-    if (type === "date" || type === "datetime") {
-      return (value) => {
-        const date = new Date(value);
-        if (Number.isNaN(date.getTime())) return String(value);
-        const iso = date.toISOString();
-        return type === "date" || iso.endsWith("T00:00:00.000Z")
-          ? iso.slice(0, 10)
-          : `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
-      };
-    }
-    return (value) =>
-      Number(value.toPrecision(6)).toLocaleString("en-US", { maximumFractionDigits: 6 });
+    return boundFormatter(this, column);
   }
 
   /** Legend codes index the grouped result's labels; the group column codes are the same list. */
@@ -5234,109 +4281,8 @@ export class ChartCard {
     return drawPlotMessage(this, ctx, frame, message);
   }
 
-  /** False while the card has nothing its kind can plot. */
   canDraw(): boolean {
-    if (this.columns.length === 0) return false;
-    const count = (allow: (meta: ColumnMeta) => boolean): number =>
-      this.columns.filter(allow).length;
-    switch (this.config.kind) {
-      case "histogram": {
-        const meta = this.meta(this.config.column);
-        return (
-          meta !== undefined &&
-          (isNumericType(meta.type) || meta.type === "time" || meta.type === "duration")
-        );
-      }
-      case "line":
-        return count((meta) => this.isDateLike(meta)) > 0;
-      case "barplot": {
-        const category = this.meta(this.config.column);
-        const measure = this.meta(this.config.valueColumn ?? -1);
-        return (
-          category !== undefined &&
-          measure !== undefined &&
-          isGroupable(category) &&
-          (isNumericType(measure.type) || measure.type === "duration")
-        );
-      }
-      case "bar":
-      case "treemap": {
-        const meta = this.meta(this.config.column);
-        return meta !== undefined && isGroupable(meta);
-      }
-      case "terms": {
-        const meta = this.meta(this.config.column);
-        return meta !== undefined && meta.type === "string";
-      }
-      case "scatter":
-      case "density": {
-        const x = this.meta(this.config.x);
-        const y = this.meta(this.config.y);
-        return (
-          x !== undefined &&
-          y !== undefined &&
-          this.allowsAxis(x) &&
-          this.allowsAxis(y)
-        );
-      }
-      case "box":
-        return count((meta) => isNumericType(meta.type)) > 0 &&
-          count((meta) => isGroupable(meta)) > 0;
-      case "treemap": {
-        const meta = this.meta(this.config.column);
-        return meta !== undefined && isGroupable(meta);
-      }
-      case "heatmap":
-        return count((meta) => isGroupable(meta)) >= 2;
-      case "bubble": {
-        const x = this.meta(this.config.x);
-        const y = this.meta(this.config.y);
-        return (
-          x !== undefined && y !== undefined && isNumericType(x.type) && isNumericType(y.type)
-        );
-      }
-      case "correlation":
-        return count((meta) => isNumericType(meta.type)) >= 2;
-      case "kpi": {
-        const meta = this.meta(this.config.valueColumn ?? -1);
-        return meta !== undefined && (isNumericType(meta.type) || meta.type === "duration");
-      }
-      case "map": {
-        const x = this.meta(this.config.x);
-        const y = this.meta(this.config.y);
-        return (
-          x !== undefined &&
-          y !== undefined &&
-          isNumericType(x.type) &&
-          isNumericType(y.type)
-        );
-      }
-      case "dotplot":
-      case "stacked100":
-      case "smallmultiples":
-      case "slopegraph":
-      case "waterfall": {
-        const column = this.meta(this.config.column);
-        const measure = this.meta(this.config.valueColumn ?? -1);
-        const kind = this.config.kind;
-        const columnOk =
-          column !== undefined &&
-          (kind === "smallmultiples"
-            ? this.isDateLike(column)
-            : kind === "waterfall" || kind === "slopegraph"
-              ? isGroupable(column) || this.isDateLike(column)
-              : isGroupable(column));
-        const groupOk = !GROUP_REQUIRED_KINDS.includes(kind) || this.meta(this.config.groupColumn) !== undefined;
-        return (
-          columnOk &&
-          groupOk &&
-          measure !== undefined &&
-          (isNumericType(measure.type) || measure.type === "duration")
-        );
-      }
-      case "pivotHeatmap":
-        return this.config.source !== "";
-    }
+    return canDraw(this);
   }
 
   emptySeriesMessage(kind: "histogram" | "line" | "bar"): string {
