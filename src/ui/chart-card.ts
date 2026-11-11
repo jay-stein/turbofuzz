@@ -1,3 +1,4 @@
+import { groupSettings, dock, fieldSlots, toggleSidebar, syncSettingsOpen, bindSettingsDismiss, renderSourceOptions, syncSourceControls, syncFieldVisibility, toggleExtraValue, syncExtraValues, setViewShape, pivotRailItems, syncViewShapeOptions, syncPivotOptions, allowsPrimary, syncValueAggOptions, syncOptions, syncChartFilterControls, fillColumnSelect, renderControls, fillPaletteOptions, syncPalette, applyPalette , forgetSettingsDisclosure } from "./chart-card-settings.js";
 import { importChartSpecFile, exportPng, openStats, chartExtract, drawnBins, histogramExtract, exportCsv, chartCsvRows, gridCsvRows, syncDeepDive, openCardMenu, toggleFocus, closeFocus, openExportMenu, downloadChartSpec, downloadChartCode, downloadBlob } from "./chart-card-export.js";
 import { openKindPicker, selectRegion, drawSelection, queuePointer, showTooltipAtPointer, emitHighlight, setLinkedHighlight, cancelSliceFetch, sliceRegions, sliceEntries, scheduleSliceFetch, scheduleSlicePoints, drawSlicePoints, drawLinkedOverlay, drawSliceShare, handleCanvasClick, finishBrush, timeSlotBrush, drawBrushOverlay, onWheel, withoutExcludedBins, syncExclusions, handleCanvasContextMenu, dataPointAt, openExclusionMenu, excludeFromTable, applyHitAction } from "./chart-interaction.js";
 import { allCategoryBars, refreshSeries, refreshTreemap, drawTreemap, refreshText, drawTerms, refreshBox, refreshGroupedBins, widestYLabel, fillTopRounded, drawKpi, drawExtraKind, syncRefLines, drawReferenceLines, axisLabels, drawAxisTitles, drawBars, drawAxes, drawBox } from "./chart-draw-bars.js";
@@ -360,8 +361,6 @@ export interface MapMarkerDraw {
   draw(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void;
 }
 
-// Only one card's Settings popover may stay open at a time.
-let openSettingsDisclosure: HTMLDetailsElement | null = null;
 
 export type DensityStyle = "heat" | "contours" | "both";
 
@@ -716,7 +715,7 @@ export interface ChartCardConfig {
 }
 
 /** The most values one chart draws as separate series. */
-const MAX_VALUES = 6;
+export const MAX_VALUES = 6;
 
 /** A source in a card's Source list: the table, or a Pivot View with the fields a chart of it can use. */
 export interface ChartSource {
@@ -727,8 +726,8 @@ export interface ChartSource {
 }
 
 /** The colour maps offered before "More colour maps…": seven that cover what most charts need. */
-const SHORT_PALETTES: readonly string[] = ["tab10", "colorblind", "Set2", "Blues", "rocket", "Blue to red", "RdBu"];
-const MORE_PALETTES = "__more";
+export const SHORT_PALETTES: readonly string[] = ["tab10", "colorblind", "Set2", "Blues", "rocket", "Blue to red", "RdBu"];
+export const MORE_PALETTES = "__more";
 
 /** A chart of a pivot split into series draws at most this many groups of bars along its axis. */
 export const SPLIT_AXIS_LIMIT = 20;
@@ -840,7 +839,7 @@ export class ChartCard {
   generation = 0;
   disposed = false;
 
-  private pickerSignature = "";
+  pickerSignature = "";
   binResult: ChartBins | null = null;
   lineBinResult: ChartBins | null = null;
   lineBinRange: { min: number; max: number } | null = null;
@@ -906,18 +905,18 @@ export class ChartCard {
   animationPlaying = false;
   animationTimer: number | null = null;
   animationSetupOpen = false;
-  private readonly bubbleBinsInput: HTMLInputElement;
+  readonly bubbleBinsInput: HTMLInputElement;
   readonly gridField: HTMLElement;
   readonly gridHint: HTMLElement;
-  private readonly bubbleAggSelect: HTMLSelectElement;
-  private bubbleAggHint!: HTMLElement;
+  readonly bubbleAggSelect: HTMLSelectElement;
+  bubbleAggHint!: HTMLElement;
   private readonly bubbleScaleSelect: HTMLSelectElement;
-  private readonly animateButton: HTMLButtonElement;
+  readonly animateButton: HTMLButtonElement;
   readonly focusButton: HTMLButtonElement;
   readonly pngButton: HTMLButtonElement;
   readonly statsButton: HTMLButtonElement;
   kindButton: HTMLButtonElement | null = null;
-  private undoButton: HTMLButtonElement | null = null;
+  undoButton: HTMLButtonElement | null = null;
   /** Earlier settings of this chart, newest last, as JSON. */
   private undoStack: string[] = [];
   /** The settings as they were when the person last reached for a control. */
@@ -928,12 +927,12 @@ export class ChartCard {
   /** Plot top the docked height was last worked out from: a legend appearing moves it. */
   private dockedTop = -1;  focusOverlay: HTMLElement | null = null;
   readonly focusPlaceholder = document.createComment("chart-focus");
-  private readonly animationSetup: HTMLElement;
-  private readonly bubbleSettings: HTMLElement;
-  private readonly bubbleTitle: HTMLElement;
-  private readonly bubbleScaleField: HTMLElement;
+  readonly animationSetup: HTMLElement;
+  readonly bubbleSettings: HTMLElement;
+  readonly bubbleTitle: HTMLElement;
+  readonly bubbleScaleField: HTMLElement;
   readonly mapModeSelect: HTMLSelectElement;
-  private readonly mapModeWrap: HTMLElement;
+  readonly mapModeWrap: HTMLElement;
   /** The Dots row under the map's settings: radius, value range, scale and opacity. */
   readonly dotSettings: HTMLElement;
   readonly dotMinInput: HTMLInputElement;
@@ -1025,110 +1024,110 @@ export class ChartCard {
   statsMs = 0;
 
   readonly kindSelect: HTMLSelectElement;
-  private readonly sourceSelect: HTMLSelectElement;
+  readonly sourceSelect: HTMLSelectElement;
   readonly sourceWrap: HTMLElement;
-  private sources: ChartSource[] = [];
-  private readonly viewKindSelect: HTMLSelectElement;
-  private readonly viewAxisSelect: HTMLSelectElement;
-  private readonly viewSeriesSelect: HTMLSelectElement;
-  private readonly viewMeasureSelect: HTMLSelectElement;
-  private readonly viewAxisWrap: HTMLElement;
-  private readonly viewSeriesWrap: HTMLElement;
-  private readonly viewMeasureWrap: HTMLElement;
-  private readonly backToSource: HTMLButtonElement;
-  private readonly sourceChip = el(
+  sources: ChartSource[] = [];
+  readonly viewKindSelect: HTMLSelectElement;
+  readonly viewAxisSelect: HTMLSelectElement;
+  readonly viewSeriesSelect: HTMLSelectElement;
+  readonly viewMeasureSelect: HTMLSelectElement;
+  readonly viewAxisWrap: HTMLElement;
+  readonly viewSeriesWrap: HTMLElement;
+  readonly viewMeasureWrap: HTMLElement;
+  readonly backToSource: HTMLButtonElement;
+  readonly sourceChip = el(
     "button",
     { class: "chart-source-chip hidden", type: "button", title: "Open the Pivot View this chart draws, as you left it" },
     [],
   ) as HTMLButtonElement;
-  private readonly extraValuesWrap = el("div", { class: "chart-extra-values hidden", role: "group", "aria-label": "More values" });
-  private extraValuesKey = "";
+  readonly extraValuesWrap = el("div", { class: "chart-extra-values hidden", role: "group", "aria-label": "More values" });
+  extraValuesKey = "";
   private viewResult: AggregateMessage | null = null;
   /** A view-bound card cannot change type, so its real type is shown as text. */
-  private readonly kindStatic = el("span", { class: "chart-kind-static hidden" });
+  readonly kindStatic = el("span", { class: "chart-kind-static hidden" });
   pivotResult: PivotMessage | null = null;
-  private readonly pivotRowSelect: HTMLSelectElement;
-  private readonly pivotColSelect: HTMLSelectElement;
-  private readonly pivotMeasureSelect: HTMLSelectElement;
-  private readonly pivotRowWrap: HTMLElement;
-  private readonly pivotColWrap: HTMLElement;
-  private readonly pivotMeasureWrap: HTMLElement;
-  private readonly primarySelect: HTMLSelectElement;
-  private readonly groupSelect: HTMLSelectElement;
-  private readonly groupWrap: HTMLElement;
-  private readonly valueSelect: HTMLSelectElement;
-  private readonly valueWrap: HTMLElement;
-  private readonly valueAggSelect: HTMLSelectElement;
-  private readonly valueAggWrap: HTMLElement;
-  private readonly valueGrainSelect: HTMLSelectElement;
-  private readonly valueGrainWrap: HTMLElement;
-  private readonly valueEveryInput: HTMLInputElement;
-  private readonly valueEveryWrap: HTMLElement;
-  private readonly valueFillSelect: HTMLSelectElement;
-  private readonly valueFillWrap: HTMLElement;
-  private readonly weekStartSelect: HTMLSelectElement;
-  private readonly weekStartWrap: HTMLElement;
-  private readonly fiscalSelect: HTMLSelectElement;
-  private readonly fiscalWrap: HTMLElement;
+  readonly pivotRowSelect: HTMLSelectElement;
+  readonly pivotColSelect: HTMLSelectElement;
+  readonly pivotMeasureSelect: HTMLSelectElement;
+  readonly pivotRowWrap: HTMLElement;
+  readonly pivotColWrap: HTMLElement;
+  readonly pivotMeasureWrap: HTMLElement;
+  readonly primarySelect: HTMLSelectElement;
+  readonly groupSelect: HTMLSelectElement;
+  readonly groupWrap: HTMLElement;
+  readonly valueSelect: HTMLSelectElement;
+  readonly valueWrap: HTMLElement;
+  readonly valueAggSelect: HTMLSelectElement;
+  readonly valueAggWrap: HTMLElement;
+  readonly valueGrainSelect: HTMLSelectElement;
+  readonly valueGrainWrap: HTMLElement;
+  readonly valueEveryInput: HTMLInputElement;
+  readonly valueEveryWrap: HTMLElement;
+  readonly valueFillSelect: HTMLSelectElement;
+  readonly valueFillWrap: HTMLElement;
+  readonly weekStartSelect: HTMLSelectElement;
+  readonly weekStartWrap: HTMLElement;
+  readonly fiscalSelect: HTMLSelectElement;
+  readonly fiscalWrap: HTMLElement;
   /** Series colours of the last split-by time chart, for the one shared legend. */
   splitLegend: { label: string; color: string }[] | null = null;
   readonly hiddenSplit = new Set<string>();
-  private readonly valueCalcSelect: HTMLSelectElement;
-  private readonly valueCalcWrap: HTMLElement;
-  private readonly sortSelect: HTMLSelectElement;
-  private readonly sortWrap: HTMLElement;
-  private readonly filterColumnSelect: HTMLSelectElement;
-  private readonly filterValueSelect: HTMLSelectElement;
-  private readonly filterRespectInput: HTMLInputElement;
+  readonly valueCalcSelect: HTMLSelectElement;
+  readonly valueCalcWrap: HTMLElement;
+  readonly sortSelect: HTMLSelectElement;
+  readonly sortWrap: HTMLElement;
+  readonly filterColumnSelect: HTMLSelectElement;
+  readonly filterValueSelect: HTMLSelectElement;
+  readonly filterRespectInput: HTMLInputElement;
   readonly chartFilterRow: HTMLElement;
   /** Aggregate result for the card's own value-over-time line. */
   private valueResult: AggregateMessage | null = null;
-  private readonly xSelect: HTMLSelectElement;
-  private readonly ySelect: HTMLSelectElement;
+  readonly xSelect: HTMLSelectElement;
+  readonly ySelect: HTMLSelectElement;
   readonly colorSelect: HTMLSelectElement;
-  private readonly sizeSelect: HTMLSelectElement;
+  readonly sizeSelect: HTMLSelectElement;
   readonly modeSelect: HTMLSelectElement;
-  private readonly densityStyleSelect: HTMLSelectElement;
-  private readonly kdeInput: HTMLInputElement;
-  private readonly correlationSelect: HTMLSelectElement;
-  private readonly primaryWrap: HTMLElement;
-  private readonly axesPanel: HTMLElement;
-  private readonly xWrap: HTMLElement;
-  private readonly yWrap: HTMLElement;
+  readonly densityStyleSelect: HTMLSelectElement;
+  readonly kdeInput: HTMLInputElement;
+  readonly correlationSelect: HTMLSelectElement;
+  readonly primaryWrap: HTMLElement;
+  readonly axesPanel: HTMLElement;
+  readonly xWrap: HTMLElement;
+  readonly yWrap: HTMLElement;
   readonly colorWrap: HTMLElement;
-  private readonly sizeWrap: HTMLElement;
-  private readonly sizeTagLabel: HTMLElement;
-  private readonly primaryTagLabel: HTMLElement;
+  readonly sizeWrap: HTMLElement;
+  readonly sizeTagLabel: HTMLElement;
+  readonly primaryTagLabel: HTMLElement;
   readonly bubbleAggField: HTMLElement;
-  private readonly modeWrap: HTMLElement;
-  private readonly densityStyleWrap: HTMLElement;
-  private readonly xTagLabel: HTMLElement;
-  private readonly yTagLabel: HTMLElement;
-  private readonly colorGroup: HTMLElement;
-  private readonly paletteGroup: HTMLElement;
-  private readonly paletteSelect: HTMLSelectElement;
-  private readonly palettePreview: HTMLElement;
-  private readonly paletteReverseInput: HTMLInputElement;
+  readonly modeWrap: HTMLElement;
+  readonly densityStyleWrap: HTMLElement;
+  readonly xTagLabel: HTMLElement;
+  readonly yTagLabel: HTMLElement;
+  readonly colorGroup: HTMLElement;
+  readonly paletteGroup: HTMLElement;
+  readonly paletteSelect: HTMLSelectElement;
+  readonly palettePreview: HTMLElement;
+  readonly paletteReverseInput: HTMLInputElement;
   private readonly paletteStatus: HTMLElement;
-  private readonly colorMinInput: HTMLInputElement;
-  private readonly colorMaxInput: HTMLInputElement;
-  private readonly colorCenterInput: HTMLInputElement;
-  private readonly colorDomainRow: HTMLElement;
-  private readonly histogramSettings: HTMLElement;
-  private readonly barSettings: HTMLElement;
-  private readonly barStackField: HTMLElement;
-  private readonly barStackInput: HTMLInputElement;
-  private readonly correlationSettings: HTMLElement;
-  private readonly topLabel: HTMLElement;
-  private readonly minInput: HTMLInputElement;
-  private readonly maxInput: HTMLInputElement;
-  private readonly binsInput: HTMLInputElement;
-  private readonly overflowInput: HTMLInputElement;
+  readonly colorMinInput: HTMLInputElement;
+  readonly colorMaxInput: HTMLInputElement;
+  readonly colorCenterInput: HTMLInputElement;
+  readonly colorDomainRow: HTMLElement;
+  readonly histogramSettings: HTMLElement;
+  readonly barSettings: HTMLElement;
+  readonly barStackField: HTMLElement;
+  readonly barStackInput: HTMLInputElement;
+  readonly correlationSettings: HTMLElement;
+  readonly topLabel: HTMLElement;
+  readonly minInput: HTMLInputElement;
+  readonly maxInput: HTMLInputElement;
+  readonly binsInput: HTMLInputElement;
+  readonly overflowInput: HTMLInputElement;
   private readonly topInput: HTMLInputElement;
   private readonly otherInput: HTMLInputElement;
-  private readonly multiInput: HTMLInputElement;
+  readonly multiInput: HTMLInputElement;
   private readonly swatches: HTMLButtonElement[] = [];
-  private readonly hexInput: HTMLInputElement;
+  readonly hexInput: HTMLInputElement;
   private readonly titleInput: HTMLInputElement;
   private readonly xTitleInput: HTMLInputElement;
   private readonly yTitleInput: HTMLInputElement;
@@ -1149,12 +1148,12 @@ export class ChartCard {
   readonly legendEl: HTMLElement;
   readonly tooltipEl: HTMLElement;
   readonly settingsBody: HTMLElement;
-  private settingsDisclosure: HTMLDetailsElement | null = null;
+  settingsDisclosure: HTMLDetailsElement | null = null;
   sidebar!: HTMLElement;
-  private sidebarToggle!: HTMLButtonElement;
-  private layoutEl!: HTMLElement;
+  sidebarToggle!: HTMLButtonElement;
+  layoutEl!: HTMLElement;
   sidebarShown = false;
-  private settingsDismiss: (() => void) | null = null;
+  settingsDismiss: (() => void) | null = null;
   hitRegions: HitRegion[] = [];
   exclusionBar!: HTMLElement;
   pointerAt: { x: number; y: number; clientX: number; clientY: number } | null = null;
@@ -2727,52 +2726,11 @@ export class ChartCard {
     window.addEventListener("themechange", this.onThemeChange);
   }
 
-  /**
-   * The settings panel in three parts. What every chart needs stays in view: its type, its fields
-   * and how they are added up. Refine (calculations, missing periods, top N, a chart's own filter,
-   * reference lines) and Format (titles and colours) are one click away and stay as the person
-   * left them, on every chart.
-   */
-  private groupSettings(): void {
-    const group = (key: SettingsGroup, title: string, hint: string, children: (Element | null)[]): HTMLDetailsElement => {
-      const details = el("details", { class: "chart-side-group", "data-group": key }) as HTMLDetailsElement;
-      details.append(
-        el("summary", { class: "chart-side-group-title" }, [
-          el("span", { class: "chart-side-group-name" }, [title]),
-          el("span", { class: "chart-side-group-hint" }, [hint]),
-        ]),
-        ...children.filter((child): child is Element => child !== null),
-      );
-      details.open = readGroupOpen(key);
-      details.addEventListener("toggle", () => writeGroupOpen(key, details.open));
-      this.settingsGroups.push(details);
-      return details;
-    };
-    const settings = this.sidebar.querySelector(".chart-side-settings");
-    settings?.querySelector(".chart-side-title")?.remove();
-    const refine = group("refine", "Refine", "calculations, top N, filter, reference lines", [
-      el("div", { class: "chart-side-section" }, [
-        this.valueCalcWrap,
-        this.valueEveryWrap,
-        this.valueFillWrap,
-        this.weekStartWrap,
-        this.fiscalWrap,
-      ]),
-      el("div", { class: "chart-side-section chart-side-refine" }, [
-        this.barSettings,
-        this.histogramSettings,
-        this.chartFilterRow,
-        this.errorBarRow,
-        this.correlationSettings,
-      ]),
-      this.sidebar.querySelector(".chart-side-map"),
-      this.sidebar.querySelector(".chart-side-ref"),
-    ]);
-    const format = group("format", "Format", "titles and colours", [settings]);
-    this.sidebar.append(refine, format);
+  groupSettings(): void {
+    return groupSettings(this);
   }
 
-  private readonly dataDrawer = new ChartDataDrawer(() => this.dataDrawerRows());
+  readonly dataDrawer = new ChartDataDrawer(() => this.dataDrawerRows());
 
   /** The chart's numbers as a table: a chart split into series reads across, one column per series. */
   private dataDrawerRows(): string[][] {
@@ -2797,61 +2755,10 @@ export class ChartCard {
   }
 
   /** The Refine and Format sections of this card, to bring in step with the other charts' when its tab opens. */
-  private readonly settingsGroups: HTMLDetailsElement[] = [];
+  readonly settingsGroups: HTMLDetailsElement[] = [];
 
-  /**
-   * The Chart page's arrangement of the same controls: one headline above the plot, and every
-   * setting in one panel beside it, so the plot is never covered while it is being changed.
-   */
   private dock(head: HTMLElement, quickRow: HTMLElement, sideHead: HTMLElement, canvasWrap: HTMLElement): void {
-    this.root.classList.add("chart-card-docked");
-    this.layoutEl.classList.add("docked");
-    sideHead.remove();
-    this.sourceChip.addEventListener("click", () => {
-      if (this.config.source !== "") this.options.onOpenSource?.(this.config.source);
-    });
-    head.prepend(el("div", { class: "chart-headline" }, [this.summaryEl, this.scopeEl, this.sourceChip]));
-    this.undoButton = el(
-      "button",
-      { class: "ghost small chart-undo-btn", type: "button", title: "Undo the last change to this chart (Ctrl+Z)", "aria-label": "Undo the last change to this chart", disabled: "disabled" },
-      ["Undo"],
-    ) as HTMLButtonElement;
-    this.undoButton.addEventListener("click", () => this.undo());
-    head.insertBefore(this.undoButton, this.focusButton);
-    head.append(this.sidebarToggle);
-
-    // The one chart-type control: a button naming the type, opening the pictures.
-    this.kindSelect.hidden = true;
-    this.kindButton = el("button", { class: "chart-kind-button", type: "button", "aria-haspopup": "dialog", "aria-label": "Chart type" }) as HTMLButtonElement;
-    this.kindButton.addEventListener("click", () => this.openKindPicker());
-    this.kindSelect.after(this.kindButton);
-    this.syncKindButton();
-
-    // Rolled-up values, map layers and dot sizing join the rest of the settings.
-    const valueSection = this.valueWrap.parentElement;
-    if (valueSection !== null) valueSection.after(el("div", { class: "chart-side-section" }, [quickRow]));
-    const colours = this.sidebar.querySelector(".chart-side-settings");
-    this.sidebar.insertBefore(el("div", { class: "chart-side-section chart-side-map" }, [this.bubbleSettings, this.dotSettings]), colours);
-    this.sidebar.insertBefore(el("div", { class: "chart-side-section chart-side-ref" }, [this.refSection]), colours);
-    if (this.options.sectionedSettings === true) {
-      this.groupSettings();
-      this.noteEl.after(this.dataDrawer.root);
-    }
-
-    this.selectionBar = el("div", { class: "chart-selection hidden", role: "group", "aria-label": "Selected in the chart" });
-    canvasWrap.append(this.selectionBar);
-
-    for (const type of ["pointerdown", "focusin"] as const) {
-      this.root.addEventListener(type, () => this.noteBeforeChange(), true);
-    }
-    this.root.addEventListener("keydown", (event) => {
-      const target = event.target as HTMLElement;
-      if (!(target instanceof HTMLInputElement && (target.type === "text" || target.type === "number"))) this.noteBeforeChange();
-    }, true);
-    for (const type of ["change", "click"] as const) {
-      this.root.addEventListener(type, () => this.noteAfterChange());
-    }
-    this.setSettingsOpen(this.options.settingsOpen ?? true);
+    return dock(this, head, quickRow, sideHead, canvasWrap);
   }
 
   /** The settings as they stand, before whatever the person is about to do. */
@@ -2898,7 +2805,7 @@ export class ChartCard {
     this.options.onTitleChange?.(this);
   }
 
-  private syncKindButton(): void {
+  syncKindButton(): void {
     const button = this.kindButton;
     if (button === null) return;
     const kind = this.config.kind;
@@ -2906,12 +2813,12 @@ export class ChartCard {
     button.classList.toggle("hidden", this.config.source !== "");
   }
 
-  private openKindPicker(): void {
+  openKindPicker(): void {
     return openKindPicker(this);
   }
 
   /** The places a chart of this type has for a field, each one a setting already on the panel. */
-  private fieldControls(): { label: string; select: HTMLSelectElement; wrap: HTMLElement }[] {
+  fieldControls(): { label: string; select: HTMLSelectElement; wrap: HTMLElement }[] {
     const pairs: [HTMLElement, HTMLSelectElement][] = [
       [this.primaryWrap, this.primarySelect],
       [this.xWrap, this.xSelect],
@@ -2948,37 +2855,8 @@ export class ChartCard {
     return roles;
   }
 
-  /** Where this column can go on this chart. `empty`: the place has no field yet, so taking it replaces nothing. */
   fieldSlots(column: number): { label: string; active: boolean; clearable: boolean; empty: boolean; toggle(): void }[] {
-    const value = String(column);
-    const out: { label: string; active: boolean; clearable: boolean; empty: boolean; toggle(): void }[] = [];
-    for (const { label, select } of this.fieldControls()) {
-      const option = [...select.options].find((candidate) => candidate.value === value);
-      if (option === undefined || option.disabled) continue;
-      // Offer the places a field suits: a list's "Other" group and a Value of text are there for the rare case, in the panel.
-      if ((option.parentElement as HTMLOptGroupElement | null)?.label === "Other") continue;
-      if (select === this.valueSelect && !isNumericType(this.meta(column)?.type ?? "string")) continue;
-      const clearable = [...select.options].some((candidate) => candidate.value === "-1");
-      out.push({
-        label,
-        active: select.value === value,
-        clearable,
-        empty: Number(select.value) < 0,
-        toggle: () => {
-          this.noteBeforeChange();
-          select.value = select.value === value ? "-1" : value;
-          const view = select.ownerDocument.defaultView as (Window & typeof globalThis) | null;
-          select.dispatchEvent(new (view?.Event ?? Event)("change", { bubbles: true }));
-        },
-      });
-    }
-    if (this.allowsExtraValues() && column !== this.config.valueColumn && isNumericType(this.meta(column)?.type ?? "string")) {
-      const active = this.extraValues().includes(column);
-      if (active || this.extraValues().length < MAX_VALUES - 1) {
-        out.push({ label: "Another value", active, clearable: true, empty: true, toggle: () => this.toggleExtraValue(column) });
-      }
-    }
-    return out;
+    return fieldSlots(this, column);
   }
 
   /** Opens or closes the docked settings panel; the chart takes the room it leaves. */
@@ -3012,77 +2890,25 @@ export class ChartCard {
    * chart keeps the full width. Escape closes it and returns focus to Customize.
    */
   /** Escape closes an open drawer wherever focus is (the chart itself cannot hold focus). */
-  private readonly onDrawerEscape = (event: KeyboardEvent): void => {
+  readonly onDrawerEscape = (event: KeyboardEvent): void => {
     if (event.key !== "Escape" || !this.sidebarShown || event.defaultPrevented) return;
     this.toggleSidebar();
     this.sidebarToggle.focus();
   };
 
   private toggleSidebar(): void {
-    if (this.options.docked === true) {
-      const open = !this.sidebarShown;
-      this.setSettingsOpen(open);
-      this.options.onSettingsToggle?.(open);
-      requestAnimationFrame(() => this.render());
-      return;
-    }
-    this.sidebarShown = !this.sidebarShown;
-    if (this.sidebarShown) document.addEventListener("keydown", this.onDrawerEscape);
-    else document.removeEventListener("keydown", this.onDrawerEscape);
-    this.layoutEl.classList.toggle("sidebar-open", this.sidebarShown);
-    this.layoutEl.classList.toggle("sidebar-collapsed", !this.sidebarShown);
-    this.sidebarToggle.setAttribute("aria-expanded", String(this.sidebarShown));
-    this.sidebarToggle.textContent = this.sidebarShown ? "Done" : "Customize";
-    this.sidebarToggle.setAttribute("aria-label", this.sidebarShown ? "Close the chart settings" : "Customize this chart");
-    this.sidebarToggle.title = this.sidebarShown ? "Close the settings drawer (Escape)" : "Open the settings drawer: type, fields, colours";
-    // The canvas width changes, so redraw at the new size.
-    requestAnimationFrame(() => this.render());
+    return toggleSidebar(this);
   }
 
-  /** One open Settings popover at a time; outside click or Escape dismisses it. */
   private syncSettingsOpen(): void {
-    const settings = this.settingsDisclosure;
-    if (settings === null) return;
-    if (settings.open) {
-      if (openSettingsDisclosure !== null && openSettingsDisclosure !== settings) {
-        openSettingsDisclosure.open = false;
-      }
-      openSettingsDisclosure = settings;
-      this.bindSettingsDismiss(settings);
-    } else {
-      if (openSettingsDisclosure === settings) openSettingsDisclosure = null;
-      this.unbindSettingsDismiss();
-    }
+    return syncSettingsOpen(this);
   }
 
-  private bindSettingsDismiss(settings: HTMLDetailsElement): void {
-    this.unbindSettingsDismiss();
-    const onDocumentClick = (event: Event): void => {
-      if (!settings.open) return;
-      const target = event.target as { closest?: (selector: string) => unknown } | null;
-      if (
-        target !== null &&
-        typeof target.closest === "function" &&
-        target.closest(".chart-settings-disclosure") === settings
-      ) {
-        return;
-      }
-      settings.open = false;
-    };
-    const onKeydown = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape" || !settings.open) return;
-      settings.open = false;
-      settings.querySelector<HTMLElement>("summary")?.focus();
-    };
-    document.addEventListener("click", onDocumentClick);
-    document.addEventListener("keydown", onKeydown);
-    this.settingsDismiss = () => {
-      document.removeEventListener("click", onDocumentClick);
-      document.removeEventListener("keydown", onKeydown);
-    };
+  bindSettingsDismiss(settings: HTMLDetailsElement): void {
+    return bindSettingsDismiss(this, settings);
   }
 
-  private unbindSettingsDismiss(): void {
+  unbindSettingsDismiss(): void {
     this.settingsDismiss?.();
     this.settingsDismiss = null;
   }
@@ -3091,7 +2917,7 @@ export class ChartCard {
     this.disposed = true;
     this.dataDrawer.dispose();
     document.removeEventListener("keydown", this.onDrawerEscape);
-    if (openSettingsDisclosure === this.settingsDisclosure) openSettingsDisclosure = null;
+    forgetSettingsDisclosure(this.settingsDisclosure);
     this.unbindSettingsDismiss();
     this.closeFocus();
     if (this.animationTimer !== null) {
@@ -3170,114 +2996,15 @@ export class ChartCard {
   }
 
   private renderSourceOptions(): void {
-    const current = this.config.source;
-    this.sourceSelect.replaceChildren();
-    const tableGroup = el("optgroup", { label: "Table data" });
-    tableGroup.append(
-      el("option", { value: "" }, [sourceOption("table", this.options.tableSourceLabel?.() ?? "Table (filtered)")]) as HTMLOptionElement,
-    );
-    this.sourceSelect.append(tableGroup);
-    const pivots = this.sources.filter((source) => source.kind === "pivot");
-    const views = this.sources.filter((source) => source.kind !== "pivot");
-    if (pivots.length > 0) {
-      const group = el("optgroup", { label: "Pivot views" });
-      for (const source of pivots) {
-        group.append(el("option", { value: source.id }, [sourceOption("view", source.name)]) as HTMLOptionElement);
-      }
-      this.sourceSelect.append(group);
-    }
-    if (views.length > 0) {
-      const group = el("optgroup", { label: "Saved views" });
-      for (const source of views) {
-        group.append(el("option", { value: source.id }, [sourceOption("view", source.name)]) as HTMLOptionElement);
-      }
-      this.sourceSelect.append(group);
-    }
-    if (
-      current !== "" &&
-      this.sources.length > 0 &&
-      !this.sources.some((source) => source.id === current)
-    ) {
-      this.config.source = "";
-    }
-    if (current !== "" && this.sources.length === 0) {
-      // Views arrive after the card on a restore; keep the select from reading blank.
-      this.sourceSelect.append(
-        el("option", { value: current }, [sourceOption("view", this.config.title || "View")]) as HTMLOptionElement,
-      );
-    }
-    this.sourceSelect.value = this.config.source;
+    return renderSourceOptions(this);
   }
 
-  /** A view-bound card hides the raw-column pickers; its type comes from the view. */
   syncSourceControls(): void {
-    const bound = this.config.source !== "";
-    const kind = this.config.kind;
-    this.kindSelect.classList.toggle("hidden", bound);
-    // A pivot with a Columns field can also be a heatmap, so its chart gets a choice; a plain view says what it is.
-    const choice = bound && this.isPivotSource();
-    this.kindStatic.classList.toggle("hidden", !bound || choice);
-    this.viewKindSelect.classList.toggle("hidden", !choice);
-    this.backToSource.classList.toggle("hidden", !bound || this.options.onOpenSource === undefined);
-    const origin = bound ? this.sources.find((entry) => entry.id === this.config.source) : undefined;
-    this.sourceChip.classList.toggle("hidden", origin === undefined || this.options.onOpenSource === undefined);
-    if (origin !== undefined) this.sourceChip.textContent = `${origin.kind === "pivot" ? "Pivot" : "View"}: ${origin.name} \u2197`;
-    this.syncViewShapeOptions();
-    this.syncFieldVisibility();
-    this.settingsBody.classList.toggle("hidden", bound ? false : !this.canDraw());
-    const pivotMode = kind === "pivotHeatmap" && this.isPivotSource();
-    this.pivotRowWrap.classList.toggle("hidden", !pivotMode);
-    this.pivotColWrap.classList.toggle("hidden", !pivotMode);
-    this.pivotMeasureWrap.classList.toggle("hidden", !pivotMode);
+    return syncSourceControls(this);
   }
 
-  /**
-   * Which field and aggregate pickers this chart shows: the one place that decides, for every
-   * chart type and for charts of a Pivot View (which hide the raw-column pickers). Everything
-   * that changes the type, the source, the value or the columns calls this.
-   */
   syncFieldVisibility(): void {
-    const bound = this.config.source !== "";
-    const kind = this.config.kind;
-    const pair = isPairKind(kind);
-    const groupable = this.columns.some((meta) => isGroupable(meta));
-    const measureKinds = VALUE_AGGREGATE_KINDS.includes(kind) || kind === "treemap";
-    const grainKinds =
-      kind === "line" ||
-      kind === "smallmultiples" ||
-      ((kind === "kpi" || kind === "slopegraph" || kind === "waterfall") &&
-        this.isDateLike(this.meta(this.config.column)));
-    const valueOn =
-      measureKinds && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
-    const kpiPrimaryHidden =
-      kind === "kpi" && !this.columns.some((meta) => this.isDateLike(meta));
-    const groupedValue =
-      valueOn && SPLIT_KINDS.includes(kind);
-    this.primaryWrap.classList.toggle(
-      "hidden",
-      bound || pair || kind === "correlation" || kpiPrimaryHidden,
-    );
-    this.groupWrap.classList.toggle(
-      "hidden",
-      bound ||
-      (!SPLIT_KINDS.includes(kind) && kind !== "histogram" && kind !== "bubble") ||
-        !groupable ||
-        (valueOn && !groupedValue),
-    );
-    this.valueWrap.classList.toggle("hidden", bound || !measureKinds);
-    this.valueAggWrap.classList.toggle("hidden", bound || !measureKinds || !valueOn);
-    this.valueGrainWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn);
-    this.valueEveryWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || !this.hasExplicitGrain());
-    this.valueFillWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn);
-    this.weekStartWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || this.resolvedGrain() !== "week");
-    this.fiscalWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || (this.resolvedGrain() !== "quarter" && this.resolvedGrain() !== "year"));
-    this.valueCalcWrap.classList.toggle("hidden", bound || !valueOn || kind === "treemap");
-    this.syncExtraValues();
-    // Regions matched by name need no coordinates, so a map of them hides X and Y too.
-    const noAxes = bound || !pair || (this.regionsOn() && this.regions?.usesCoordinates !== true);
-    this.xWrap.classList.toggle("hidden", noAxes);
-    this.yWrap.classList.toggle("hidden", noAxes);
-    this.axesPanel.classList.toggle("hidden", bound || kind === "correlation");
+    return syncFieldVisibility(this);
   }
 
   /** Fetches the bound aggregate or pivot result (generation-guarded). */
@@ -3331,7 +3058,7 @@ export class ChartCard {
   }
 
   /** Whether this chart can draw more than one value: a line or bars of the table, not already split by a field. */
-  private allowsExtraValues(): boolean {
+  allowsExtraValues(): boolean {
     const kind = this.config.kind;
     const agg = this.config.valueAgg ?? "mean";
     return (
@@ -3354,116 +3081,35 @@ export class ChartCard {
     );
   }
 
-  /** Adds or removes a column as another value; a chart with several values is not also split by a field. */
-  private toggleExtraValue(column: number): void {
-    const current = this.config.extraValueColumns ?? [];
-    this.noteBeforeChange();
-    this.config.extraValueColumns = current.includes(column)
-      ? current.filter((other) => other !== column)
-      : [...current, column].slice(0, MAX_VALUES - 1);
-    this.hiddenSplit.clear();
-    this.generation++;
-    this.renderControls();
-    this.refreshValue();
-    this.render();
-    this.noteAfterChange();
+  toggleExtraValue(column: number): void {
+    return toggleExtraValue(this, column);
   }
 
-  /** The values drawn beside Value, each with a remove button, and a list to add another. */
-  private syncExtraValues(): void {
-    const allowed = this.allowsExtraValues();
-    const extras = this.extraValues();
-    const numeric = this.columns
-      .map((meta, index) => ({ meta, index }))
-      .filter(({ meta, index }) => isNumericType(meta.type) && meta.role !== "provenance" && index !== this.config.valueColumn && !extras.includes(index));
-    const key = `${allowed}|${extras.join(",")}|${numeric.map(({ index }) => index).join(",")}`;
-    this.extraValuesWrap.classList.toggle("hidden", !allowed || (extras.length === 0 && numeric.length === 0));
-    if (key === this.extraValuesKey) return;
-    this.extraValuesKey = key;
-    const rows = extras.map((column) => {
-      const name = this.meta(column)?.name ?? "value";
-      const remove = el("button", { class: "icon-btn chart-extra-remove", type: "button", title: `Stop drawing ${name}`, "aria-label": `Remove ${name}` }, ["\u00d7"]);
-      remove.addEventListener("click", () => this.toggleExtraValue(column));
-      return el("div", { class: "chart-extra-value" }, [el("span", { class: "chart-extra-name" }, [name]), remove]);
-    });
-    const add = el("select", { class: "chart-picker chart-picker-small chart-extra-add", "aria-label": "Add another value" }) as HTMLSelectElement;
-    add.append(el("option", { value: "" }, ["+ Add another value\u2026"]) as HTMLOptionElement);
-    for (const { meta, index } of numeric) add.append(el("option", { value: String(index) }, [meta.name]) as HTMLOptionElement);
-    add.disabled = extras.length >= MAX_VALUES - 1 || numeric.length === 0;
-    add.addEventListener("change", () => {
-      if (add.value !== "") this.toggleExtraValue(Number(add.value));
-    });
-    this.extraValuesWrap.replaceChildren(...rows, add);
+  syncExtraValues(): void {
+    return syncExtraValues(this);
   }
 
-  /** Puts a pivot field on the axis, as the series, or as the value. */
-  private setViewShape(key: "viewAxis" | "viewSeries" | "viewMeasure", value: number): void {
-    this.noteBeforeChange();
-    // Fields the chart had not fixed yet stay as the pivot lays them out.
-    const shape = this.viewShape();
-    if (shape !== null) {
-      this.config.viewAxis ??= shape.axis;
-      this.config.viewSeries ??= shape.series;
-      this.config.viewMeasure ??= shape.measure;
-    }
-    this.config[key] = value;
-    // The axis cannot also be the series: taking a field for one frees the other.
-    if (key === "viewAxis" && this.config.viewSeries === this.config.viewAxis) this.config.viewSeries = -1;
-    this.hiddenSplit.clear();
-    this.syncViewShapeOptions();
-    this.renderControls();
-    this.refreshView();
+  setViewShape(key: "viewAxis" | "viewSeries" | "viewMeasure", value: number): void {
+    return setViewShape(this, key, value);
   }
 
-  /**
-   * The fields of the pivot this chart draws, for the field list to show in place of the table's
-   * columns: what each is on the chart, and the places it could go. Null for a chart of the table.
-   */
   pivotRailItems(): {
     name: string;
     glyph: string;
     role: string;
     slots: { label: string; active: boolean; clearable: boolean; empty: boolean; toggle(): void }[];
   }[] | null {
-    const fields = this.viewFields();
-    const shape = this.viewShape();
-    if (fields === null || shape === null) return null;
-    const live = this.config.kind !== "pivotHeatmap";
-    const dimensions = fields.dimensions.map((field, index) => {
-      const slots: { label: string; active: boolean; clearable: boolean; empty: boolean; toggle(): void }[] = [];
-      if (live) {
-        slots.push({ label: "Axis", active: shape.axis === index, clearable: false, empty: false, toggle: () => this.setViewShape("viewAxis", index) });
-        // The axis field cannot also split the series, so it offers the axis only.
-        if (shape.axis !== index) {
-          slots.push({
-            label: "Series",
-            active: shape.series === index,
-            clearable: true,
-            empty: shape.series < 0,
-            toggle: () => this.setViewShape("viewSeries", shape.series === index ? -1 : index),
-          });
-        }
-      }
-      const role = shape.axis === index ? "Axis" : shape.series === index ? "Series" : "";
-      return { name: field.name, glyph: field.time ? "T" : "C", role: live ? role : "", slots };
-    });
-    const measures = fields.measures.map((name, index) => ({
-      name,
-      glyph: "#",
-      role: live && shape.measure === index ? "Value" : "",
-      slots: live ? [{ label: "Value", active: shape.measure === index, clearable: false, empty: false, toggle: () => this.setViewShape("viewMeasure", index) }] : [],
-    }));
-    return [...dimensions, ...measures];
+    return pivotRailItems(this);
   }
 
   /** The pivot fields this chart can use, when its source is a Pivot View that offered them. */
-  private viewFields(): NonNullable<ChartSource["fields"]> | null {
+  viewFields(): NonNullable<ChartSource["fields"]> | null {
     if (this.config.source === "") return null;
     return this.sources.find((entry) => entry.id === this.config.source)?.fields ?? null;
   }
 
   /** Axis, series and value as chosen, each falling back to the pivot's own layout. */
-  private viewShape(): PivotChartShape | null {
+  viewShape(): PivotChartShape | null {
     const fields = this.viewFields();
     if (fields === null) return null;
     const dims = fields.dimensions.length;
@@ -3479,72 +3125,12 @@ export class ChartCard {
     return { axis, series, measure };
   }
 
-  /** Fills the Axis, Series and Value pickers from the pivot's fields and shows the ones with a choice to make. */
-  private syncViewShapeOptions(): void {
-    const fields = this.viewFields();
-    const shape = this.viewShape();
-    const on = fields !== null && shape !== null && this.config.kind !== "pivotHeatmap";
-    this.viewAxisWrap.classList.toggle("hidden", !on || fields.dimensions.length < 2);
-    this.viewSeriesWrap.classList.toggle("hidden", !on || fields.dimensions.length < 2);
-    this.viewMeasureWrap.classList.toggle("hidden", !on || fields.measures.length < 2);
-    if (this.isPivotSource()) {
-      const lines = shape !== null && fields?.dimensions[shape.axis]?.time === true;
-      this.viewKindSelect.replaceChildren(
-        el("option", { value: "bar" }, [lines ? "Lines" : "Bars"]) as HTMLOptionElement,
-        el("option", { value: "pivotHeatmap" }, ["Heatmap"]) as HTMLOptionElement,
-      );
-      this.viewKindSelect.value = this.config.kind === "pivotHeatmap" ? "pivotHeatmap" : "bar";
-    }
-    if (!on) return;
-    const zone = (index: number): string => (fields.dimensions[index]?.zone === "columns" ? "Columns" : "Rows");
-    const option = (index: number): HTMLOptionElement =>
-      el("option", { value: String(index) }, [`${fields.dimensions[index]?.name ?? ""} (${zone(index)})`]) as HTMLOptionElement;
-    this.viewAxisSelect.replaceChildren(...fields.dimensions.map((_, index) => option(index)));
-    this.viewAxisSelect.value = String(shape.axis);
-    this.viewSeriesSelect.replaceChildren(
-      el("option", { value: "-1" }, ["None"]) as HTMLOptionElement,
-      ...fields.dimensions.map((_, index) => index).filter((index) => index !== shape.axis).map(option),
-    );
-    this.viewSeriesSelect.value = String(shape.series);
-    this.viewMeasureSelect.replaceChildren(
-      ...fields.measures.map((name, index) => el("option", { value: String(index) }, [name]) as HTMLOptionElement),
-    );
-    this.viewMeasureSelect.value = String(shape.measure);
+  syncViewShapeOptions(): void {
+    return syncViewShapeOptions(this);
   }
 
-  /** Levels and measures exposed by the bound pivot result. */
   private syncPivotOptions(): void {
-    const pivot = this.pivotResult;
-    if (pivot === null) return;
-    const fill = (
-      select: HTMLSelectElement,
-      labels: string[],
-      selected: number | undefined,
-    ): void => {
-      select.replaceChildren();
-      labels.forEach((label, index) => {
-        select.append(
-          el("option", { value: String(index) }, [
-            label || `Level ${index + 1}`,
-          ]) as HTMLOptionElement,
-        );
-      });
-      const value = Math.max(
-        0,
-        Math.min(labels.length - 1, selected ?? labels.length - 1),
-      );
-      select.value = String(value);
-    };
-    fill(this.pivotRowSelect, pivot.rowNames, this.config.pivotRowLevel);
-    fill(this.pivotColSelect, pivot.colNames, this.config.pivotColLevel);
-    fill(
-      this.pivotMeasureSelect,
-      pivot.measures.map((measure) => measure.name),
-      this.config.pivotMeasure,
-    );
-    this.config.pivotRowLevel = Number(this.pivotRowSelect.value);
-    this.config.pivotColLevel = Number(this.pivotColSelect.value);
-    this.config.pivotMeasure = Number(this.pivotMeasureSelect.value);
+    return syncPivotOptions(this);
   }
 
   isPivotSource(): boolean {
@@ -3645,7 +3231,7 @@ export class ChartCard {
   }
 
   /** True once a grain is picked by hand; Auto chooses width and unit together. */
-  private hasExplicitGrain(): boolean {
+  hasExplicitGrain(): boolean {
     return this.config.valueGrain !== undefined && this.config.valueGrain !== "auto";
   }
 
@@ -3882,7 +3468,7 @@ export class ChartCard {
   }
 
   /** Plain-language sentence describing every semantic choice in the card. */
-  private syncSummary(): void {
+  syncSummary(): void {
     this.syncSummaryText();
     this.syncNote();
   }
@@ -4323,35 +3909,7 @@ export class ChartCard {
   }
 
   allowsPrimary(meta: ColumnMeta): boolean {
-    switch (this.config.kind) {
-      case "histogram":
-        return isNumericType(meta.type) || meta.type === "time" || meta.type === "duration";
-      case "line":
-        return meta.type === "date" || meta.type === "datetime";
-      case "kpi":
-        // The primary column is the KPI's optional date axis.
-        return meta.type === "date" || meta.type === "datetime";
-      case "bar":
-      case "barplot":
-      case "dotplot":
-      case "stacked100":
-        return isGroupable(meta);
-      case "smallmultiples":
-        return meta.type === "date" || meta.type === "datetime";
-      case "slopegraph":
-      case "waterfall":
-        return isGroupable(meta) || meta.type === "date" || meta.type === "datetime";
-      case "treemap":
-        if (meta.role === "provenance") return false;
-        return (
-          isGroupable(meta) ||
-          (meta.type === "string" && !isIdLikeColumn(meta, this.rowCount))
-        );
-      case "terms":
-        return meta.type === "string";
-      default:
-        return false;
-    }
+    return allowsPrimary(this, meta);
   }
 
   allowsAxis(meta: ColumnMeta): boolean {
@@ -4363,7 +3921,7 @@ export class ChartCard {
     );
   }
 
-  private allowsX(meta: ColumnMeta): boolean {
+  allowsX(meta: ColumnMeta): boolean {
     switch (this.config.kind) {
       case "box":
         return isNumericType(meta.type);
@@ -4376,7 +3934,7 @@ export class ChartCard {
     }
   }
 
-  private allowsY(meta: ColumnMeta): boolean {
+  allowsY(meta: ColumnMeta): boolean {
     switch (this.config.kind) {
       case "box":
       case "heatmap":
@@ -4403,65 +3961,8 @@ export class ChartCard {
     return label.replace(/ \(mean\)$/, "");
   }
 
-  private syncValueAggOptions(): void {
-    const meta = this.meta(this.config.valueColumn ?? -1);
-    const options: [NonNullable<ChartCardConfig["valueAgg"]>, string][] =
-      meta === undefined
-        ? [["mean", "Average (mean)"], ["sum", "Sum"]]
-        : meta.type === "boolean"
-          ? [
-              ["true", "True count"],
-              ["false", "False count"],
-              ["truePct", "True % of rows"],
-              ["missing", "Missing count"],
-              ["count", "Count of values"],
-              ["distinct", "Distinct values"],
-              ["mode", "Mode"],
-            ]
-          : meta.type === "date" || meta.type === "datetime"
-            ? [
-                ["min", "Earliest"],
-                ["max", "Latest"],
-                ["count", "Count of values"],
-                ["distinct", "Distinct values"],
-                ["mode", "Mode"],
-                ["first", "First (by row order)"],
-                ["last", "Last (by row order)"],
-              ]
-            : meta.type === "category" || meta.type === "string" || meta.type === "identifier"
-              ? [
-                  ["count", "Count of values"],
-                  ["distinct", "Distinct values"],
-                  ["mode", "Mode"],
-                ]
-              : [
-                  ["mean", "Average (mean)"],
-                  ["sum", "Sum"],
-                  ["median", "Median"],
-                  ["min", "Min"],
-                  ["max", "Max"],
-                  ["stddev", "Std deviation"],
-                  ["variance", "Variance"],
-                  ["p25", "25th percentile"],
-                  ["p75", "75th percentile"],
-                  ["p90", "90th percentile"],
-                  ["p95", "95th percentile"],
-                  ["count", "Count of values"],
-                  ["distinct", "Distinct values"],
-                  ["first", "First (by row order)"],
-                  ["last", "Last (by row order)"],
-                  ["mode", "Mode"],
-                ];
-    const current = this.config.valueAgg ?? options[0]?.[0];
-    this.valueAggSelect.replaceChildren();
-    for (const [value, label] of options) {
-      this.valueAggSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    }
-    const selected = options.some(([value]) => value === current) ? current : options[0]?.[0];
-    if (selected !== undefined) {
-      this.valueAggSelect.value = selected;
-      this.config.valueAgg = selected;
-    }
+  syncValueAggOptions(): void {
+    return syncValueAggOptions(this);
   }
   private defaultCorrelationColumns(): number[] {
     return this.allowedIndexes(
@@ -4624,176 +4125,14 @@ export class ChartCard {
   }
 
   private syncOptions(): void {
-    if (this.columns.length === 0) return;
-    const signature = `${this.config.kind}|${this.columns
-      .map((meta, index) => `${index}:${meta.type}:${meta.name}`)
-      .join("|")}`;
-    if (signature === this.pickerSignature) return;
-    this.pickerSignature = signature;
-    this.kindSelect.value = this.config.kind;
-
-    const primary = this.allowedIndexes((meta) => this.allowsPrimary(meta));
-    if (!primary.includes(this.config.column)) this.config.column = primary[0] ?? -1;
-    this.fillColumnSelect(this.primarySelect, primary, this.config.kind === "kpi" ? 1 : 0);
-    if (primary.length === 0) {
-      const placeholder = this.option("-1", "No matching column");
-      placeholder.disabled = true;
-      this.primarySelect.append(placeholder);
-    }
-    if (this.config.column >= 0) this.primarySelect.value = String(this.config.column);
-
-    const groupable = this.allowedIndexes((meta) => isGroupable(meta));
-    if (!groupable.includes(this.config.groupColumn)) this.config.groupColumn = -1;
-    this.fillColumnSelect(this.groupSelect, groupable, 2, [this.option("-1", "None")]);
-    this.groupSelect.value = String(this.config.groupColumn);
-
-    const valueAllowed = this.allowedIndexes(
-      (meta) =>
-        meta.role !== "provenance" &&
-        (this.config.kind !== "treemap" ||
-          isNumericType(meta.type) ||
-          meta.type === "duration"),
-    );
-    if (
-      this.config.valueColumn !== undefined &&
-      this.config.valueColumn >= 0 &&
-      !valueAllowed.includes(this.config.valueColumn)
-    ) {
-      this.config.valueColumn = -1;
-    }
-    this.valueSelect.replaceChildren(this.option("-1", "Count of rows"));
-    valueAllowed.forEach((index) => {
-      const meta = this.columns[index];
-      this.valueSelect.append(
-        this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`),
-      );
-    });
-    if ((this.config.valueColumn ?? -1) >= 0) {
-      this.valueSelect.value = String(this.config.valueColumn);
-    }
-    this.syncValueAggOptions();
-    this.valueGrainSelect.value = this.config.valueGrain ?? "auto";
-    this.valueEveryInput.value = String(this.config.valueEvery ?? 1);
-    this.valueFillSelect.value = this.config.valueFill ?? "auto";
-    this.weekStartSelect.value = String(this.config.valueWeekStart ?? 1);
-    this.fiscalSelect.value = String(this.config.valueFiscalStart ?? 1);
-    // Say what "Auto" currently means, and offer only grains the column can support.
-    const dateOnly = this.meta(this.config.column)?.type === "date";
-    const autoOption = this.valueGrainSelect.options[0];
-    if (autoOption !== undefined) {
-      const auto = this.defaultStepFor(this.config.column);
-      autoOption.textContent = `Auto (${describeStep(auto.grain, auto.every)})`;
-    }
-    for (const option of Array.from(this.valueGrainSelect.options)) {
-      option.hidden = dateOnly && (option.value === "minute" || option.value === "hour" || option.value === "second");
-    }
-    this.valueCalcSelect.value = this.config.valueCalc ?? "";
-    this.barStackInput.checked = (this.config.barLayout ?? "group") === "stack";
-
-    const xAllowed = this.allowedIndexes((meta) => this.allowsX(meta));
-    const yAllowed = this.allowedIndexes((meta) => this.allowsY(meta));
-    // The Map page's map with no coordinate columns stays empty (basemap and markers only).
-    const keepEmpty = this.options.keepEmptyMap === true && this.config.kind === "map" && this.config.x === -1 && this.config.y === -1;
-    if (!keepEmpty && !xAllowed.includes(this.config.x)) this.config.x = xAllowed[0] ?? -1;
-    if (!keepEmpty && (!yAllowed.includes(this.config.y) || (this.config.y === this.config.x && yAllowed.length > 1))) {
-      this.config.y = yAllowed.find((index) => index !== this.config.x) ?? yAllowed[0] ?? -1;
-    }
-    for (const [select, allowed, selected] of [
-      [this.xSelect, xAllowed, this.config.x],
-      [this.ySelect, yAllowed, this.config.y],
-    ] as const) {
-      this.fillColumnSelect(select, allowed, select === this.xSelect ? 0 : 1);
-      if (allowed.length === 0) {
-        const placeholder = this.option("-1", "No numeric column");
-        placeholder.disabled = true;
-        select.append(placeholder);
-      } else if (selected >= 0) {
-        select.value = String(selected);
-      }
-    }
-
-    this.colorSelect.replaceChildren(this.option("-1", "None"));
-    this.sizeSelect.replaceChildren(this.option("-1", "None"));
-    this.columns.forEach((meta, index) => {
-      this.colorSelect.append(this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`));
-      if (isNumericType(meta.type)) {
-        this.sizeSelect.append(this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`));
-      }
-    });
-    if (this.config.colorColumn < 0 || this.config.colorColumn >= this.columns.length) {
-      this.config.colorColumn = -1;
-    }
-    if (this.config.sizeColumn < 0 || this.config.sizeColumn >= this.columns.length) {
-      this.config.sizeColumn = -1;
-    }
-    this.colorSelect.value = String(this.config.colorColumn);
-    this.sizeSelect.value = String(this.config.sizeColumn);
-    const sizeNone = this.sizeSelect.options[0];
-    if (sizeNone !== undefined) {
-      sizeNone.textContent =
-        this.config.kind === "treemap" || this.config.kind === "bubble"
-          ? "Count (rows)"
-          : "None";
-    }
-    // "Auto" is retired: older charts that had it draw points, the plain default.
-    this.modeSelect.value = this.config.mode === "auto" ? "points" : this.config.mode;
-    this.densityStyleSelect.value = this.config.densityStyle;
-
-    const numeric = this.allowedIndexes((meta) => isNumericType(meta.type));
-    this.config.correlationColumns = this.config.correlationColumns.filter((index) =>
-      numeric.includes(index),
-    );
-    if (this.config.kind === "correlation" && this.config.correlationColumns.length < 2) {
-      this.config.correlationColumns = numeric.slice(0, 6);
-    }
-    this.correlationSelect.replaceChildren();
-    numeric.forEach((index) => {
-      const meta = this.columns[index];
-      const option = this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`);
-      option.selected = this.config.correlationColumns.includes(index);
-      this.correlationSelect.append(option);
-    });
-    this.syncAnimationOptions();
-    this.syncChartFilterControls();
-    this.sortSelect.value = this.config.chartSort ?? "none";
-    this.sortWrap.classList.toggle(
-      "hidden",
-      !this.usesAggregate() || this.config.kind === "pivotHeatmap" || this.config.kind === "kpi",
-    );
-    this.syncSummary();
+    return syncOptions(this);
   }
 
-  /** Category filter choices for this chart, plus its table-filter scope. */
   syncChartFilterControls(): void {
-    const categoryIndexes = this.allowedIndexes((meta) => isGroupable(meta));
-    let column = this.config.filterColumn ?? -1;
-    if (!categoryIndexes.includes(column)) column = -1;
-    this.config.filterColumn = column;
-    this.filterColumnSelect.replaceChildren(this.option("-1", "No chart filter"));
-    for (const index of categoryIndexes) {
-      this.filterColumnSelect.append(this.option(String(index), this.columns[index].name));
-    }
-    this.filterColumnSelect.value = String(column);
-
-    this.filterValueSelect.replaceChildren();
-    const labels = column >= 0 ? (this.meta(column)?.categories?.labels ?? []) : [];
-    labels.forEach((label, code) => {
-      this.filterValueSelect.append(this.option(String(code), label || "(empty)"));
-    });
-    let code = this.config.filterCode ?? -1;
-    if (column < 0 || code < 0 || code >= labels.length) code = labels.length > 0 ? 0 : -1;
-    this.config.filterCode = code;
-    if (code >= 0) this.filterValueSelect.value = String(code);
-    this.filterValueSelect.disabled = column < 0;
-    this.filterRespectInput.checked = this.config.respectFilters !== false;
-    const aggregateBacked =
-      this.usesValueAggregate() ||
-      this.config.kind === "treemap" ||
-      this.regionsOn();
-    this.chartFilterRow.classList.toggle("hidden", !aggregateBacked);
+    return syncChartFilterControls(this);
   }
 
-  private syncAnimationOptions(): void {
+  syncAnimationOptions(): void {
     return syncAnimationOptions(this);
   }
 
@@ -4846,7 +4185,7 @@ export class ChartCard {
    * Automatic bucket for a date column: a short span of timestamps gets minutes
    * or half-hours (about sixty points), longer ones day, week or month.
    */
-  private defaultStepFor(column: number): { grain: TimeGrain; every: number } {
+  defaultStepFor(column: number): { grain: TimeGrain; every: number } {
     const meta = this.meta(column);
     const min = meta?.stats.min;
     const max = meta?.stats.max;
@@ -4860,37 +4199,8 @@ export class ChartCard {
     return { grain: "month", every: 1 };
   }
 
-  /**
-   * Fills a column select from the registry: columns that suit the slot first,
-   * the rest under "Other" with the reason as a tooltip. Nothing is hidden.
-   */
-  private fillColumnSelect(
-    select: HTMLSelectElement,
-    allowed: readonly number[],
-    slotIndex: number,
-    leading: HTMLOptionElement[] = [],
-  ): void {
-    const fields = fieldsFor(this.config.kind, slotIndex, this.columns, this.rowCount);
-    const reasons = new Map(fields.other.map((entry) => [entry.index, entry.reason]));
-    const suggested = allowed.filter((index) => !reasons.has(index));
-    const other = allowed.filter((index) => reasons.has(index));
-    const make = (index: number): HTMLOptionElement => {
-      const meta = this.columns[index];
-      const option = this.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`);
-      const reason = reasons.get(index);
-      if (reason !== undefined) option.title = reason;
-      return option;
-    };
-    select.replaceChildren(...leading);
-    if (suggested.length > 0 && other.length > 0) {
-      const good = el("optgroup", { label: "Suggested" }) as HTMLOptGroupElement;
-      good.append(...suggested.map(make));
-      const rest = el("optgroup", { label: "Other" }) as HTMLOptGroupElement;
-      rest.append(...other.map(make));
-      select.append(good, rest);
-    } else {
-      select.append(...allowed.map(make));
-    }
+  fillColumnSelect(select: HTMLSelectElement, allowed: readonly number[], slotIndex: number, leading: HTMLOptionElement[] = []): void {
+    return fillColumnSelect(this, select, allowed, slotIndex, leading);
   }
 
   option(value: string, label: string): HTMLOptionElement {
@@ -4898,190 +4208,10 @@ export class ChartCard {
   }
 
   renderControls(): void {
-    const kind = this.config.kind;
-    const pair = isPairKind(kind);
-    this.syncFieldVisibility();
-    this.primaryTagLabel.textContent =
-      kind === "histogram"
-        ? "Values"
-        : kind === "line"
-          ? "Date"
-          : kind === "kpi"
-            ? "Date (optional)"
-            : kind === "treemap"
-              ? "Group by"
-              : kind === "bar" || kind === "barplot" || kind === "dotplot" || kind === "stacked100"
-                ? "Category"
-                : kind === "terms"
-                  ? "Text"
-                  : "Column";
-    const valueLabel = this.valueWrap.querySelector<HTMLElement>(".chart-tag-label");
-    if (valueLabel !== null) valueLabel.textContent = kind === "treemap" ? "Size by" : "Value";
-    const groupable = this.columns.some((meta) => isGroupable(meta));
-    const measureKinds = VALUE_AGGREGATE_KINDS.includes(kind) || kind === "treemap";
-    const grainKinds =
-      kind === "line" ||
-      kind === "smallmultiples" ||
-      ((kind === "kpi" || kind === "slopegraph" || kind === "waterfall") &&
-        this.isDateLike(this.meta(this.config.column)));
-    const valueOn =
-      measureKinds && this.config.source === "" && (this.config.valueColumn ?? -1) >= 0;
-    const groupedValue =
-      valueOn && SPLIT_KINDS.includes(kind);
-    const seriesKind = kind === "scatter" || kind === "density";
-    const mapKind = kind === "map";
-    this.mapModeWrap.classList.toggle("hidden", !mapKind || this.config.mapMode === "heat" || this.config.mapMode === "regions");
-    this.regions?.root.classList.toggle("hidden", !this.regionsOn());
-    this.regions?.setDropActive(mapKind);
-    this.regions?.setLanding(this.regionsOn());
-    this.syncRegionAxes();
-    this.colorWrap.classList.toggle("hidden", (!seriesKind && !mapKind) || this.regionsOn());
-    this.sizeTagLabel.textContent =
-      mapKind && this.config.mapMode === "heat" ? "Measure" : "Size";
-    this.sizeWrap.classList.toggle(
-      "hidden",
-      !seriesKind && kind !== "treemap" && kind !== "bubble" && (!mapKind || this.regionsOn()),
-    );
-    // The size column belongs to the visible Bubbles/Map row, not the Settings
-    // drawer, so switching what drives the area is one obvious control.
-    if (kind === "bubble" || mapKind) {
-      this.bubbleSettings.insertBefore(this.sizeWrap, this.bubbleAggField);
-    } else if (this.sizeWrap.parentElement !== this.settingsBody) {
-      this.settingsBody.append(this.sizeWrap);
-    }
-    // Colour belongs next to Show/Measure on the map row; elsewhere it stays
-    // in the Settings disclosure.
-    if (mapKind) this.bubbleSettings.insertBefore(this.colorWrap, this.sizeWrap);
-    else if (this.colorWrap.parentElement === this.bubbleSettings) {
-      this.settingsBody.append(this.colorWrap);
-    }
-    const chartFilterable =
-      (measureKinds && valueOn) ||
-      kind === "treemap" ||
-      kind === "heatmap" ||
-      kind === "correlation" ||
-      kind === "box" ||
-      kind === "bubble" ||
-      seriesKind ||
-      mapKind;
-    this.chartFilterRow.classList.toggle("hidden", !chartFilterable);
-    this.modeWrap.classList.toggle("hidden", kind !== "scatter");
-    this.densityStyleWrap.classList.toggle("hidden", !seriesKind);
-    // Heat and contour lines belong to the density (heat map) render: with plain points they do nothing, so the control says so.
-    const heatRender = kind === "density" || (kind === "scatter" && this.config.mode === "density");
-    this.densityStyleSelect.disabled = !heatRender;
-    this.densityStyleWrap.classList.toggle("disabled", !heatRender);
-    this.densityStyleWrap.title = heatRender ? "" : "Only used when Render is set to Density (heat map)";
-    this.colorGroup.classList.toggle("hidden", kind === "correlation");
-    this.paletteGroup.classList.toggle("hidden", kind === "correlation");
-    this.histogramSettings.classList.toggle("hidden", kind !== "histogram");
-    this.syncErrorBarControls();
-    this.barStackField.classList.toggle(
-      "hidden",
-      this.config.source !== ""
-        ? kind === "pivotHeatmap" || (this.viewShape()?.series ?? -1) < 0
-        : kind !== "barplot" || this.config.groupColumn < 0,
-    );
-    this.barSettings.classList.toggle(
-      "hidden",
-      kind !== "bar" &&
-        kind !== "barplot" &&
-        kind !== "box" &&
-        kind !== "heatmap" &&
-        kind !== "treemap" &&
-        kind !== "bubble",
-    );
-    // Always there, so it can be found: grey says why it cannot run yet. Not truly disabled, or hover and focus could miss the reason.
-    const animateBlock = this.animationBlock();
-    this.animateButton.setAttribute("aria-disabled", String(animateBlock !== null));
-    this.animateButton.title = animateBlock ?? "Step this chart through time";
-    this.animateButton.classList.toggle("active", this.animationSetupOpen && animateBlock === null);
-    this.animationSetup.classList.toggle("hidden", !(animateBlock === null && this.animationSetupOpen));
-    const bubbleOnly = kind === "bubble";
-    this.bubbleSettings.classList.toggle("hidden", !bubbleOnly && !mapKind);
-    this.bubbleTitle.textContent = mapKind ? "Map" : "Bubbles";
-    this.bubbleScaleField.classList.toggle("hidden", mapKind);
-    if (this.config.mapMode !== "heat" && this.config.mapMode !== "regions") this.mapModeSelect.value = this.mapModeChoice();
-    this.syncDotControls(mapKind, kind === "scatter");
-    this.syncRefLines();
-    this.syncKindButton();
-    // On a map the grid only matters for the heat view: the plain dots need no cells.
-    this.gridField.classList.toggle("hidden", mapKind && this.config.mapMode !== "heat");
-    (this.gridField.firstElementChild as HTMLElement).textContent = mapKind ? "Heat cells" : "Grid";
-    this.gridField.title = mapKind
-      ? "Heat view only. The map is cut into this many cells across and down, and the rows in each cell are counted. Fewer cells (10 to 20): broad, smooth regions. More cells (80 to 120): fine detail, but each cell holds few rows so it looks patchy. 30 to 60 suits most data."
-      : "Bubble view. The chart is cut into this many cells along each axis and the rows in each cell become one bubble. Fewer: bigger, smoother bubbles. More: finer, patchier.";
-    this.bubbleBinsInput.title = mapKind
-      ? "Heat cells across and down (4–120): fewer = coarse and smooth, more = fine and patchy"
-      : "Bubble grid resolution per axis (4–120)";
-    // Reduce stays visible so the option is discoverable; it only becomes
-    // usable once a Size column is chosen.
-    const reduceEnabled = this.config.sizeColumn >= 0;
-    this.bubbleAggSelect.disabled = !reduceEnabled;
-    this.bubbleAggField.title = reduceEnabled
-      ? mapKind
-        ? "How the rows in each grid cell or place combine into one value"
-        : "How the rows in each area combine into one value"
-      : "Pick a numeric column under Size first - then choose how rows combine";
-    // Said on the page, not only in a tooltip: a greyed-out control with no reason reads as broken.
-    this.bubbleAggHint.textContent = reduceEnabled ? "" : "(pick a Size column first)";
-    if (!reduceEnabled) this.bubbleAggSelect.value = "count";
-    this.topLabel.parentElement?.classList.toggle("hidden", bubbleOnly);
-    this.multiInput.parentElement?.classList.toggle("hidden", bubbleOnly || kind === "barplot");
-    this.correlationSettings.classList.toggle("hidden", kind !== "correlation");
-    this.topLabel.textContent =
-      kind === "bar" || kind === "barplot"
-        ? "Top bars"
-        : kind === "box"
-          ? "Top groups"
-          : kind === "treemap"
-            ? "Top tiles"
-            : "Top per axis";
-    if (seriesKind) {
-      this.xTagLabel.textContent = "X";
-      this.yTagLabel.textContent = "Y";
-    } else if (kind === "map") {
-      this.xTagLabel.textContent = "Longitude";
-      this.yTagLabel.textContent = "Latitude";
-    } else if (kind === "box") {
-      this.xTagLabel.textContent = "Value";
-      this.yTagLabel.textContent = "Groups";
-    } else if (kind === "heatmap") {
-      this.xTagLabel.textContent = "Columns";
-      this.yTagLabel.textContent = "Rows";
-    }
-
-    if (kind === "histogram") {
-      const meta = this.meta(this.config.column);
-      const histogram = meta?.histogram;
-      const dataMin = meta?.stats.min ?? histogram?.min ?? 0;
-      const dataMax = meta?.stats.max ?? histogram?.max ?? 1;
-      if (this.config.binOptions !== null) {
-        this.minInput.value = formatChartNumber(this.config.binOptions.min);
-        this.maxInput.value = formatChartNumber(this.config.binOptions.max);
-        this.binsInput.value = String(this.config.binOptions.binCount);
-        this.overflowInput.checked = this.config.binOptions.overflow;
-      }
-      this.kdeInput.checked = this.config.kde;
-      const p95Text =
-        histogram !== undefined &&
-        histogram !== null &&
-        histogram.p95 > dataMin &&
-        histogram.p95 < dataMax
-          ? `; p95 ${formatChartNumber(histogram.p95)}`
-          : "";
-      this.minInput.title = `First bin starts here — data range ${formatChartNumber(dataMin)} – ${formatChartNumber(dataMax)}`;
-      this.maxInput.title = this.config.binClipped
-        ? `Last bin ends here — data range ${formatChartNumber(dataMin)} – ${formatChartNumber(dataMax)}${p95Text}; clipped to p95 because of extreme outliers — Full range restores the maximum`
-        : `Last bin ends here — data range ${formatChartNumber(dataMin)} – ${formatChartNumber(dataMax)}${p95Text}`;
-      this.maxInput.classList.toggle("clipped", this.config.binClipped);
-    }
-
-    // Settings that cannot apply while nothing can be drawn are hidden.
-    this.settingsBody.classList.toggle("hidden", !this.canDraw() && !this.regionsOn());
+    return renderControls(this);
   }
 
-  private syncSwatches(): void {
+  syncSwatches(): void {
     for (const swatch of this.swatches) {
       const active = swatch.title.toLowerCase() === this.primaryColor().toLowerCase();
       swatch.classList.toggle("active", active);
@@ -5152,94 +4282,16 @@ export class ChartCard {
     return !isRampPalette(chosen) && this.config.kind === "map" && meta !== undefined && isNumericType(meta.type) ? "Blue to red" : chosen;
   }
 
-  /** The colour maps on offer: a short list, always with the one in use; every map once asked for. */
-  private fillPaletteOptions(all: boolean): void {
-    const current = this.rampPaletteName();
-    const shown = (name: string): boolean => all || SHORT_PALETTES.includes(name) || name === current;
-    this.paletteSelect.replaceChildren();
-    const groups: [string, "qualitative" | "sequential" | "diverging"][] = [
-      ["Qualitative", "qualitative"],
-      ["Sequential", "sequential"],
-      ["Diverging", "diverging"],
-    ];
-    for (const [label, kind] of groups) {
-      const entries = PALETTES.filter((palette) => palette.kind === kind && shown(palette.name));
-      if (entries.length === 0) continue;
-      const group = el("optgroup", { label }) as HTMLOptGroupElement;
-      for (const palette of entries) group.append(el("option", { value: palette.name }, [palette.name]) as HTMLOptionElement);
-      this.paletteSelect.append(group);
-    }
-    if (!all) this.paletteSelect.append(el("option", { value: MORE_PALETTES }, ["More colour maps…"]) as HTMLOptionElement);
-    this.paletteSelect.append(el("option", { value: CUSTOM_PALETTE }, ["Custom…"]) as HTMLOptionElement);
+  fillPaletteOptions(all: boolean): void {
+    return fillPaletteOptions(this, all);
   }
 
-  private syncPalette(): void {
-    // A map chosen elsewhere (a spec, undo) that the short list leaves out joins it.
-    if (![...this.paletteSelect.options].some((option) => option.value === this.rampPaletteName())) {
-      this.fillPaletteOptions(false);
-    }
-    this.paletteSelect.value = this.rampPaletteName();
-    this.paletteReverseInput.checked = this.config.paletteReversed === true;
-    clear(this.palettePreview);
-    for (const color of this.paletteColors(10)) {
-      const dot = el("span", { class: "chart-palette-dot" });
-      dot.style.background = color;
-      this.palettePreview.append(dot);
-    }
-    const colorMeta = this.meta(this.config.colorColumn);
-    const numericColor =
-      colorMeta !== undefined &&
-      this.config.colorColumn >= 0 &&
-      !isCategoryType(colorMeta.type) &&
-      colorMeta.type !== "boolean";
-    const ramp =
-      isRampPalette(this.rampPaletteName()) ||
-      this.config.kind === "pivotHeatmap" ||
-      numericColor;
-    this.colorDomainRow.classList.toggle("hidden", !ramp);
-    this.colorMinInput.value =
-      this.config.colorMin === null || this.config.colorMin === undefined
-        ? ""
-        : String(this.config.colorMin);
-    this.colorMaxInput.value =
-      this.config.colorMax === null || this.config.colorMax === undefined
-        ? ""
-        : String(this.config.colorMax);
-    this.colorCenterInput.value =
-      this.config.colorCenter === null || this.config.colorCenter === undefined
-        ? ""
-        : String(this.config.colorCenter);
+  syncPalette(): void {
+    return syncPalette(this);
   }
 
-  /** Loads a palette from JSON text: array of hex colours or {colors: [...]}. */
-  /** Picking Custom… asks for hex stops; invalid input keeps the old palette. */
   private async applyPalette(value: string): Promise<void> {
-    if (value === CUSTOM_PALETTE) {
-      const entered = await openPrompt({
-        title: "Custom colour map",
-        label: "Hex colours separated by commas (2 or more), e.g. #2563eb, #10b981, #f97316",
-        value: this.config.paletteCustom ?? "",
-        placeholder: "#2563eb, #f97316",
-        confirmLabel: "Use colours",
-      });
-      if (entered === null) {
-        this.syncPalette();
-        return;
-      }
-      const parsed = parseCustomColors(entered);
-      if (parsed.length < 2) {
-        this.syncPalette();
-        return;
-      }
-      this.config.palette = CUSTOM_PALETTE;
-      this.config.paletteCustom = parsed.join(", ");
-    } else {
-      this.config.palette = value;
-    }
-    this.hexInput.value = this.primaryColor();
-    this.syncSwatches();
-    this.syncPalette();
-    this.render();
+    return applyPalette(this, value);
   }
 
   /** Removing a chart asks first: the action is not part of the Recipe. */
@@ -6183,7 +5235,7 @@ export class ChartCard {
   }
 
   /** False while the card has nothing its kind can plot. */
-  private canDraw(): boolean {
+  canDraw(): boolean {
     if (this.columns.length === 0) return false;
     const count = (allow: (meta: ColumnMeta) => boolean): number =>
       this.columns.filter(allow).length;
@@ -6553,7 +5605,7 @@ export class ChartCard {
     return drawReferenceLines(this, ctx);
   }
 
-  private syncDotControls(mapKind: boolean, scatterKind = false): void {
+  syncDotControls(mapKind: boolean, scatterKind = false): void {
     return syncDotControls(this, mapKind, scatterKind);
   }
 
