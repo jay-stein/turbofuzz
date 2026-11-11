@@ -17685,3 +17685,30 @@ button.cmp-change-name:hover {
   max-width: 150px;
   font-size: 12px;
 }
+
+/* A header strip with a count chip and fixes: the count gives way (with an ellipsis) so "Fix ▾" always shows;
+   hovering the strip shows the fixes themselves, and this chip steps aside. */
+.th-qa-chip.fix-menu {
+  flex: none;
+  color: var(--accent);
+  border-color: var(--accent);
+  opacity: 1;
+}
+.th-qa-chip.fix-menu:hover {
+  background: var(--accent-soft);
+}
+.th-qa:has(> .fix-menu) > .th-qa-chip.warn:not(.fix-menu) {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.th-qa:not(:empty):hover > .fix-menu,
+.th-qa:not(:empty):has(:focus-visible) > .fix-menu {
+  display: none;
+}
+/* Crowded strip: the count chip shows its number alone, and the full words come back on hover. */
+.th-qa:has(> .fix-menu):not(:hover):not(:has(:focus-visible)) > .th-qa-chip.warn .qa-verb {
+  display: none;
+}
+.th-qa:has(> .fix-menu):not(:hover):not(:has(:focus-visible)) > .th-qa-chip.warn:has(.qa-verb) {
+  flex: none;
+}

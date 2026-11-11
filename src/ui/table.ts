@@ -893,7 +893,13 @@ export class ResultTable {
       ...this.buildFixChips(column, index),
     ];
     if (fixes.length > 2) row.append(this.mergedFixChip(column, fixes));
-    else row.append(...fixes);
+    else {
+      // The one-line strip has room for the count and little else, so the fixes would be clipped out of
+      // sight. A short "Fix ▾" stays in view beside the count and opens them; hovering the strip shows
+      // the fixes themselves in its place.
+      if (fixes.length > 0 && row.childElementCount > 0) row.append(this.fixMenuChip(column, fixes));
+      row.append(...fixes);
+    }
     const similarPairs = column.similarGroups - dismissedClusterCount(column.name);
     if (similarPairs > 0 && column.categories !== null) {
       const merge = el(
@@ -1023,7 +1029,8 @@ export class ResultTable {
     const chip = el(
       "button",
       { class: "th-qa-chip warn", type: "button" },
-      [`${action} · ${count.toLocaleString()}`],
+      // The verb is its own span so a crowded strip can show just the number (the title says the rest).
+      [el("span", { class: "qa-verb" }, [`${action} · `]), count.toLocaleString()],
     ) as HTMLButtonElement;
     chip.classList.toggle("active", active);
     chip.setAttribute("aria-pressed", active ? "true" : "false");
@@ -1171,6 +1178,20 @@ export class ResultTable {
       chip.addEventListener("click", () => this.options.onSuggestion?.(index, suggestion));
       return chip;
     });
+  }
+
+  /** A short, always-visible way into the fixes of a header whose strip has no room to show them. */
+  private fixMenuChip(column: ColumnMeta, fixes: readonly HTMLButtonElement[]): HTMLButtonElement {
+    const chip = el("button", { class: "th-qa-chip fix-menu", type: "button" }, ["Fix ▾"]) as HTMLButtonElement;
+    chip.title = `${fixes.length} ${fixes.length === 1 ? "fix" : "fixes"} for “${column.name}” — click to choose; each is undoable`;
+    chip.setAttribute("aria-haspopup", "menu");
+    chip.addEventListener("click", () => {
+      openMenu(
+        chip,
+        fixes.map((fix) => ({ label: fix.textContent ?? "Fix", title: fix.title, action: () => fix.click() })),
+      );
+    });
+    return chip;
   }
 
   /** Keep busy headers to one line: >2 fixes collapse into a menu. */

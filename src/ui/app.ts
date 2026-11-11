@@ -6422,7 +6422,7 @@ export class App {
           type: "button",
           title: `Fix: blank ${placeholderTotal.toLocaleString()} placeholder cells (${examples}) across all columns. Filters and charts then treat them as missing instead of real categories. Undo is in the Recipe.`,
         },
-        [`Fix: convert ${placeholderTotal.toLocaleString()} placeholders to missing`],
+        [`Fix: blank ${placeholderTotal.toLocaleString()} placeholders`],
       ) as HTMLButtonElement;
       convert.addEventListener("click", () =>
         this.confirmFix(

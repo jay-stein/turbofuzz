@@ -27,3 +27,26 @@ test("the issue chips on a column header open sideways and never cover the type 
   await type.hover();
   expect(await covers()).toBe(false);
 });
+
+test("a column with placeholder text keeps a Fix menu in view on its header, however narrow", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 800 });
+  await page.goto("/");
+  const rows = ["id,city,score"];
+  for (let i = 0; i < 60; i++) rows.push(`${i},${i % 5 === 0 ? "unknown" : i % 7 === 0 ? "" : "c" + (i % 4)},${i}`);
+  await page.locator('input[type="file"]').setInputFiles({ name: "p.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  const th = page.locator(".th").nth(2);
+  const fix = th.locator(".fix-menu");
+  await expect(fix).toBeVisible();
+  // The count stays readable beside it: the number, not a clipped word.
+  await expect(th.locator(".th-qa-chip.warn").first()).toHaveText(/^\s*View [^·]*· \d+$|^\d+$/);
+  const box = await fix.boundingBox();
+  const strip = await th.locator(".th-qa").boundingBox();
+  expect(box!.x + box!.width).toBeLessThanOrEqual(strip!.x + strip!.width + 1);
+  // Pointing at the strip opens it: the fix itself is there to click, in words.
+  await th.locator(".th-qa").hover();
+  const token = th.locator(".th-qa-chip.token");
+  await expect(token).toBeVisible();
+  await expect(token).toHaveText(/Blank \d+ placeholders/);
+});
