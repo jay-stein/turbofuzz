@@ -1,3 +1,4 @@
+import { syncAnimationOptions, frameWidths, syncFrameOptions, refreshAnimation, animationBlock, setAnimationTime, toggleAnimationSetup, toggleAnimation, setAnimationSpeed, promptAnimationSpeed, playAnimation, stopAnimation, syncAnimationBar, renderAnimationFrames, exportAnimationGif, exportAnimationVideo, drawAnimatedHistogram, drawAnimatedTreemap, drawAnimatedDensity, drawAnimatedBars } from "./chart-draw-animated.js";
 import { drawPlotMessage, emptySeriesMessage, subtitle, drawChart, drawSplitAggregate, drawRankedBars, drawViewAggregate, drawSeries, drawCountAxis, lineUnitLabel, drawGroupedHistogram, drawGroupedLines, syncLegend } from "./chart-draw-aggregate.js";
 import { mapExtract, regionOptions, setMapMode, syncRegionAxes, refreshMapGrid, placeFrame, beginMapBrush, endMapBrush, zoomMap, exportMapHtml, mapHtmlPayload, mapViewShown, mapViewOrAuto, dataViewOrNull, resetMapZoom, fitMapAll, markerBox, frameBox, drawMap, drawMapLayers, drawMapClusters, drawMapBody, syncDotControls, mapLabelColumn, mapDotLines, drawMapSizeLegend, mapRadii } from "./chart-map-draw.js";
 import { errorBarExtract, errorBarBlock, syncResearchControls, syncErrorBarControls, refreshErrorBars, cancelErrorBars, showErrorBarProgress, hideErrorBarProgress, errorBarAt, drawWhisker, appendErrorBarNote } from "./chart-error-bars.js";
@@ -755,7 +756,7 @@ export interface Frame {
 }
 
 const DEFAULT_BIN_COUNT = 32;
-const POINT_LIMIT = 20_000;
+export const POINT_LIMIT = 20_000;
 /** Grouped time series: distinct lines before the rest folds into Other. */
 export const GROUP_LINE_LIMIT = 8;
 const HEX = /^#?[0-9a-f]{6}$/i;
@@ -816,7 +817,7 @@ export const ERROR_BARS_ASK_CERTAINTY: ReadonlySet<IntervalKind> = new Set<Inter
 export const TIME_SERIES_WARNING = "Warning: periods in a time series are related, not independent, so these intervals are likely too narrow";
 
 /** Map joins these only in one dot per place: see animatesPlaces. */
-const ANIMATED_KINDS: ReadonlySet<ChartCardKind> = new Set<ChartCardKind>(["bar", "bubble", "histogram", "treemap", "density", "map"]);
+export const ANIMATED_KINDS: ReadonlySet<ChartCardKind> = new Set<ChartCardKind>(["bar", "bubble", "histogram", "treemap", "density", "map"]);
 
 export const MAP_COLOR_AGG_NAMES = { mean: "average", sum: "total", min: "lowest", max: "highest" } as const;
 
@@ -886,7 +887,7 @@ export class ChartCard {
   private textResult: TextProfileMessage | null = null;
   seriesLabels: string[] | null = null;
   private seriesMs = 0;
-  private seriesCorrelation = Number.NaN;
+  seriesCorrelation = Number.NaN;
   private boxResult: BoxStatsResult | null = null;
   private crossResult: CrossTabResult | null = null;
   private correlationResult: {
@@ -898,9 +899,9 @@ export class ChartCard {
   bubbleResult: GridCountsResult | null = null;
   animationResult: AnimationResult | null = null;
   animationFrame = 0;
-  private animationPlaying = false;
-  private animationTimer: number | null = null;
-  private animationSetupOpen = false;
+  animationPlaying = false;
+  animationTimer: number | null = null;
+  animationSetupOpen = false;
   private readonly bubbleBinsInput: HTMLInputElement;
   readonly gridField: HTMLElement;
   readonly gridHint: HTMLElement;
@@ -1005,19 +1006,19 @@ export class ChartCard {
   corrWindow: { start: number; count: number } | null = null;
   /** Treemap / top-terms item window. */
   itemWindow: { start: number; count: number } | null = null;
-  private readonly animationTimeSelect: HTMLSelectElement;
-  private readonly animationGrainSelect: HTMLSelectElement;
+  readonly animationTimeSelect: HTMLSelectElement;
+  readonly animationGrainSelect: HTMLSelectElement;
   /** "every" before a time grain, "by" before each value / steps of N. */
-  private readonly animationStepLabel = el("span", { class: "chart-field-label" }, ["every"]);
-  private readonly animationBar: HTMLElement;
-  private readonly animationPlayButton: HTMLButtonElement;
-  private readonly animationSlider: HTMLInputElement;
-  private readonly animationSpeedSelect: HTMLSelectElement;
-  private readonly animationFrameLabel: HTMLElement;
-  private readonly animationLoopInput: HTMLInputElement;
+  readonly animationStepLabel = el("span", { class: "chart-field-label" }, ["every"]);
+  readonly animationBar: HTMLElement;
+  readonly animationPlayButton: HTMLButtonElement;
+  readonly animationSlider: HTMLInputElement;
+  readonly animationSpeedSelect: HTMLSelectElement;
+  readonly animationFrameLabel: HTMLElement;
+  readonly animationLoopInput: HTMLInputElement;
   private readonly animationExportButton: HTMLButtonElement;
   readonly hiddenGroups = new Set<number>();
-  private statsMs = 0;
+  statsMs = 0;
 
   private readonly kindSelect: HTMLSelectElement;
   private readonly sourceSelect: HTMLSelectElement;
@@ -4941,7 +4942,7 @@ export class ChartCard {
     }
   }
 
-  private allowedIndexes(allow: (meta: ColumnMeta) => boolean): number[] {
+  allowedIndexes(allow: (meta: ColumnMeta) => boolean): number[] {
     const out: number[] = [];
     this.columns.forEach((meta, index) => {
       if (allow(meta)) out.push(index);
@@ -5346,84 +5347,32 @@ export class ChartCard {
     this.chartFilterRow.classList.toggle("hidden", !aggregateBacked);
   }
 
-  /** Columns to animate over: dates, then numbers (shaded regions step through dates only). */
   private syncAnimationOptions(): void {
-    const dates = this.allowedIndexes((meta) => this.isDateLike(meta));
-    const numbers = this.regionsOn() ? [] : this.allowedIndexes((meta) => this.isFrameNumber(meta));
-    const current = this.config.animationTimeColumn ?? -1;
-    if (current >= 0 && !dates.includes(current) && !numbers.includes(current)) this.config.animationTimeColumn = -1;
-    this.animationTimeSelect.replaceChildren(this.option("-1", "Off"));
-    const group = (label: string, indexes: number[]): void => {
-      if (indexes.length === 0) return;
-      const optgroup = el("optgroup", { label }) as HTMLOptGroupElement;
-      for (const index of indexes) optgroup.append(this.option(String(index), this.columns[index]!.name));
-      this.animationTimeSelect.append(optgroup);
-    };
-    group("Dates", dates);
-    group("Numbers", numbers);
-    this.animationTimeSelect.value = String(this.config.animationTimeColumn ?? -1);
-    this.syncFrameOptions();
+    return syncAnimationOptions(this);
   }
 
   /** A number column frames can step through in order: integers and decimals (dates are offered on their own). */
-  private isFrameNumber(meta: ColumnMeta | undefined): boolean {
+  isFrameNumber(meta: ColumnMeta | undefined): boolean {
     return meta !== undefined && (meta.type === "integer" || meta.type === "number") && meta.stats.min !== null && meta.stats.max !== null;
   }
 
-  /**
-   * Step widths for a number column that give roughly 10, 20 and 50 frames
-   * over its range, rounded to 1, 2 or 5 times a power of ten.
-   */
-  private frameWidths(meta: ColumnMeta): number[] {
-    const span = (meta.stats.max ?? 0) - (meta.stats.min ?? 0);
-    if (!(span > 0)) return [1];
-    const nice = (raw: number): number => {
-      const power = 10 ** Math.floor(Math.log10(raw));
-      const unit = raw / power;
-      return Number(((unit < 1.5 ? 1 : unit < 3.5 ? 2 : unit < 7.5 ? 5 : 10) * power).toPrecision(12));
-    };
-    const widths = [...new Set([10, 20, 50].map((frames) => nice(span / frames)))];
-    // Whole numbers step by at least 1.
-    return (meta.type === "integer" ? widths.map((width) => Math.max(1, Math.round(width))) : widths).filter((width, i, all) => all.indexOf(width) === i).sort((a, b) => b - a);
+  frameWidths(meta: ColumnMeta): number[] {
+    return frameWidths(this, meta);
   }
 
   /** Each value when a number column has few enough of them to watch, else steps for about 20 frames. */
-  private defaultFrameStep(meta: ColumnMeta): "value" | number {
+  defaultFrameStep(meta: ColumnMeta): "value" | number {
     if (meta.stats.distinct <= 60) return "value";
     const widths = this.frameWidths(meta);
     return widths[Math.min(1, widths.length - 1)]!;
   }
 
-  /** The frame dropdown for the chosen column: time grains for dates, each value or steps for numbers. */
-  private syncFrameOptions(): void {
-    const meta = this.meta(this.config.animationTimeColumn ?? -1);
-    const select = this.animationGrainSelect;
-    select.replaceChildren();
-    if (meta !== undefined && this.isFrameNumber(meta)) {
-      this.animationStepLabel.textContent = "by";
-      select.title = "Frames in the column's numeric order: one per value, or one per step";
-      if (meta.stats.distinct <= MAX_FRAMES) select.append(el("option", { value: "value" }, ["each value"]) as HTMLOptionElement);
-      for (const width of this.frameWidths(meta)) {
-        select.append(el("option", { value: `step:${width}` }, [`steps of ${width.toLocaleString("en", { maximumFractionDigits: 6 })}`]) as HTMLOptionElement);
-      }
-      const step = this.config.animationStep ?? this.defaultFrameStep(meta);
-      const wanted = step === "value" ? "value" : `step:${step}`;
-      if (![...select.options].some((option) => option.value === wanted)) {
-        select.append(el("option", { value: wanted }, [step === "value" ? "each value" : `steps of ${step}`]) as HTMLOptionElement);
-      }
-      select.value = wanted;
-      return;
-    }
-    this.animationStepLabel.textContent = "every";
-    select.title = "How much time each frame covers";
-    for (const grain of ["hour", "day", "week", "month", "quarter", "year"] as TimeGrain[]) {
-      select.append(el("option", { value: grain }, [grain.charAt(0).toUpperCase() + grain.slice(1)]) as HTMLOptionElement);
-    }
-    select.value = this.config.animationGrain ?? "day";
+  syncFrameOptions(): void {
+    return syncFrameOptions(this);
   }
 
   /** The frames to ask the worker for: the time grain for a date column, each value or steps for a number column. */
-  private frameStep(): FrameStep {
+  frameStep(): FrameStep {
     const meta = this.meta(this.config.animationTimeColumn ?? -1);
     if (meta !== undefined && this.isFrameNumber(meta)) {
       const step = this.config.animationStep ?? this.defaultFrameStep(meta);
@@ -5443,7 +5392,7 @@ export class ChartCard {
   }
 
   /** Sensible default frame length for a date column's span. */
-  private defaultGrainFor(column: number): TimeGrain {
+  defaultGrainFor(column: number): TimeGrain {
     return this.defaultStepFor(column).grain;
   }
 
@@ -5718,7 +5667,7 @@ export class ChartCard {
     return this.paletteColor(0, 1) || this.config.color;
   }
 
-  private paletteColor(index: number, count = 12): string {
+  paletteColor(index: number, count = 12): string {
     const colors = this.paletteColors(count);
     return colors[index % colors.length] ?? this.primaryColor();
   }
@@ -6793,7 +6742,7 @@ export class ChartCard {
   }
 
   /** Group column for bubble sets, when one is chosen and category-typed. */
-  private bubbleGroupColumn(): number | undefined {
+  bubbleGroupColumn(): number | undefined {
     if (this.config.groupColumn < 0) return undefined;
     const meta = this.meta(this.config.groupColumn);
     return meta !== undefined && isGroupable(meta) ? this.config.groupColumn : undefined;
@@ -6841,117 +6790,8 @@ export class ChartCard {
     return refreshMapGrid(this);
   }
 
-  /**
-   * Frames for animated bar and bubble charts: one aggregate per time bucket,
-   * computed worker-side in a single pass over the filtered rows.
-   */
   refreshAnimation(): void {
-    this.stopAnimation();
-    const timeColumn = this.config.animationTimeColumn ?? -1;
-    if (this.regionsOn()) {
-      // The regions work out their own values per period; onFrames brings the periods back.
-      if (timeColumn < 0) this.animationResult = null;
-      this.regions?.setTime(timeColumn < 0 || !this.isDateLike(this.meta(timeColumn)) ? null : { column: timeColumn, grain: this.config.animationGrain ?? "day" });
-      return;
-    }
-    this.regions?.setTime(null);
-    const kind = this.config.kind;
-    const animatable =
-      kind === "bar" ||
-      kind === "bubble" ||
-      kind === "histogram" ||
-      kind === "treemap" ||
-      kind === "density" ||
-      this.animatesPlaces();
-    const request = this.options.requestAnimation;
-    if (
-      !animatable ||
-      timeColumn < 0 ||
-      request === undefined ||
-      this.config.source !== ""
-    ) {
-      this.animationResult = null;
-      return;
-    }
-    const timeMeta = this.meta(timeColumn);
-    if (!this.isDateLike(timeMeta) && !this.isFrameNumber(timeMeta)) {
-      this.animationResult = null;
-      return;
-    }
-    const isPair = kind === "bubble" || kind === "density" || kind === "map";
-    const isCategory = kind === "bar" || kind === "treemap";
-    if (isPair) {
-      const x = this.meta(this.config.x);
-      const y = this.meta(this.config.y);
-      if (
-        x === undefined ||
-        y === undefined ||
-        !isNumericType(x.type) ||
-        !isNumericType(y.type)
-      ) {
-        this.animationResult = null;
-        return;
-      }
-    } else if (isCategory) {
-      const column = this.meta(this.config.column);
-      if (column === undefined || !isGroupable(column)) {
-        this.animationResult = null;
-        return;
-      }
-    } else {
-      const column = this.meta(this.config.column);
-      if (column === undefined || !isNumericType(column.type)) {
-        this.animationResult = null;
-        return;
-      }
-    }
-    const generation = ++this.generation;
-    this.animationFrame = 0;
-    const colorMeta = this.meta(this.config.colorColumn);
-    const chart: "bar" | "bubble" | "histogram" | "places" = kind === "map"
-      ? "places"
-      : isPair
-      ? "bubble"
-      : isCategory
-        ? "bar"
-        : "histogram";
-    const histogramBins =
-      this.binResult?.bins.length ??
-      this.meta(this.config.column)?.histogram?.bins.length ??
-      32;
-    void request({
-      timeColumn,
-      grain: this.frameStep(),
-      chart,
-      column: isPair ? this.config.x : this.config.column,
-      yColumn: isPair ? this.config.y : -1,
-      bins: chart === "histogram" ? histogramBins : chart === "places" ? POINT_LIMIT : (this.config.bubbleBins ?? 40),
-      topN: this.config.topN,
-      measure: isPair ? this.bubbleMeasure() : undefined,
-      // Density is a single aggregate heat map, so grouping is ignored there;
-      // bubble charts carry the group dimension.
-      groupColumn: kind === "bubble" ? this.bubbleGroupColumn() : undefined,
-      colorMeasure:
-        chart === "places" && colorMeta !== undefined && isNumericType(colorMeta.type)
-          ? { column: this.config.colorColumn, agg: this.config.mapColorAgg ?? "mean" }
-          : undefined,
-      ...(chart === "places" && this.mapLabelColumn() >= 0 ? { labelColumn: this.mapLabelColumn() } : {}),
-      ...this.chartScope(),
-    })
-      .then((message) => {
-        if (generation !== this.generation || this.disposed) return;
-        this.animationResult = message.result;
-        this.statsMs = message.ms;
-        this.animationFrame = 0;
-        this.render();
-      })
-      .catch((error: unknown) => {
-        if (generation !== this.generation || this.disposed) return;
-        this.animationResult = null;
-        this.noteEl.textContent =
-          error instanceof Error ? error.message : "Could not build the animation frames.";
-        this.render();
-      });
+    return refreshAnimation(this);
   }
 
   /**
@@ -7080,153 +6920,47 @@ export class ChartCard {
     return placeFrame(this);
   }
 
-  /** Why this chart cannot step through time right now; null when it can. */
-  private animationBlock(): string | null {
-    const kind = this.config.kind;
-    if (this.regionsOn()) return this.regions?.ready === true ? (this.columns.some((meta) => this.isDateLike(meta)) ? null : "Animating needs a date or datetime column. If yours was read as text, use Convert types") : "Load a boundary file first";
-    if (kind === "map" && !this.animatesPlaces()) return "To animate a map, set Show to One dot per place or Regions";
-    if (!ANIMATED_KINDS.has(kind)) {
-      return `${CHART_KIND_LABELS[kind]} charts can't animate. Bar, Bubble, Histogram, Treemap, Density and Map can`;
-    }
-    if (this.config.source !== "") return "Charts from a Pivot View can't animate: set Source to Table";
-    if (!this.columns.some((meta) => this.isDateLike(meta) || this.isFrameNumber(meta))) {
-      return "Animating needs a date or number column to step through. If yours was read as text, use Convert types";
-    }
-    if (kind === "bubble" || kind === "density" || kind === "map") {
-      const x = this.meta(this.config.x);
-      const y = this.meta(this.config.y);
-      if (x === undefined || y === undefined || !isNumericType(x.type) || !isNumericType(y.type)) {
-        return kind === "map" ? "Choose numeric longitude and latitude columns first" : "Choose numeric X and Y columns first";
-      }
-      return null;
-    }
-    const column = this.meta(this.config.column);
-    if (kind === "histogram") return column !== undefined && isNumericType(column.type) ? null : "Choose a numeric column first";
-    return column !== undefined && isGroupable(column) ? null : "Choose a category column first";
+  animationBlock(): string | null {
+    return animationBlock(this);
   }
 
-  private setAnimationTime(column: number): void {
-    this.config.animationTimeColumn = column;
-    const meta = this.meta(column);
-    if (meta !== undefined && this.isFrameNumber(meta)) this.config.animationStep = this.defaultFrameStep(meta);
-    else if (column >= 0) this.config.animationGrain = this.defaultGrainFor(column);
-    this.syncFrameOptions();
-    this.animationTimeSelect.value = String(column);
-    this.stopAnimation();
-    this.generation++;
-    this.refreshAnimation();
-    this.render();
+  setAnimationTime(column: number): void {
+    return setAnimationTime(this, column);
   }
 
   private toggleAnimationSetup(): void {
-    const blocked = this.animationBlock();
-    if (blocked !== null) {
-      this.noteEl.textContent = `${blocked}.`;
-      return;
-    }
-    this.animationSetupOpen = !this.animationSetupOpen;
-    this.renderControls();
-    // One click starts it: the first date column (else the first number column) is ready to play; the row beside it can change that or turn it off.
-    if (this.animationSetupOpen && (this.config.animationTimeColumn ?? -1) < 0) {
-      let first = this.columns.findIndex((meta) => this.isDateLike(meta));
-      if (first < 0 && !this.regionsOn()) first = this.columns.findIndex((meta) => this.isFrameNumber(meta));
-      if (first >= 0) this.setAnimationTime(first);
-    }
+    return toggleAnimationSetup(this);
   }
 
   private toggleAnimation(): void {
-    if (this.animationPlaying) this.stopAnimation();
-    else this.playAnimation();
+    return toggleAnimation(this);
   }
 
   /** Milliseconds per frame: 0.5 s at 1×, faster at higher speeds. */
-  private frameIntervalMs(): number {
+  frameIntervalMs(): number {
     const speed = this.config.animationSpeed ?? 1;
     const safe = Number.isFinite(speed) && speed > 0 ? speed : 1;
     return Math.max(60, Math.round(500 / safe));
   }
 
-  private setAnimationSpeed(speed: number): void {
-    this.config.animationSpeed = speed;
-    if (this.animationPlaying) {
-      this.stopAnimation();
-      this.playAnimation();
-    }
-    this.syncAnimationBar();
+  setAnimationSpeed(speed: number): void {
+    return setAnimationSpeed(this, speed);
   }
 
-  /** Custom speed prompt; the presets cover the common cases. */
   private async promptAnimationSpeed(): Promise<void> {
-    const entered = await openPrompt({
-      title: "Custom play speed",
-      label: "Multiplier, e.g. 0.25 (slower) to 8 (faster). 1× is one frame every 0.5 s.",
-      value: String(this.config.animationSpeed ?? 1),
-      placeholder: "1.25",
-      confirmLabel: "Use speed",
-    });
-    const parsed = Number(entered?.trim() ?? "");
-    if (entered === null || !Number.isFinite(parsed) || parsed <= 0) {
-      this.syncAnimationBar();
-      return;
-    }
-    this.setAnimationSpeed(Math.min(20, Math.max(0.05, parsed)));
+    return promptAnimationSpeed(this);
   }
 
-  private playAnimation(): void {
-    const result = this.animationResult;
-    if (result === null || result.frames.length === 0) return;
-    if (this.animationTimer !== null) window.clearInterval(this.animationTimer);
-    this.animationPlaying = true;
-    this.animationTimer = window.setInterval(() => {
-      const current = this.animationResult;
-      if (this.disposed || current === null) {
-        this.stopAnimation();
-        return;
-      }
-      const last = current.frames.length - 1;
-      if (this.animationFrame >= last) {
-        if (this.animationLoopInput.checked) this.animationFrame = 0;
-        else {
-          this.stopAnimation();
-          return;
-        }
-      } else {
-        this.animationFrame++;
-      }
-      this.render();
-    }, this.frameIntervalMs());
-    this.syncAnimationBar();
+  playAnimation(): void {
+    return playAnimation(this);
   }
 
   stopAnimation(): void {
-    if (this.animationTimer !== null) {
-      window.clearInterval(this.animationTimer);
-      this.animationTimer = null;
-    }
-    this.animationPlaying = false;
-    this.syncAnimationBar();
+    return stopAnimation(this);
   }
 
-  /** Playback bar state: visible only while frames exist. */
   syncAnimationBar(): void {
-    const result = this.animationResult;
-    const active = result !== null && result.frames.length > 1;
-    this.animationBar.classList.toggle("hidden", !active);
-    if (!active || result === null) return;
-    this.animationPlayButton.textContent = this.animationPlaying ? "❚❚ Pause" : "▶ Play";
-    this.animationSlider.max = String(result.frames.length - 1);
-    this.animationSlider.value = String(this.animationFrame);
-    const speed = this.config.animationSpeed ?? 1;
-    const presets = ["0.5", "0.75", "1", "1.25", "1.5", "2"];
-    this.animationSpeedSelect.value = presets.includes(String(speed)) ? String(speed) : "custom";
-    const customOption = [...this.animationSpeedSelect.options].find(
-      (option) => option.value === "custom",
-    );
-    if (customOption !== undefined) {
-      customOption.textContent = presets.includes(String(speed)) ? "Custom…" : `Custom (${speed}×)`;
-    }
-    const frame = result.frames[this.animationFrame];
-    this.animationFrameLabel.textContent = frame?.label ?? "";
+    return syncAnimationBar(this);
   }
 
   private openExportMenu(anchor: HTMLElement): void {
@@ -7244,63 +6978,10 @@ export class ChartCard {
     ]);
   }
 
-  /**
-   * Draws every animation frame to an offscreen canvas (2× the card size)
-   * with an opaque panel background. Shared by the GIF and MP4 encoders so
-   * both formats show exactly the same pixels.
-   */
-  private async renderAnimationFrames(): Promise<
+  async renderAnimationFrames(): Promise<
     { frames: GifFrameInput[]; width: number; height: number } | null
   > {
-    const result = this.animationResult;
-    if (result === null || result.frames.length < 2) {
-      this.noteEl.textContent =
-        "Set up an animation first — pick a time column and frame length above.";
-      return null;
-    }
-    this.stopAnimation();
-    const cssWidth = Math.max(
-      1,
-      Math.round(Number.parseFloat(this.canvas.style.width) || this.canvas.clientWidth || 480),
-    );
-    const cssHeight = Math.max(
-      1,
-      Math.round(Number.parseFloat(this.canvas.style.height) || this.canvas.clientHeight || 270),
-    );
-    const scale = 2;
-    const offscreen = document.createElement("canvas");
-    offscreen.width = cssWidth * scale;
-    offscreen.height = cssHeight * scale;
-    const ctx = offscreen.getContext("2d");
-    if (ctx === null) {
-      this.noteEl.textContent = "Canvas rendering is not available in this browser.";
-      return null;
-    }
-    const previous = this.animationFrame;
-    const frames: GifFrameInput[] = [];
-    try {
-      for (let index = 0; index < result.frames.length; index++) {
-        this.animationFrame = index;
-        ctx.setTransform(scale, 0, 0, scale, 0, 0);
-        this.drawChart(ctx, cssWidth, cssHeight, true);
-        // Opaque background: paint behind the chart (drawChart clears first),
-        // because a transparent frame reads as black in many viewers.
-        ctx.globalCompositeOperation = "destination-over";
-        ctx.fillStyle = cssVar("--panel", "#ffffff");
-        ctx.fillRect(0, 0, cssWidth, cssHeight);
-        ctx.globalCompositeOperation = "source-over";
-        const image = ctx.getImageData(0, 0, offscreen.width, offscreen.height);
-        frames.push({ data: image.data, width: offscreen.width, height: offscreen.height });
-        if (index % 4 === 3) {
-          this.noteEl.textContent = `Rendering frame ${index + 1} of ${result.frames.length}…`;
-          await new Promise((resolve) => window.setTimeout(resolve, 0));
-        }
-      }
-    } finally {
-      this.animationFrame = previous;
-      this.render();
-    }
-    return { frames, width: offscreen.width, height: offscreen.height };
+    return renderAnimationFrames(this);
   }
 
   /** Versioned ChartSpec JSON: portable across config changes and code export. */
@@ -7350,7 +7031,7 @@ export class ChartCard {
     URL.revokeObjectURL(url);
   }
 
-  private downloadBlob(blob: Blob, extension: string): void {
+  downloadBlob(blob: Blob, extension: string): void {
     if (typeof URL.createObjectURL !== "function") return;
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -7364,141 +7045,12 @@ export class ChartCard {
     URL.revokeObjectURL(url);
   }
 
-  /** Encodes the rendered frames as an animated GIF at the chosen speed. */
   private async exportAnimationGif(): Promise<void> {
-    const rendered = await this.renderAnimationFrames();
-    if (rendered === null) return;
-    try {
-      const bytes = encodeGif(rendered.frames, this.frameIntervalMs());
-      if (bytes.length === 0) {
-        this.noteEl.textContent = "Could not encode the GIF in this browser.";
-        return;
-      }
-      this.downloadBlob(new Blob([bytes as BlobPart], { type: "image/gif" }), "gif");
-      const seconds = ((rendered.frames.length * this.frameIntervalMs()) / 1000).toFixed(1);
-      this.noteEl.textContent = `Exported ${rendered.frames.length} frames as a GIF · ${seconds} s per loop · ${(
-        bytes.length / 1024
-      ).toFixed(0)} KB · some desktop viewers show only the first frame, use Video (.mp4) if so`;
-    } catch {
-      this.noteEl.textContent = "Could not encode the GIF in this browser.";
-    }
+    return exportAnimationGif(this);
   }
 
-  /**
-   * Encodes the rendered frames as an H.264 MP4 with WebCodecs. Videos play
-   * in every desktop player, unlike animated GIFs in some viewers.
-   */
   private async exportAnimationVideo(): Promise<void> {
-    const encoderCtor = (
-      globalThis as {
-        VideoEncoder?: {
-          new (init: {
-            output: (chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata) => void;
-            error: (error: Error) => void;
-          }): VideoEncoder;
-          isConfigSupported(config: VideoEncoderConfig): Promise<VideoEncoderSupport>;
-        };
-      }
-    ).VideoEncoder;
-    if (typeof encoderCtor !== "function") {
-      this.noteEl.textContent =
-        "Video export needs WebCodecs (Chrome, Edge or Safari 16.4+). Try the GIF format instead.";
-      return;
-    }
-    const rendered = await this.renderAnimationFrames();
-    if (rendered === null) return;
-    const { frames, width, height } = rendered;
-    // H.264 needs even dimensions.
-    const codedWidth = width % 2 === 0 ? width : width + 1;
-    const codedHeight = height % 2 === 0 ? height : height + 1;
-    const fps = Math.max(1, Math.round(1000 / this.frameIntervalMs()));
-    try {
-      const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
-      // Prefer H.264 (plays everywhere); fall back to VP9-in-MP4 where the
-      // platform exposes no H.264 encoder.
-      const candidates: {
-        codec: string;
-        muxerCodec: "avc" | "vp9";
-      }[] = [
-        { codec: "avc1.42001f", muxerCodec: "avc" },
-        { codec: "avc1.4d002a", muxerCodec: "avc" },
-        { codec: "vp09.00.10.08", muxerCodec: "vp9" },
-      ];
-      let chosen: (typeof candidates)[number] | null = null;
-      for (const candidate of candidates) {
-        try {
-          const support = await encoderCtor.isConfigSupported({
-            codec: candidate.codec,
-            width: codedWidth,
-            height: codedHeight,
-            bitrate: 4_000_000,
-            framerate: fps,
-          });
-          if (support.supported === true) {
-            chosen = candidate;
-            break;
-          }
-        } catch {
-          // Try the next codec.
-        }
-      }
-      if (chosen === null) {
-        this.noteEl.textContent =
-          "This browser cannot encode video (no H.264 or VP9 encoder). Use the GIF format instead.";
-        return;
-      }
-      const muxer = new Muxer({
-        target: new ArrayBufferTarget(),
-        video: { codec: chosen.muxerCodec, width: codedWidth, height: codedHeight },
-        fastStart: "in-memory",
-      });
-      let encodeError: Error | null = null;
-      const encoder = new encoderCtor({
-        output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-        error: (error) => {
-          encodeError = error;
-        },
-      });
-      encoder.configure({
-        codec: chosen.codec,
-        width: codedWidth,
-        height: codedHeight,
-        bitrate: 4_000_000,
-        framerate: fps,
-      });
-      const durationUs = (this.frameIntervalMs() * 1000) / 1;
-      for (let index = 0; index < frames.length; index++) {
-        const frame = frames[index];
-        if (frame === undefined) continue;
-        const videoFrame = new VideoFrame(frame.data, {
-          format: "RGBA",
-          codedWidth,
-          codedHeight,
-          timestamp: Math.round(index * durationUs),
-          duration: Math.round(durationUs),
-        });
-        encoder.encode(videoFrame, { keyFrame: index === 0 || index % 30 === 0 });
-        videoFrame.close();
-        if (encoder.encodeQueueSize > 8) {
-          await new Promise((resolve) => window.setTimeout(resolve, 0));
-        }
-      }
-      await encoder.flush();
-      encoder.close();
-      if (encodeError !== null) throw encodeError;
-      muxer.finalize();
-      const buffer = muxer.target.buffer;
-      this.downloadBlob(new Blob([buffer], { type: "video/mp4" }), "mp4");
-      const seconds = (frames.length / fps).toFixed(1);
-      this.noteEl.textContent = `Exported ${frames.length} frames as an MP4 · ${seconds} s per loop · ${(
-        buffer.byteLength / 1024
-      ).toFixed(0)} KB`;
-    } catch (error) {
-      this.noteEl.textContent =
-        error instanceof Error && error.message !== ""
-          ? `Could not encode the video: ${error.message}`
-          : "Could not encode the video in this browser.";
-    }
+    return exportAnimationVideo(this);
   }
 
   private refreshCorrelation(): void {
@@ -9450,7 +9002,7 @@ export class ChartCard {
     return subtitle(this);
   }
 
-  private drawChart(ctx: CanvasRenderingContext2D, width: number, height: number, forExport = false): void {
+  drawChart(ctx: CanvasRenderingContext2D, width: number, height: number, forExport = false): void {
     return drawChart(this, ctx, width, height, forExport);
   }
 
@@ -9704,310 +9256,20 @@ export class ChartCard {
     return syncLegend(this);
   }
 
-  /** Animated bars: category counts for the current frame only. */
-  /** Animated histogram: bin counts for the current frame on a global scale. */
   drawAnimatedHistogram(ctx: CanvasRenderingContext2D, frame: Frame): void {
-    const result = this.animationResult;
-    const hist = result?.hist;
-    if (result === null || hist === undefined) {
-      const message = "No frames to draw yet.";
-      this.noteEl.textContent = message;
-      this.drawPlotMessage(ctx, frame, message);
-      return;
-    }
-    const frameIndex = Math.min(Math.max(0, this.animationFrame), result.frames.length - 1);
-    const bins = hist.bins;
-    const offset = frameIndex * bins;
-    const ui = frame.ui;
-    const maxCount = Math.max(1, result.maxCount);
-    const slotW = frame.plotW / bins;
-    const barW = Math.max(1, slotW - 1);
-
-    const yTicks = niceTicks(0, maxCount, 4).filter(
-      (value, index, all) =>
-        index === 0 || formatCount(value) !== formatCount(all[index - 1]),
-    );
-    ctx.strokeStyle = frame.border;
-    ctx.lineWidth = 1;
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    ctx.textAlign = "right";
-    for (const value of yTicks) {
-      const y = frame.top + frame.plotH - (value / maxCount) * frame.plotH;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(frame.left, y + 0.5);
-      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillText(formatCount(value), frame.left - 6 * ui, y + 3 * ui);
-    }
-    ctx.textAlign = "left";
-    ctx.beginPath();
-    ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
-    ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
-    ctx.stroke();
-
-    for (let bin = 0; bin < bins; bin++) {
-      const count = hist.counts[offset + bin] ?? 0;
-      const height = (count / maxCount) * frame.plotH;
-      if (height <= 0) continue;
-      ctx.globalAlpha = 0.85;
-      ctx.fillStyle = this.primaryColor();
-      this.fillTopRounded(
-        ctx,
-        frame.left + bin * slotW,
-        frame.top + frame.plotH - height,
-        barW,
-        height,
-        3 * ui,
-      );
-    }
-    ctx.globalAlpha = 1;
-
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    const animTickKind: "histogram" | AxisFormat =
-      axisKindFor(this.meta(this.config.column)?.type ?? "number") ?? "histogram";
-    const animTickSpan = hist.max - hist.min;
-    const mid = (hist.min + hist.max) / 2;
-    ctx.fillText(formatTick(hist.min, animTickKind, animTickSpan), frame.left, frame.top + frame.plotH + 16 * ui);
-    const midLabel = formatTick(mid, animTickKind, animTickSpan);
-    ctx.fillText(
-      midLabel,
-      frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
-      frame.top + frame.plotH + 16 * ui,
-    );
-    const maxLabel = formatTick(hist.max, animTickKind, animTickSpan);
-    ctx.fillText(
-      maxLabel,
-      frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
-      frame.top + frame.plotH + 16 * ui,
-    );
-
-    const time = result.frames[frameIndex]?.label ?? "";
-    this.font(ctx, ui, 12, "600");
-    ctx.fillStyle = frame.text;
-    ctx.fillText(time, frame.left + frame.plotW - ctx.measureText(time).width, frame.top - 8 * ui);
-    const name = this.meta(this.config.column)?.name ?? "values";
-    this.noteEl.textContent = `${time} · ${name} · ${bins} bins · ${result.total.toLocaleString()} rows`;
+    return drawAnimatedHistogram(this, ctx, frame);
   }
 
-  /** Animated treemap: tile areas from the current frame's category counts. */
   private drawAnimatedTreemap(ctx: CanvasRenderingContext2D, frame: Frame): void {
-    const result = this.animationResult;
-    const barData = result?.bar;
-    if (result === null || barData === undefined) {
-      const message = "No frames to draw yet.";
-      this.noteEl.textContent = message;
-      this.drawPlotMessage(ctx, frame, message);
-      return;
-    }
-    const frameIndex = Math.min(Math.max(0, this.animationFrame), result.frames.length - 1);
-    const width = Math.max(1, barData.labels.length);
-    const offset = frameIndex * width;
-    const entries = barData.labels
-      .map((label, index) => ({ label, value: barData.counts[offset + index] ?? 0 }))
-      .filter((entry) => entry.value > 0)
-      .sort((a, b) => b.value - a.value);
-    if (entries.length === 0) {
-      const message = "No rows in this frame.";
-      this.noteEl.textContent = message;
-      this.drawPlotMessage(ctx, frame, message);
-      return;
-    }
-    const total = entries.reduce((sum, entry) => sum + entry.value, 0);
-    const rects = squarifyLayout(
-      entries.map((entry) => entry.value),
-      frame.left,
-      frame.top,
-      frame.plotW,
-      frame.plotH,
-    );
-    const ui = frame.ui;
-    this.hitRegions = [];
-    rects.forEach((rect, index) => {
-      const entry = entries[index];
-      if (entry === undefined || rect.w <= 0 || rect.h <= 0) return;
-      ctx.globalAlpha = 0.85;
-      ctx.fillStyle =
-        this.config.multiColor === true ? this.paletteColor(index) : this.primaryColor();
-      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = cssVar("--panel", "#ffffff");
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
-      if (rect.w < 42 * ui || rect.h < 18 * ui) return;
-      ctx.textAlign = "left";
-      ctx.fillStyle = "#ffffff";
-      this.font(ctx, ui, 11, "600");
-      ctx.fillText(
-        this.fit(ctx, entry.label === "" ? "(blank)" : entry.label, rect.w - 10 * ui),
-        rect.x + 5 * ui,
-        rect.y + 14 * ui,
-      );
-      this.font(ctx, ui, 10);
-      ctx.fillText(
-        `${formatCount(entry.value)} · ${((entry.value / total) * 100).toFixed(1)}%`,
-        rect.x + 5 * ui,
-        rect.y + 27 * ui,
-      );
-    });
-    ctx.textAlign = "left";
-    const time = result.frames[frameIndex]?.label ?? "";
-    this.font(ctx, ui, 12, "600");
-    ctx.fillStyle = frame.text;
-    ctx.fillText(time, frame.left + frame.plotW - ctx.measureText(time).width, frame.top - 8 * ui);
-    const name = this.meta(this.config.column)?.name ?? "category";
-    this.noteEl.textContent = `${time} · ${formatCount(total)} rows in ${entries.length} tiles by ${name}`;
+    return drawAnimatedTreemap(this, ctx, frame);
   }
 
-  /** Animated density: the frame's grid through the normal density renderer. */
   private drawAnimatedDensity(ctx: CanvasRenderingContext2D, frame: Frame): void {
-    const result = this.animationResult;
-    const animated = result?.bubble;
-    const xMeta = this.meta(this.config.x);
-    const yMeta = this.meta(this.config.y);
-    if (
-      result === null ||
-      animated === undefined ||
-      xMeta === undefined ||
-      yMeta === undefined
-    ) {
-      const message = "Density animation needs two numeric columns — pick X and Y above.";
-      this.noteEl.textContent = message;
-      this.drawPlotMessage(ctx, frame, message);
-      return;
-    }
-    const frameIndex = Math.min(Math.max(0, this.animationFrame), result.frames.length - 1);
-    const cellCount = animated.bins * animated.bins;
-    const groupCount = animated.groups === null ? 1 : animated.groups.length;
-    const counts = new Float64Array(animated.bins * animated.bins);
-    // Merge the frame's group grids back into one density surface; the layout
-    // is frames * groups * cells when the worker was asked to group.
-    for (let group = 0; group < groupCount; group++) {
-      const base = (frameIndex * groupCount + group) * cellCount;
-      for (let cell = 0; cell < cellCount; cell++) {
-        counts[cell] += animated.grids[base + cell] ?? 0;
-      }
-    }
-    const merged = Uint32Array.from(counts);
-    let max = 0;
-    let total = 0;
-    for (const count of merged) {
-      total += count;
-      if (count > max) max = count;
-    }
-    const grid: SeriesGrid = {
-      mode: "density",
-      counts: merged,
-      cols: animated.bins,
-      rows: animated.bins,
-      xMin: animated.xMin,
-      xMax: animated.xMax,
-      yMin: animated.yMin,
-      yMax: animated.yMax,
-      total,
-      outside: 0,
-      max,
-    };
-    const savedCorrelation = this.seriesCorrelation;
-    this.seriesCorrelation = Number.NaN;
-    try {
-      this.drawDensity(ctx, frame, grid, xMeta, yMeta);
-    } finally {
-      this.seriesCorrelation = savedCorrelation;
-    }
-    const time = result.frames[frameIndex]?.label ?? "";
-    this.font(ctx, frame.ui, 12, "600");
-    ctx.textAlign = "left";
-    ctx.fillStyle = frame.text;
-    ctx.fillText(
-      time,
-      frame.left + frame.plotW - ctx.measureText(time).width,
-      frame.top - 8 * frame.ui,
-    );
-    this.noteEl.textContent = `${time} · ${this.noteEl.textContent ?? ""}`;
+    return drawAnimatedDensity(this, ctx, frame);
   }
 
   private drawAnimatedBars(ctx: CanvasRenderingContext2D, frame: Frame): void {
-    const result = this.animationResult;
-    const barData = result?.bar;
-    if (result === null || barData === undefined || result.frames.length === 0) {
-      const message = "No frames to draw yet.";
-      this.noteEl.textContent = message;
-      this.drawPlotMessage(ctx, frame, message);
-      return;
-    }
-    const frameIndex = Math.min(Math.max(0, this.animationFrame), result.frames.length - 1);
-    const labels = barData.labels;
-    const width = Math.max(1, labels.length);
-    const offset = frameIndex * width;
-    const ui = frame.ui;
-    // Every frame scales to the global maximum, so growth and decline over
-    // time are visible instead of each frame refilling the plot.
-    const maxCount = Math.max(1, result.maxCount);
-    const slotW = frame.plotW / width;
-    const barW = Math.max(4, slotW - Math.min(18 * ui, slotW * 0.25));
-
-    const yTicks = niceTicks(0, maxCount, 4).filter((value, index, all) => index === 0 || formatCount(value) !== formatCount(all[index - 1]));
-    ctx.strokeStyle = frame.border;
-    ctx.lineWidth = 1;
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    ctx.textAlign = "right";
-    for (const value of yTicks) {
-      const y = frame.top + frame.plotH - (value / maxCount) * frame.plotH;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(frame.left, y + 0.5);
-      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillText(formatCount(value), frame.left - 6 * ui, y + 3 * ui);
-    }
-    ctx.textAlign = "left";
-    ctx.beginPath();
-    ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
-    ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
-    ctx.stroke();
-
-    this.font(ctx, ui, 10);
-    labels.forEach((label, index) => {
-      const count = barData.counts[offset + index] ?? 0;
-      const height = (count / maxCount) * frame.plotH;
-      const x = frame.left + index * slotW + (slotW - barW) / 2;
-      if (height > 0) {
-        ctx.globalAlpha = 0.9;
-        ctx.fillStyle =
-          this.config.multiColor === true ? this.paletteColor(index) : this.primaryColor();
-        this.fillTopRounded(ctx, x, frame.top + frame.plotH - height, barW, height, 4 * ui);
-        ctx.globalAlpha = 1;
-        if (slotW > 42 * ui) {
-          ctx.fillStyle = frame.dim;
-          ctx.textAlign = "center";
-          ctx.fillText(
-            formatCount(count),
-            x + barW / 2,
-            Math.max(frame.top + 8 * ui, frame.top + frame.plotH - height - 4 * ui),
-          );
-        }
-      }
-      ctx.fillStyle = frame.dim;
-      ctx.textAlign = "center";
-      let text = label === "" ? "(blank)" : label;
-      const maxLabelW = Math.max(10, slotW - 6 * ui);
-      while (text.length > 2 && ctx.measureText(text).width > maxLabelW) text = text.slice(0, -2);
-      if (text !== label) text = `${text}…`;
-      ctx.fillText(text, frame.left + (index + 0.5) * slotW, frame.top + frame.plotH + 16 * ui);
-    });
-    ctx.textAlign = "left";
-
-    const time = result.frames[frameIndex]?.label ?? "";
-    this.font(ctx, ui, 12, "600");
-    ctx.fillStyle = frame.text;
-    ctx.fillText(time, frame.left + frame.plotW - ctx.measureText(time).width, frame.top - 8 * ui);
-    this.noteEl.textContent = `${time} · ${result.total.toLocaleString()} rows · play or scrub below`;
+    return drawAnimatedBars(this, ctx, frame);
   }
 
   /** Bubble chart: rows per x/y grid cell, sized by count or a measure. */
@@ -11079,7 +10341,7 @@ export class ChartCard {
     }
   }
 
-  private drawDensity(
+  drawDensity(
     ctx: CanvasRenderingContext2D,
     frame: Frame,
     result: SeriesGrid,
