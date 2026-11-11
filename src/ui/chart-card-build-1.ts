@@ -4,12 +4,11 @@
  */
 import { focusIcon, movieIcon, pngIcon } from "./chart-card-parts.js";
 import type { SeriesMode } from "../data/chart-series.js";
-import type { Aggregate } from "../data/aggregate.js";
 import { chartConfigWithDefaults } from "./chart-builder.js";
 import { CHART_KIND_LABELS, type ChartCardKind, DEFAULT_MAP_MODE, SPLIT_KINDS } from "./chart-utils.js";
 import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
-import type { DensityStyle, ChartCardConfig } from "./chart-card.js";
+import type { DensityStyle, ChartCardConfig } from "./chart-card-types.js";
 
 export function buildPart1(card: ChartCard, root: HTMLElement, preset: Partial<ChartCardConfig> | undefined) {
     card.root = root;

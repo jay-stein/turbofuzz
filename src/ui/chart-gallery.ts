@@ -1,13 +1,7 @@
 import type { ColumnMeta } from "../worker/protocol.js";
 import { detectGeoPair } from "../data/geo.js";
-import type { ChartCardConfig } from "./chart-card.js";
-import {
-  type ChartCardKind,
-  CHART_KIND_LABELS,
-  isCategoryType,
-  isIdLikeColumn,
-  looksLikeIdName,
-} from "./chart-utils.js";
+import type { ChartCardConfig } from "./chart-card-types.js";
+import { type ChartCardKind, isCategoryType, isIdLikeColumn, looksLikeIdName } from "./chart-utils.js";
 import { el } from "./dom.js";
 import { fitSlot, type SlotKind } from "./chart-registry.js";
 

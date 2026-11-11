@@ -13,7 +13,7 @@ import type { RowFilter } from "../data/compare/view.js";
 import type { GroupMeasure } from "../data/compare/shift.js";
 import type { ChartExclusion } from "../data/chart-exclusions.js";
 import type { NumberLocale } from "../parse/numbers.js";
-import type { TimeGrain, ViewDef } from "../data/aggregate.js";
+import type { ViewDef } from "../data/aggregate.js";
 import type { PivotDef } from "../data/pivot.js";
 import type { PairOperator } from "../data/pair-checks.js";
 import type { Rule } from "../data/rules.js";

@@ -7,7 +7,6 @@ import {
 } from "../parse/dates.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import type { ColumnType } from "../types.js";
-import { detectGeoPair } from "../data/geo.js";
 import { looksLikeIdName } from "../data/identifier.js";
 import { quickStarts, type QuickStart, type RecColumn, type RecType } from "./chart-recommender.js";
 

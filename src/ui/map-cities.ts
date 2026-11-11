@@ -6,7 +6,7 @@
  */
 
 import type { Cities } from "../data/cities.js";
-import type { MapOverlay } from "./chart-card.js";
+import type { MapOverlay } from "./chart-card-types.js";
 
 /** Labels are kept to about one per this many square pixels of map. */
 const AREA_PER_LABEL = 7000;

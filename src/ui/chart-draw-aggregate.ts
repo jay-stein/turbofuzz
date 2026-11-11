@@ -7,14 +7,13 @@
 import { type HitAction, groupedSeriesHitRegions, seriesHitRegions } from "./chart-hit-regions.js";
 import { measuresToSeries } from "../data/pivot-chart.js";
 import { smoothSeries } from "../data/kde.js";
-import type { Aggregate } from "../data/aggregate.js";
 import { TYPE_LABELS } from "../types.js";
 import type { AggregateMessage } from "../worker/protocol.js";
 import { axisKindFor, type AxisFormat, formatChartNumber, formatCompact, calendarTicks, fillTimeAxis, formatCount, formatTick, isGroupable, isNumericType, niceTicks, plainMeasureName } from "./chart-utils.js";
-import { clear, el } from "./dom.js";
+import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
-import type { Frame } from "./chart-card.js";
-import { RANKED_BARS_ABOVE, SPLIT_AXIS_LIMIT, GROUP_LINE_LIMIT, KDE_SIGMA_BINS } from "./chart-card.js";
+import type { Frame } from "./chart-card-types.js";
+import { RANKED_BARS_ABOVE, SPLIT_AXIS_LIMIT, GROUP_LINE_LIMIT, KDE_SIGMA_BINS } from "./chart-card-types.js";
 
 /** Wrapped message drawn inside the empty plot area. */
 export function drawPlotMessage(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, message: string): void {

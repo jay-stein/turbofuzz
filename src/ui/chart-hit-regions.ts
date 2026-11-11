@@ -6,7 +6,7 @@
 /** Plot-area rectangle in canvas CSS pixels, shared by hit-region builders. */
 
 import type { BoxGroupStats } from "../data/chart-stats.js";
-import type { ChartTableFilter } from "./chart-card.js";
+import type { ChartTableFilter } from "./chart-card-types.js";
 import { formatChartNumber, formatCount, formatTick, type AxisFormat, type CategoryBar } from "./chart-utils.js";
 export interface PlotGeometry {
   left: number;

@@ -11,14 +11,12 @@ import type { TsViewSource } from "../data/timeseries/view-source.js";
 import type { TsAgg, TsConfig, TsGaps, TsMode } from "../data/timeseries/aggregate.js";
 import type { TsSnapshot } from "../data/timeseries/engine.js";
 import type { DeepCheck } from "../data/timeseries/models.js";
-import {
-  compact, dfDate, dfDM, dfMonShort, dfTime, fmtNum, full, nf, nounFor, pct, periodLabel, shortPeriod, signed,
-} from "../data/timeseries/format.js";
+import { compact, dfDate, dfDM, dfMonShort, dfTime, fmtNum, full, nf, nounFor, periodLabel, shortPeriod, signed } from "../data/timeseries/format.js";
 import { BENCHMARK_KEYS, CORE_KEYS, flexDetail, grade, METRIC_KEYS, MODEL_INFO, MODEL_KEYS, type Future, type MetricKey, type ModelKey, type ModelRun } from "../data/timeseries/models.js";
 import { METRIC_INFO, metricText, openModelGuide } from "./timeseries-metrics.js";
 import { backtestRows, forecastRows, scorecardRows } from "./timeseries-export.js";
 import { cite, openModelDetails } from "./timeseries-model-docs.js";
-import { ordinal, PLAIN, trustVerdict, type Verdict } from "../data/timeseries/verdict.js";
+import { PLAIN, trustVerdict, type Verdict } from "../data/timeseries/verdict.js";
 import type { ArimaJob, ArimaProgress, ArimaResult } from "../data/timeseries/arima-run.js";
 import type { ArimaCoef } from "../data/timeseries/arima.js";
 import { startArima, type ArimaRun } from "./timeseries-arima.js";
@@ -26,10 +24,7 @@ import { openMenu } from "./menu.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import type { ColumnMeta, TimeSeriesMessage } from "../worker/protocol.js";
 import { downloadCsv } from "./chart-export.js";
-import {
-  buildInsights, chg, escapeHtml, trendRate, measureWord, modelRows, periodName, ratioOf, seasonName, selectedModel, trendShift,
-  type TsAction, type TsFinding, type TsTone, type TsView,
-} from "./timeseries-findings.js";
+import { buildInsights, chg, escapeHtml, trendRate, measureWord, modelRows, periodName, ratioOf, seasonName, selectedModel, trendShift, type TsAction, type TsFinding, type TsTone } from "./timeseries-findings.js";
 import { rankFormats } from "../parse/date-format.js";
 import { onSettingsChange, readSettings, updateSettings } from "./settings.js";
 import { HOLIDAY_REGIONS, suggestRegion } from "../data/timeseries/holidays.js";

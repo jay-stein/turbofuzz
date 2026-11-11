@@ -6,7 +6,6 @@ import { movieIcon } from "./chart-card-parts.js";
 import type { TimeGrain } from "../data/aggregate.js";
 import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
-import type { Frame } from "./chart-card.js";
 
 export function buildPart7(card: ChartCard, field: (label: string, input: HTMLElement) => HTMLElement) {
     const lookRow = el("div", { class: "chart-card-look" }, [

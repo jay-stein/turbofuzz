@@ -8,7 +8,7 @@ import {
   type BuilderPick,
   type ValueAgg,
 } from "./chart-builder.js";
-import type { ChartCardConfig } from "./chart-card.js";
+import type { ChartCardConfig } from "./chart-card-types.js";
 import { barKindFor, COMMON_KINDS, fitChartKind, kindIcon, MORE_GROUPS, previewFor } from "./chart-gallery.js";
 import { profile, recommend, type RecRole } from "./chart-recommender.js";
 import { CHART_KIND_LABELS, sourceOption, suggestCharts, toRecColumn, type ChartCardKind } from "./chart-utils.js";

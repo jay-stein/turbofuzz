@@ -15,8 +15,8 @@ import type { ColumnMeta } from "../worker/protocol.js";
 import { axisKindFor, correlationCell, formatChartNumber, formatCompact, formatTick, darkerColor, hexToRgb, isGroupable, isNumericType, niceTicks, rampColor } from "./chart-utils.js";
 import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
-import type { BubbleLayer, Frame } from "./chart-card.js";
-import { BORDER_DARKER, BORDER_ALPHA, addMarkerPath, leastSquares, cropDensityGrid } from "./chart-card.js";
+import type { BubbleLayer, Frame } from "./chart-card-types.js";
+import { BORDER_DARKER, BORDER_ALPHA, addMarkerPath, leastSquares, cropDensityGrid } from "./chart-card-types.js";
 
 export function refreshCrosstab(card: ChartCard): void {
   if (card.config.kind !== "heatmap") {

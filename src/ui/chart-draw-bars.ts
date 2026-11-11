@@ -16,8 +16,8 @@ import type { AggregateMessage } from "../worker/protocol.js";
 import { axisKindFor, type AxisFormat, type CategoryBar, CHART_KIND_LABELS, formatChartNumber, formatCount, formatTick, darkerColor, isGroupable, isNumericType, niceTicks, plainMeasureName, GROUP_REQUIRED_KINDS } from "./chart-utils.js";
 import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
-import type { RefLine, Frame } from "./chart-card.js";
-import { BORDER_DARKER, BORDER_ALPHA, addMarkerPath, DEFAULT_BIN_COUNT, POINT_LIMIT, GROUP_LINE_LIMIT } from "./chart-card.js";
+import type { RefLine, Frame } from "./chart-card-types.js";
+import { BORDER_DARKER, BORDER_ALPHA, addMarkerPath, DEFAULT_BIN_COUNT, POINT_LIMIT, GROUP_LINE_LIMIT } from "./chart-card-types.js";
 
 /** Every category bar sorted by count; the bar window pans across this. */
 export function allCategoryBars(card: ChartCard): CategoryBar[] {

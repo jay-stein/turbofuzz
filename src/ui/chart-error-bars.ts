@@ -11,8 +11,8 @@ import type { ErrorBarsProgressMessage } from "../worker/protocol.js";
 import type { AggregateMessage } from "../worker/protocol.js";
 import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
-import type { Frame } from "./chart-card.js";
-import { ERROR_BAR_KINDS, ERROR_BARS_ASK_CERTAINTY, TIME_SERIES_WARNING } from "./chart-card.js";
+import type { Frame } from "./chart-card-types.js";
+import { ERROR_BAR_KINDS, ERROR_BARS_ASK_CERTAINTY, TIME_SERIES_WARNING } from "./chart-card-types.js";
 
 /** The bars' numbers and how they were made, so a chart's uncertainty can leave with it. */
 export function errorBarExtract(card: ChartCard, aggregate: AggregateMessage, facts: [string, string][], table: (name: string, rows: string[][]) => void): void {

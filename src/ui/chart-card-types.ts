@@ -2,8 +2,6 @@
  * The types and constants the chart card is described by (its options and config, the shapes it
  * draws and reports, the limits it works within) and a few small pure helpers. Nothing here touches the page.
  */
-import { setColumns } from "./chart-card-data.js";
-import { mapLabelColumn } from "./chart-map-draw.js";
 import type { ChartBinOptions } from "../data/chart-bins.js";
 import { type HitAction } from "./chart-hit-regions.js";
 import { type PivotChartField, type PivotChartShape } from "../data/pivot-chart.js";
@@ -13,14 +11,12 @@ import type { SeriesGrid, SeriesMode } from "../data/chart-series.js";
 import { type IntervalKind } from "../data/error-bars.js";
 import { type DotScale } from "../data/dot-size.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
-import { CUSTOM_PALETTE, PALETTES } from "../data/palettes.js";
-import type { Aggregate, TimeGrain, ViewDef } from "../data/aggregate.js";
+import type { TimeGrain, ViewDef } from "../data/aggregate.js";
 import { type FrameStep } from "../data/chart-frames.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ErrorBarsMessage, ErrorBarsProgressMessage } from "../worker/protocol.js";
 import type { AggregateMessage, BoxStatsMessage, ChartBinsMessage, ChartSeriesMessage, PivotMessage, CorrelationMessage, CrosstabMessage, GroupedBinsMessage, GridCountsMessage, AnimationMessage, TextProfileMessage } from "../worker/protocol.js";
 import { type ChartCardKind } from "./chart-utils.js";
-import { clear } from "./dom.js";
 import { type MapRegionsOptions } from "./map-regions.js";
 import type { ChartCard } from "./chart-card.js";
 

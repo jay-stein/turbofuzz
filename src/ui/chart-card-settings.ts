@@ -13,8 +13,8 @@ import { sourceOption, formatChartNumber, describeStep, isCategoryType, isGroupa
 import { clear, el } from "./dom.js";
 import { openPrompt } from "./dialog.js";
 import type { ChartCard } from "./chart-card.js";
-import type { ChartCardConfig } from "./chart-card.js";
-import { MAX_VALUES, SHORT_PALETTES, MORE_PALETTES } from "./chart-card.js";
+import type { ChartCardConfig } from "./chart-card-types.js";
+import { MAX_VALUES, SHORT_PALETTES, MORE_PALETTES } from "./chart-card-types.js";
 
 /**
  * The settings panel in three parts. What every chart needs stays in view: its type, its fields
@@ -795,7 +795,6 @@ export function fillColumnSelect(card: ChartCard, select: HTMLSelectElement, all
 
 export function renderControls(card: ChartCard): void {
   const kind = card.config.kind;
-  const pair = isPairKind(kind);
   card.syncFieldVisibility();
   card.primaryTagLabel.textContent =
     kind === "histogram"
@@ -813,17 +812,9 @@ export function renderControls(card: ChartCard): void {
                 : "Column";
   const valueLabel = card.valueWrap.querySelector<HTMLElement>(".chart-tag-label");
   if (valueLabel !== null) valueLabel.textContent = kind === "treemap" ? "Size by" : "Value";
-  const groupable = card.columns.some((meta) => isGroupable(meta));
   const measureKinds = VALUE_AGGREGATE_KINDS.includes(kind) || kind === "treemap";
-  const grainKinds =
-    kind === "line" ||
-    kind === "smallmultiples" ||
-    ((kind === "kpi" || kind === "slopegraph" || kind === "waterfall") &&
-      card.isDateLike(card.meta(card.config.column)));
   const valueOn =
     measureKinds && card.config.source === "" && (card.config.valueColumn ?? -1) >= 0;
-  const groupedValue =
-    valueOn && SPLIT_KINDS.includes(kind);
   const seriesKind = kind === "scatter" || kind === "density";
   const mapKind = kind === "map";
   card.mapModeWrap.classList.toggle("hidden", !mapKind || card.config.mapMode === "heat" || card.config.mapMode === "regions");

@@ -15,8 +15,8 @@ import { CHART_KIND_LABELS, type ChartCardKind, defaultChartTitle, autoShortStep
 import { clear, el } from "./dom.js";
 import { describeScope } from "./scope.js";
 import type { ChartCard } from "./chart-card.js";
-import type { ChartSeriesTarget, ChartCardConfig, ChartSource } from "./chart-card.js";
-import { DEFAULT_BIN_COUNT } from "./chart-card.js";
+import type { ChartSeriesTarget, ChartCardConfig, ChartSource } from "./chart-card-types.js";
+import { DEFAULT_BIN_COUNT } from "./chart-card-types.js";
 
 /** The chart's numbers as a table: a chart split into series reads across, one column per series. */
 export function dataDrawerRows(card: ChartCard): string[][] {

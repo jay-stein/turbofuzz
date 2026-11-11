@@ -17,8 +17,8 @@ import { type MapRegionsOptions } from "./map-regions.js";
 import { fitViewToPlot } from "../data/regions.js";
 import { buildMapHtml, downloadHtml, roundRing, type MapHtmlLegend, type MapHtmlPayload } from "./map-html-export.js";
 import type { ChartCard } from "./chart-card.js";
-import type { MapViewport, MapBrushSelection, Frame, RegionRequests } from "./chart-card.js";
-import { fitMapView, BORDER_DARKER, BORDER_ALPHA, addMarkerPath, MAP_COLOR_AGG_NAMES } from "./chart-card.js";
+import type { MapViewport, MapBrushSelection, Frame, RegionRequests } from "./chart-card-types.js";
+import { fitMapView, BORDER_DARKER, BORDER_ALPHA, addMarkerPath, MAP_COLOR_AGG_NAMES } from "./chart-card-types.js";
 
 export function mapExtract(card: ChartCard, facts: [string, string][], table: (name: string, rows: string[][]) => void): void {
   const colorMeta = card.meta(card.config.colorColumn);

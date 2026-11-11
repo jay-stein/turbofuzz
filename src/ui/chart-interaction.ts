@@ -13,8 +13,8 @@ import { CHART_KIND_LABELS, describeStep, zoomPlotBounds } from "./chart-utils.j
 import { clear, el } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
 import type { ChartCard } from "./chart-card.js";
-import type { ValueScale, BrushRange, BrushSpace, Frame } from "./chart-card.js";
-import { addMarkerPath, POINT_LIMIT } from "./chart-card.js";
+import type { ValueScale, BrushRange, BrushSpace, Frame } from "./chart-card-types.js";
+import { addMarkerPath, POINT_LIMIT } from "./chart-card-types.js";
 
 /** Every chart type as a picture, grouped by the question it answers; ones the data cannot draw say why. */
 export function openKindPicker(card: ChartCard): void {

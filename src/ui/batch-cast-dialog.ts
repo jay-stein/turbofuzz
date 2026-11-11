@@ -1,4 +1,4 @@
-import { CAST_LOSS_CONFIRM_SHARE, type CastOptions, type CastPolicy, type CastTarget } from "../data/cast-ops.js";
+import { CAST_LOSS_CONFIRM_SHARE, type CastPolicy, type CastTarget } from "../data/cast-ops.js";
 import type { CleanOp } from "../data/clean-ops.js";
 import { castCompatibility } from "../data/type-lattice.js";
 import { TYPE_LABELS, type ColumnType } from "../types.js";

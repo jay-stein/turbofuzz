@@ -1,5 +1,5 @@
 import type { ColumnMeta } from "../worker/protocol.js";
-import type { ChartCardConfig } from "./chart-card.js";
+import type { ChartCardConfig } from "./chart-card-types.js";
 import {
   CHART_KIND_LABELS,
   type ChartCardKind,

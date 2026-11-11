@@ -2,7 +2,7 @@ import { buildPart7, buildPart8 } from "./chart-card-build-3.js";
 import { buildPart4, buildPart5, buildPart6 } from "./chart-card-build-2.js";
 import { buildPart1, buildPart2, buildPart3 } from "./chart-card-build-1.js";
 import { dataDrawerRows, undo, setColumns, setSources, refreshView, aggregateResult, valueViewDef, refreshValue, syncScope, syncNote, lintNote, syncSummaryText, issueColumns, syncDataIssues, fieldsInUse, setKind, dropSettingsTheNewKindCannotUse, refreshForConfig, setPrimaryColumn, applyColumnDefaults, defaultStepFor, defaultTitle, seriesTarget, resetBinRange, commitBinOptions, refreshBins, xZoomBase, chartScope, canvasLabel, boundFormatter, canDraw } from "./chart-card-data.js";
-import { groupSettings, dock, fieldSlots, toggleSidebar, syncSettingsOpen, bindSettingsDismiss, renderSourceOptions, syncSourceControls, syncFieldVisibility, toggleExtraValue, syncExtraValues, setViewShape, pivotRailItems, syncViewShapeOptions, syncPivotOptions, allowsPrimary, syncValueAggOptions, syncOptions, syncChartFilterControls, fillColumnSelect, renderControls, fillPaletteOptions, syncPalette, applyPalette , forgetSettingsDisclosure } from "./chart-card-settings.js";
+import { groupSettings, dock, fieldSlots, toggleSidebar, bindSettingsDismiss, renderSourceOptions, syncSourceControls, syncFieldVisibility, toggleExtraValue, syncExtraValues, setViewShape, pivotRailItems, syncViewShapeOptions, syncPivotOptions, allowsPrimary, syncValueAggOptions, syncOptions, syncChartFilterControls, fillColumnSelect, renderControls, fillPaletteOptions, syncPalette, applyPalette, forgetSettingsDisclosure } from "./chart-card-settings.js";
 import { importChartSpecFile, exportPng, openStats, chartExtract, drawnBins, histogramExtract, exportCsv, chartCsvRows, gridCsvRows, syncDeepDive, openCardMenu, toggleFocus, closeFocus, openExportMenu, downloadChartSpec, downloadChartCode, downloadBlob } from "./chart-card-export.js";
 import { openKindPicker, selectRegion, drawSelection, queuePointer, showTooltipAtPointer, emitHighlight, setLinkedHighlight, cancelSliceFetch, sliceRegions, sliceEntries, scheduleSliceFetch, scheduleSlicePoints, drawSlicePoints, drawLinkedOverlay, drawSliceShare, handleCanvasClick, finishBrush, timeSlotBrush, drawBrushOverlay, onWheel, withoutExcludedBins, syncExclusions, handleCanvasContextMenu, dataPointAt, openExclusionMenu, excludeFromTable, applyHitAction } from "./chart-interaction.js";
 import { allCategoryBars, refreshSeries, refreshTreemap, drawTreemap, refreshText, drawTerms, refreshBox, refreshGroupedBins, widestYLabel, fillTopRounded, drawKpi, drawExtraKind, syncRefLines, drawReferenceLines, axisLabels, drawAxisTitles, drawBars, drawAxes, drawBox } from "./chart-draw-bars.js";
@@ -11,149 +11,36 @@ import { syncAnimationOptions, frameWidths, syncFrameOptions, refreshAnimation, 
 import { drawPlotMessage, emptySeriesMessage, subtitle, drawChart, drawSplitAggregate, drawRankedBars, drawViewAggregate, drawSeries, drawCountAxis, lineUnitLabel, drawGroupedHistogram, drawGroupedLines, syncLegend } from "./chart-draw-aggregate.js";
 import { mapExtract, regionOptions, setMapMode, syncRegionAxes, refreshMapGrid, placeFrame, beginMapBrush, endMapBrush, zoomMap, exportMapHtml, mapHtmlPayload, mapViewShown, mapViewOrAuto, dataViewOrNull, resetMapZoom, fitMapAll, markerBox, frameBox, drawMap, drawMapLayers, drawMapClusters, drawMapBody, syncDotControls, mapLabelColumn, mapDotLines, drawMapSizeLegend, mapRadii } from "./chart-map-draw.js";
 import { errorBarExtract, errorBarBlock, syncResearchControls, syncErrorBarControls, refreshErrorBars, cancelErrorBars, showErrorBarProgress, hideErrorBarProgress, errorBarAt, drawWhisker, appendErrorBarNote } from "./chart-error-bars.js";
-import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
+import type { ChartBins } from "../data/chart-bins.js";
 import { ChartDataDrawer } from "./chart-data-drawer.js";
-import { cssVar, focusIcon, missingOrTokens, movieIcon, pngIcon, readGroupOpen, writeGroupOpen, type SettingsGroup } from "./chart-card-parts.js";
-import { basemapCaches, DETAIL_LON_SPAN, loadBasemap, type Basemap, type BasemapDetail } from "./chart-basemap.js";
-import { type GroupedSeriesHitInput, type HeatmapHitInput, type CorrelationHitInput, type HitAction, type HitRegion, type PlotGeometry, type SeriesHitInput, actionsOverlap, barHitRegions, boxHitRegions, correlationHitRegions, groupedSeriesHitRegions, heatmapHitRegions, hitTest, seriesHitRegions, tableFiltersForHitActions } from "./chart-hit-regions.js";
+import { cssVar, readGroupOpen, type SettingsGroup } from "./chart-card-parts.js";
+import { type Basemap } from "./chart-basemap.js";
+import { type HitAction, type HitRegion } from "./chart-hit-regions.js";
 export * from "./chart-hit-regions.js";
-import { measuresToSeries, type PivotChartField, type PivotChartShape } from "../data/pivot-chart.js";
-import type { GetSliceBreakdownRequest, SliceBreakdownMessage, SliceRegion } from "../worker/protocol.js";
-import {
-  addExclusion,
-  describeRange,
-  exclusionChips,
-  removeChip,
-  sanitizeExclusions,
-  type ChartExclusion,
-} from "../data/chart-exclusions.js";
-import type { SeriesGrid, SeriesMode, SeriesPoints } from "../data/chart-series.js";
-import type {
-  BoxGroupStats,
-  BoxStatsResult,
-  CrossTabResult,
-  GridCountsResult,
-} from "../data/chart-stats.js";
+import { type PivotChartShape } from "../data/pivot-chart.js";
+import type { SliceRegion } from "../worker/protocol.js";
+import { type ChartExclusion } from "../data/chart-exclusions.js";
+import type { SeriesGrid, SeriesPoints } from "../data/chart-series.js";
+import type { BoxStatsResult, CrossTabResult, GridCountsResult } from "../data/chart-stats.js";
 import type { AnimationResult } from "../data/chart-frames.js";
-import { encodeGif, type GifFrameInput } from "../data/gif.js";
-import { defaultInterval, INTERVAL_KINDS, intervalBlock, statisticBlock, type IntervalKind } from "../data/error-bars.js";
-import { errorBarKey } from "../data/error-bar-key.js";
-import { binnedSummary, binRows, linearFit, num, seriesRows, summarise, type ChartExtract, type ExtractSection } from "../data/chart-extract.js";
-import { symlog as symlogValue, symlogInverse } from "../data/symlog.js";
-import { openChartStats } from "./chart-stats-dialog.js";
-import { contourLevels, marchingSquares, smoothGrid, smoothSeries } from "../data/kde.js";
-import { squarifyLayout } from "../data/treemap.js";
-import { dataRange, robustRange, DOT_SCALES, dotRadii, type DotScale } from "../data/dot-size.js";
-import type { ColumnSuggestion } from "../data/suggestions.js";
-import {
-  CUSTOM_PALETTE,
-  DEFAULT_PALETTE,
-  isRampPalette,
-  PALETTES,
-  paletteStops,
-  parseCustomColors,
-  parsePaletteJson,
-  samplePalette,
-} from "../data/palettes.js";
-import type { Aggregate, MeasureSpec, TimeGrain, ViewDef } from "../data/aggregate.js";
-import { MAX_FRAMES, type FrameStep } from "../data/chart-frames.js";
-import type { ColumnFilter } from "../search/query-engine.js";
-import { isNumericLikeType, TYPE_LABELS } from "../types.js";
-import {
-  chartSpecFromConfig,
-  chartSpecJson,
-  chartSpecToPandas,
-  chartSpecToPolars,
-  parseChartSpec,
-  type ChartSpec,
-} from "./chart-spec.js";
+import { type GifFrameInput } from "../data/gif.js";
+import { defaultInterval, intervalBlock, type IntervalKind } from "../data/error-bars.js";
+import { type ChartExtract } from "../data/chart-extract.js";
+import { DEFAULT_PALETTE, isRampPalette, paletteStops, parseCustomColors, samplePalette } from "../data/palettes.js";
+import type { TimeGrain, ViewDef } from "../data/aggregate.js";
+import { type FrameStep } from "../data/chart-frames.js";
+import { chartSpecFromConfig, parseChartSpec, type ChartSpec } from "./chart-spec.js";
 import { chartConfigWithDefaults } from "./chart-builder.js";
-import { barKindFor, COMMON_KINDS, fitChartKind, kindIcon, MORE_GROUPS } from "./chart-gallery.js";
-import { fieldsFor } from "./chart-registry.js";
-import {
-  drawDotPlot,
-  drawSlopegraph,
-  drawSmallMultiples,
-  drawStacked100,
-  drawWaterfall,
-  type Painter,
-} from "./chart-extra-draw.js";
+import { kindIcon } from "./chart-gallery.js";
 import type { ErrorBarsMessage, ErrorBarsProgressMessage } from "../worker/protocol.js";
-import { lint, type LintNote, type RecColumn } from "./chart-recommender.js";
-import {
-  colorForFraction,
-  colorFraction,
-  colorRamp,
-  describeColorDomain,
-  resolveColorDomain,
-} from "./color-scale.js";
-import type {
-  AggregateMessage,
-  BoxStatsMessage,
-  ChartBinsMessage,
-  ChartSeriesMessage,
-  ColumnMeta,
-  PivotMessage,
-  CorrelationMessage,
-  CrosstabMessage,
-  GroupedBinsMessage,
-  GridCountsMessage,
-  AnimationMessage,
-  TextProfileMessage,
-} from "../worker/protocol.js";
-import {
-  axisKindFor,
-  type AxisFormat,
-  categorySeries,
-  type CategoryBar,
-  CHART_COLORS,
-  CHART_KIND_LABELS,
-  type ChartCardKind,
-  correlationCell,
-  DEFAULT_MAP_MODE,
-  defaultChartTitle,
-  sourceOption,
-  formatChartNumber,
-  formatCompact,
-  autoShortStep,
-  calendarTicks,
-  describeStep,
-  fillTimeAxis,
-  formatCount,
-  formatTick,
-  darkerColor,
-  hexToRgb,
-  isCategoryType,
-  isGroupable,
-  isIdLikeColumn,
-  isNumericType,
-  isPairKind,
-  looksLikeIdName,
-  mapBrushBounds,
-  niceTicks,
-  zoomPlotBounds,
-  parseChartNumber,
-  plainMeasureName,
-  rampColor,
-  SPLIT_KINDS,
-  GROUP_REQUIRED_KINDS,
-  VALUE_AGGREGATE_KINDS,
-  toRecColumn,
-  safeFileName,
-  suggestedBinRange,
-} from "./chart-utils.js";
-import { downloadCsv } from "./chart-export.js";
-import { clear, el, svgIcon } from "./dom.js";
-import { openConfirm, openPrompt } from "./dialog.js";
-import { describeScope } from "./scope.js";
-import { openMenu, type MenuItem } from "./menu.js";
-import {
-  projectLat,
-  projectLon,
-} from "../data/topo.js";
+import { type LintNote } from "./chart-recommender.js";
+import { resolveColorDomain } from "./color-scale.js";
+import type { AggregateMessage, ColumnMeta, PivotMessage, GroupedBinsMessage, TextProfileMessage } from "../worker/protocol.js";
+import { type AxisFormat, type CategoryBar, CHART_KIND_LABELS, type ChartCardKind, DEFAULT_MAP_MODE, formatChartNumber, describeStep, isGroupable, isIdLikeColumn, isNumericType, isPairKind, looksLikeIdName, VALUE_AGGREGATE_KINDS } from "./chart-utils.js";
+import { el } from "./dom.js";
+import { openConfirm } from "./dialog.js";
 import { MapRegions, type MapRegionsOptions } from "./map-regions.js";
-import { fitViewToPlot } from "../data/regions.js";
-import { buildMapHtml, downloadHtml, roundRing, type MapHtmlLegend, type MapHtmlPayload } from "./map-html-export.js";
+import { type MapHtmlPayload } from "./map-html-export.js";
 import { ERROR_BAR_KINDS, type MapViewport, type ValueScale, type BrushRange, type BrushSpace, type MapOverlay, type RefLine, type MapMarkerDraw, type ChartCardOptions, type ChartSeriesTarget, type ChartCardConfig, type ChartSource, type BubbleLayer, type Frame, type RegionRequests } from "./chart-card-types.js";
 export * from "./chart-card-types.js";
 
@@ -668,10 +555,6 @@ export class ChartCard {
 
   toggleSidebar(): void {
     return toggleSidebar(this);
-  }
-
-  private syncSettingsOpen(): void {
-    return syncSettingsOpen(this);
   }
 
   bindSettingsDismiss(settings: HTMLDetailsElement): void {

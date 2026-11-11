@@ -1,7 +1,7 @@
 import type { TimeGrain } from "../data/aggregate.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import { DEFAULT_PALETTE } from "../data/palettes.js";
-import type { ChartCardConfig } from "./chart-card.js";
+import type { ChartCardConfig } from "./chart-card-types.js";
 import { fitChartKind } from "./chart-gallery.js";
 import { aggFor } from "./chart-names.js";
 import { profile, type RecProfile } from "./chart-recommender.js";

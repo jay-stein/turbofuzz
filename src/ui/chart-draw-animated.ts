@@ -4,7 +4,6 @@
  * Moved out of chart-card.ts: each function takes the card it works on, and the card keeps a
  * one-line method of the same name that calls it.
  */
-import { drawChart } from "./chart-draw-aggregate.js";
 import { cssVar } from "./chart-card-parts.js";
 import type { SeriesGrid } from "../data/chart-series.js";
 import { encodeGif, type GifFrameInput } from "../data/gif.js";
@@ -16,8 +15,8 @@ import { axisKindFor, type AxisFormat, CHART_KIND_LABELS, formatCount, formatTic
 import { el } from "./dom.js";
 import { openPrompt } from "./dialog.js";
 import type { ChartCard } from "./chart-card.js";
-import type { Frame } from "./chart-card.js";
-import { POINT_LIMIT, ANIMATED_KINDS } from "./chart-card.js";
+import type { Frame } from "./chart-card-types.js";
+import { POINT_LIMIT, ANIMATED_KINDS } from "./chart-card-types.js";
 
 /** Columns to animate over: dates, then numbers (shaded regions step through dates only). */
 export function syncAnimationOptions(card: ChartCard): void {

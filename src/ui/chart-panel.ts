@@ -1,5 +1,5 @@
 import type { PivotChartShape } from "../data/pivot-chart.js";
-import type { ChartSource } from "./chart-card.js";
+import type { ChartSource } from "./chart-card-types.js";
 import type { FrameStep } from "../data/chart-frames.js";
 import type { ChartBinOptions } from "../data/chart-bins.js";
 import {
@@ -8,7 +8,7 @@ import {
   type ChartExclusion,
   type NamedExclusion,
 } from "../data/chart-exclusions.js";
-import type { TimeGrain, ViewDef } from "../data/aggregate.js";
+import type { ViewDef } from "../data/aggregate.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import type {
@@ -31,18 +31,10 @@ import type {
   ErrorBarsProgressMessage,
 } from "../worker/protocol.js";
 import type { IntervalKind } from "../data/error-bars.js";
-import type { RegionRequests } from "./chart-card.js";
+import type { RegionRequests } from "./chart-card-types.js";
 import { isGroupableColumn } from "../data/groupable.js";
-import {
-  ChartCard,
-  type ChartCardConfig,
-  type ChartCardOptions,
-  type ChartSeriesTarget,
-  type ChartTableFilter,
-  type BrushRange,
-  type MapBrushSelection,
-  type SeriesRequestInput,
-} from "./chart-card.js";
+import { type ChartCardConfig, type ChartCardOptions, type ChartSeriesTarget, type ChartTableFilter, type BrushRange, type MapBrushSelection, type SeriesRequestInput } from "./chart-card-types.js";
+import { ChartCard } from "./chart-card.js";
 import {
   fitChartKind,
 } from "./chart-gallery.js";

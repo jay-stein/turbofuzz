@@ -10,14 +10,14 @@ import { binnedSummary, binRows, linearFit, num, seriesRows, summarise, type Cha
 import { symlog as symlogValue, symlogInverse } from "../data/symlog.js";
 import { openChartStats } from "./chart-stats-dialog.js";
 import { smoothSeries } from "../data/kde.js";
-import { chartSpecJson, chartSpecToPandas, chartSpecToPolars, type ChartSpec } from "./chart-spec.js";
+import { chartSpecJson, chartSpecToPandas, chartSpecToPolars } from "./chart-spec.js";
 import { type ChartCardKind, formatChartNumber, plainMeasureName, VALUE_AGGREGATE_KINDS, safeFileName } from "./chart-utils.js";
 import { downloadCsv } from "./chart-export.js";
 import { clear, el } from "./dom.js";
 import { openConfirm } from "./dialog.js";
 import { openMenu } from "./menu.js";
 import type { ChartCard } from "./chart-card.js";
-import { KDE_SIGMA_BINS } from "./chart-card.js";
+import { KDE_SIGMA_BINS } from "./chart-card-types.js";
 
 /** Hidden file picker for importing a previously downloaded ChartSpec. */
 export function importChartSpecFile(card: ChartCard): void {

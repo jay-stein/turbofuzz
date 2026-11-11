@@ -7,7 +7,8 @@
 
 import { detectGeoPair } from "../data/geo.js";
 import type { ColumnMeta } from "../worker/protocol.js";
-import type { ChartCard, ChartCardConfig } from "./chart-card.js";
+import type { ChartCardConfig } from "./chart-card-types.js";
+import type { ChartCard } from "./chart-card.js";
 import { el, svgIcon } from "./dom.js";
 import { loadCities } from "../data/cities.js";
 import { cityOverlay } from "./map-cities.js";

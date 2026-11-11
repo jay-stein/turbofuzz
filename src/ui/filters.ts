@@ -11,7 +11,7 @@ import {
   toDateTimeInputValue,
   toTimeInputValue,
 } from "../parse/dates.js";
-import { parseNumber, type NumberLocale } from "../parse/numbers.js";
+import { parseNumber } from "../parse/numbers.js";
 import {
   describeSuggestion,
   suggestionLabel,

@@ -2,7 +2,7 @@ import type { IntervalKind } from "../data/error-bars.js";
 import type { ChartBinOptions } from "../data/chart-bins.js";
 import type { TimeGrain } from "../data/aggregate.js";
 import type { ColumnMeta } from "../worker/protocol.js";
-import type { ChartCardConfig } from "./chart-card.js";
+import type { ChartCardConfig } from "./chart-card-types.js";
 import { defaultChartConfig } from "./chart-builder.js";
 import {
   CHART_KIND_LABELS,

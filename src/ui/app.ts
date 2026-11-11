@@ -81,22 +81,7 @@ import {
 import type { NumberLocale } from "../parse/numbers.js";
 import type { WorkBook } from "xlsx";
 import { TYPE_LABELS, isNumericLikeType, type ColumnType } from "../types.js";
-import type {
-  AggregateMessage,
-  CleanUpdate,
-  ColumnMeta,
-  DatasetStatsMessage,
-  PivotMessage,
-  CorrelationMessage,
-  ExportScope,
-  CompareSideInfo,
-  LoadedMessage,
-  ProgressMessage,
-  ResultsMessage,
-  SpecialKind,
-  TransformedMessage,
-  RowLimit,
-} from "../worker/protocol.js";
+import type { AggregateMessage, CleanUpdate, ColumnMeta, PivotMessage, CorrelationMessage, ExportScope, CompareSideInfo, LoadedMessage, ProgressMessage, ResultsMessage, SpecialKind, TransformedMessage, RowLimit } from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openDedupeMenu } from "./dedupe-menu.js";
 import { openMenu, type MenuItem } from "./menu.js";
@@ -201,7 +186,7 @@ import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
 import { GENERAL_VIEWS, ViewTabs, isResearchView, viewSwitchHint, type ViewId } from "./view-tabs.js";
-import { ModeSwitch, modeLabel, readMode, writeMode, type AppMode } from "./mode.js";
+import { ModeSwitch, readMode, writeMode, type AppMode } from "./mode.js";
 import { TableNav } from "./table-nav.js";
 import { openNewColumn } from "./new-column-dialog.js";
 import { confirmCellEdit } from "./cell-edit-confirm.js";
