@@ -17667,3 +17667,21 @@ button.cmp-change-name:hover {
 .chart-headline:has(.chart-source-chip:not(.hidden)) .chart-scope {
   display: none;
 }
+
+/* Map page: choosing the latitude and longitude columns by hand. */
+.map-coords {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+}
+.map-coords label {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.map-coord-select {
+  max-width: 150px;
+  font-size: 12px;
+}

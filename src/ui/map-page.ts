@@ -62,9 +62,18 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   }
   const exportButton = el("button", { class: "ghost map-export", type: "button", title: "Save this map as an interactive web page or a PNG" }, ["Export map ▾"]) as HTMLButtonElement;
   exportButton.addEventListener("click", () => card?.openExport(exportButton));
+  // Which columns are the coordinates. They are found by name (lat, longitude, ...); when the names
+  // say nothing, or say the wrong thing, these choose them by hand.
+  const latPick = el("select", { class: "map-coord-select", "aria-label": "Latitude column" }) as HTMLSelectElement;
+  const lonPick = el("select", { class: "map-coord-select", "aria-label": "Longitude column" }) as HTMLSelectElement;
+  const coordPicks = el("span", { class: "map-coords", title: "The two columns that place each row on the map: found by name, or chosen here" }, [
+    el("label", {}, [el("span", {}, ["Latitude"]), latPick]),
+    el("label", {}, [el("span", {}, ["Longitude"]), lonPick]),
+  ]);
   const toolbar = el("div", { class: "map-toolbar" }, [
     el("h2", { class: "map-title" }, ["Map"]),
     typePicker,
+    coordPicks,
     sub,
     el("span", { class: "grow" }),
     exportButton,
@@ -207,6 +216,31 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     return lat !== undefined && lon !== undefined ? `${lat} / ${lon}` : "";
   }
 
+  /** Lists the number columns in both pickers and shows the ones the map is using. */
+  function syncCoordPicks(): void {
+    const config = card?.getConfig();
+    for (const [select, current] of [[latPick, config?.y ?? -1], [lonPick, config?.x ?? -1]] as const) {
+      select.replaceChildren(el("option", { value: "-1" }, ["— none —"]));
+      metas.forEach((meta, index) => {
+        if (meta.type === "integer" || meta.type === "number") select.append(el("option", { value: String(index) }, [meta.name]));
+      });
+      select.value = String(current);
+    }
+    coordPicks.classList.toggle("hidden", !metas.some((meta) => meta.type === "integer" || meta.type === "number"));
+  }
+
+  /** Both chosen (and different), or both cleared, moves the map; one alone waits for the other. */
+  function applyCoordPicks(): void {
+    const lat = Number(latPick.value), lon = Number(lonPick.value);
+    if ((lat >= 0 && lon >= 0 && lat !== lon) || (lat < 0 && lon < 0)) {
+      pending = { x: lon, y: lat };
+      ensureCard();
+    } else if (lat >= 0 && lon >= 0) options.onAction("Latitude and longitude need two different columns");
+    else options.onAction("Choose both a latitude and a longitude column");
+  }
+  latPick.addEventListener("change", applyCoordPicks);
+  lonPick.addEventListener("change", applyCoordPicks);
+
   function ensureCard(): void {
     const geo = detectGeoPair(metas, rowCount);
     const inRange = (i: number | undefined): boolean => i !== undefined && i >= 0 && i < metas.length;
@@ -244,11 +278,12 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     if (names === "") {
       empty.replaceChildren(
         el("p", {}, [
-          "No latitude and longitude columns found, so the map shows your markers only. To plot rows, the table needs two number columns in degrees, named for what they are: a latitude (lat, latitude) and a longitude (lon, lng, longitude). Columns are only used when their names say so; a column of prices or ages is never taken for a coordinate. A table of named places can still be mapped: choose Choropleth above and load a boundary file.",
+          "No latitude and longitude columns found, so the map shows your markers only. To plot rows, the table needs two number columns in degrees, named for what they are: a latitude (lat, latitude) and a longitude (lon, lng, longitude). Columns are only used when their names say so; a column of prices or ages is never taken for a coordinate. If your columns are named differently, choose them with Latitude and Longitude above. A table of named places can still be mapped: choose Choropleth above and load a boundary file.",
         ]),
       );
     }
     sub.textContent = names;
+    syncCoordPicks();
   }
 
   async function applyCities(): Promise<void> {

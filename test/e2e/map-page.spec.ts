@@ -175,3 +175,25 @@ test("many markers can be clustered into numbered circles, which split when the 
   await show.selectOption("points");
   await expect(card).not.toContainText("click a cluster to zoom in");
 });
+
+test("columns not named like coordinates can be chosen by hand as latitude and longitude", async ({ page }) => {
+  await openMap(page, "x,y,price\n-0.1,51.5,120\n2.3,48.9,150\n-3.7,40.4,90\n", "grid.csv");
+  // Nothing is named lat or lon, so nothing is guessed: not even from price, whose values would fit.
+  await expect(page.locator(".map-empty")).toContainText("choose them with Latitude and Longitude");
+  await expect(page.locator(".map-sub")).toHaveText("");
+  await expect(page.getByLabel("Latitude column")).toHaveValue("-1");
+
+  // One alone waits for the other.
+  await page.getByLabel("Latitude column").selectOption({ label: "y" });
+  await expect(page.locator(".map-empty")).toBeVisible();
+  await page.getByLabel("Longitude column").selectOption({ label: "x" });
+  await expect(page.locator(".map-empty")).toBeHidden();
+  await expect(page.locator(".map-sub")).toHaveText("y / x");
+  await expect(page.getByLabel("Latitude column")).toHaveValue("1");
+  await expect(page.getByLabel("Longitude column")).toHaveValue("0");
+
+  // Both back to none returns to the plain map.
+  await page.getByLabel("Latitude column").selectOption({ label: "— none —" });
+  await page.getByLabel("Longitude column").selectOption({ label: "— none —" });
+  await expect(page.locator(".map-empty")).toBeVisible();
+});
