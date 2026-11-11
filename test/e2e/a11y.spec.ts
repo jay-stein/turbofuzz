@@ -27,7 +27,8 @@ test("core surfaces expose accessible names and focusable controls", async ({ pa
   await expect(page.getByRole("tab", { name: "Relationships" })).toBeVisible();
 
   await page.getByRole("tab", { name: "Table" }).click();
-  await page.getByRole("button", { name: "Convert column types" }).click();
+  await page.getByRole("button", { name: "Reshape data" }).click();
+  await page.getByRole("menuitem", { name: /^Convert types/ }).click();
   const dialog = page.getByRole("dialog", { name: "Convert column types" });
   await expect(dialog).toBeVisible();
   const target = dialog.getByRole("combobox", { name: "Target type for region" });

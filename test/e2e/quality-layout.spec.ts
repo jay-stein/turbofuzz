@@ -168,6 +168,8 @@ test("the Overview issue count is the Quality page's own count", async ({ page }
     buffer: Buffer.from(messyCustomers()),
   });
   await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
+  // The issue count is on the Overview, which is no longer the tab a file opens on.
+  await page.getByRole("tab", { name: "Overview" }).click();
   const button = page.locator(".triage-open");
   await expect(button).toContainText("fixing");
   const label = (await button.textContent()) ?? "";

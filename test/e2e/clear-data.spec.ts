@@ -15,7 +15,8 @@ test("Clear data leaves nothing of the old file: no name, no score, no memory, a
 
   await page.getByRole("button", { name: "Clear data" }).first().click();
   await page.getByRole("dialog").getByRole("button", { name: "Clear data" }).click();
-  await expect(page.getByRole("button", { name: "Compare two datasets…" })).toBeVisible();
+  // The front page is back, with its Analyse / Compare switch.
+  await expect(page.getByText("Compare two tables", { exact: true })).toBeVisible();
   await expect(meta).toHaveText("");
   await expect(meta).not.toHaveAttribute("title", /first\.csv|rows/);
   await expect(page.locator(".score-tile")).toBeHidden();
