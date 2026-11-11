@@ -1,3 +1,4 @@
+import { drawPlotMessage, emptySeriesMessage, subtitle, drawChart, drawSplitAggregate, drawRankedBars, drawViewAggregate, drawSeries, drawCountAxis, lineUnitLabel, drawGroupedHistogram, drawGroupedLines, syncLegend } from "./chart-draw-aggregate.js";
 import { mapExtract, regionOptions, setMapMode, syncRegionAxes, refreshMapGrid, placeFrame, beginMapBrush, endMapBrush, zoomMap, exportMapHtml, mapHtmlPayload, mapViewShown, mapViewOrAuto, dataViewOrNull, resetMapZoom, fitMapAll, markerBox, frameBox, drawMap, drawMapLayers, drawMapClusters, drawMapBody, syncDotControls, mapLabelColumn, mapDotLines, drawMapSizeLegend, mapRadii } from "./chart-map-draw.js";
 import { errorBarExtract, errorBarBlock, syncResearchControls, syncErrorBarControls, refreshErrorBars, cancelErrorBars, showErrorBarProgress, hideErrorBarProgress, errorBarAt, drawWhisker, appendErrorBarNote } from "./chart-error-bars.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
@@ -360,7 +361,7 @@ let openSettingsDisclosure: HTMLDetailsElement | null = null;
 export type DensityStyle = "heat" | "contours" | "both";
 
 /** Above this many categories a value bar chart reads better on its side, with its names in full. */
-const RANKED_BARS_ABOVE = 12;
+export const RANKED_BARS_ABOVE = 12;
 
 export interface SeriesRequestInput {
   xColumn: number;
@@ -725,7 +726,7 @@ const SHORT_PALETTES: readonly string[] = ["tab10", "colorblind", "Set2", "Blues
 const MORE_PALETTES = "__more";
 
 /** A chart of a pivot split into series draws at most this many groups of bars along its axis. */
-const SPLIT_AXIS_LIMIT = 20;
+export const SPLIT_AXIS_LIMIT = 20;
 
 /** One overlaid bubble set (a group, or the whole chart when ungrouped). */
 interface BubbleLayer {
@@ -756,7 +757,7 @@ export interface Frame {
 const DEFAULT_BIN_COUNT = 32;
 const POINT_LIMIT = 20_000;
 /** Grouped time series: distinct lines before the rest folds into Other. */
-const GROUP_LINE_LIMIT = 8;
+export const GROUP_LINE_LIMIT = 8;
 const HEX = /^#?[0-9a-f]{6}$/i;
 
 /** What the Map page's regions ask of the worker. */
@@ -807,7 +808,7 @@ export function cropDensityGrid(
  * counter.
  */
 /** Width of the Gaussian that smooths a histogram's bins into its KDE curve, in bins. */
-const KDE_SIGMA_BINS = 1.4;
+export const KDE_SIGMA_BINS = 1.4;
 
 /** Single-series bars and lines of a statistic. */
 export const ERROR_BAR_KINDS: ReadonlySet<ChartCardKind> = new Set<ChartCardKind>(["line", "bar", "barplot"]);
@@ -829,17 +830,17 @@ export class ChartCard {
   config = chartConfigWithDefaults();
   columns: ColumnMeta[] = [];
   private facets: Record<number, number[]> = {};
-  private histograms: Record<number, number[]> = {};
-  private rowCount = 0;
+  histograms: Record<number, number[]> = {};
+  rowCount = 0;
   generation = 0;
   disposed = false;
 
   private pickerSignature = "";
-  private binResult: ChartBins | null = null;
-  private lineBinResult: ChartBins | null = null;
-  private lineBinRange: { min: number; max: number } | null = null;
+  binResult: ChartBins | null = null;
+  lineBinResult: ChartBins | null = null;
+  lineBinRange: { min: number; max: number } | null = null;
   private lineBinSignature = "";
-  private binMedian: number | null = null;
+  binMedian: number | null = null;
   seriesResult: SeriesPoints | SeriesGrid | null = null;
   /** Decoded 110m basemap for map cards (shared module cache, first paint). */
   basemap: Basemap | null = null;
@@ -857,7 +858,7 @@ export class ChartCard {
   /** Caption for the linked slice ("East", "18.3 – 18.9"). */
   private linkedLabel = "";
   /** How the last paint scaled its marks, so another chart's slice can be drawn on them. */
-  private valueScale: ValueScale | null = null;
+  valueScale: ValueScale | null = null;
   /** The slice's value per mark of this chart (another column's hover), or null. */
   private sliceValues: Float64Array | null = null;
   /** Scatter cards: the points of the hovered slice (same scope, other column's rows). */
@@ -893,8 +894,8 @@ export class ChartCard {
     values: Float64Array;
     counts: Uint32Array;
   } | null = null;
-  private groupResult: GroupedBinsMessage | null = null;
-  private bubbleResult: GridCountsResult | null = null;
+  groupResult: GroupedBinsMessage | null = null;
+  bubbleResult: GridCountsResult | null = null;
   animationResult: AnimationResult | null = null;
   animationFrame = 0;
   private animationPlaying = false;
@@ -1015,7 +1016,7 @@ export class ChartCard {
   private readonly animationFrameLabel: HTMLElement;
   private readonly animationLoopInput: HTMLInputElement;
   private readonly animationExportButton: HTMLButtonElement;
-  private readonly hiddenGroups = new Set<number>();
+  readonly hiddenGroups = new Set<number>();
   private statsMs = 0;
 
   private readonly kindSelect: HTMLSelectElement;
@@ -1065,8 +1066,8 @@ export class ChartCard {
   private readonly fiscalSelect: HTMLSelectElement;
   private readonly fiscalWrap: HTMLElement;
   /** Series colours of the last split-by time chart, for the one shared legend. */
-  private splitLegend: { label: string; color: string }[] | null = null;
-  private readonly hiddenSplit = new Set<string>();
+  splitLegend: { label: string; color: string }[] | null = null;
+  readonly hiddenSplit = new Set<string>();
   private readonly valueCalcSelect: HTMLSelectElement;
   private readonly valueCalcWrap: HTMLElement;
   private readonly sortSelect: HTMLSelectElement;
@@ -1140,7 +1141,7 @@ export class ChartCard {
   private issueSignature = "";
   readonly noteEl: HTMLElement;
   private totalRowCount = 0;
-  private readonly legendEl: HTMLElement;
+  readonly legendEl: HTMLElement;
   private readonly tooltipEl: HTMLElement;
   readonly settingsBody: HTMLElement;
   private settingsDisclosure: HTMLDetailsElement | null = null;
@@ -1161,9 +1162,9 @@ export class ChartCard {
   private renderQueued = false;
   private renderForce = false;
   /** True while the frame only shows an empty-state message, so no axes. */
-  private plotMessageDrawn = false;
+  plotMessageDrawn = false;
   /** Set while drawing on the Chart page, where the headline above the plot says what it is. */
-  private plotHasHeadline = false;
+  plotHasHeadline = false;
   /** Wrap width of the last paint, used to ignore no-op resize callbacks. */
   private lastWrapWidth = -1;
   /** The width before the last repaint; a return to it is a scrollbar feedback flip. */
@@ -3442,7 +3443,7 @@ export class ChartCard {
   }
 
   /** The extra value columns in use: only where the chart can draw them, and only numbers still in the table. */
-  private extraValues(): number[] {
+  extraValues(): number[] {
     if (!this.allowsExtraValues()) return [];
     return (this.config.extraValueColumns ?? []).filter(
       (column, index, all) =>
@@ -3652,7 +3653,7 @@ export class ChartCard {
     );
   }
   /** True when this card plots its own measure aggregate (line/bar/KPI/bins). */
-  private usesValueAggregate(): boolean {    return (
+  usesValueAggregate(): boolean {    return (
       this.config.source === "" &&
       VALUE_AGGREGATE_KINDS.includes(this.config.kind) &&
       (this.config.valueColumn ?? -1) >= 0
@@ -3660,11 +3661,11 @@ export class ChartCard {
   }
 
   /** True when the card draws an aggregate result (bound view or own value). */
-  private usesAggregate(): boolean {
+  usesAggregate(): boolean {
     return this.config.source !== "" || this.usesValueAggregate();
   }
 
-  private aggregateResult(): AggregateMessage | null {
+  aggregateResult(): AggregateMessage | null {
     const result = this.config.source !== "" ? this.viewResult : this.valueResult;
     if (result === null) return null;
     const order = this.config.chartSort ?? "none";
@@ -3729,14 +3730,14 @@ export class ChartCard {
   }
 
   /** What to do with a period that has no rows (see ChartCardConfig.valueFill). */
-  private fillPolicy(): "gap" | "zero" | "carry" {
+  fillPolicy(): "gap" | "zero" | "carry" {
     if (this.config.valueFill !== undefined) return this.config.valueFill;
     const agg = this.config.valueAgg ?? "mean";
     return agg === "sum" || agg === "count" || agg === "distinct" ? "zero" : "gap";
   }
 
   /** The grain in use: the chosen one, or the automatic one for this date column. */
-  private resolvedGrain(): TimeGrain {
+  resolvedGrain(): TimeGrain {
     return this.config.valueGrain === undefined || this.config.valueGrain === "auto"
       ? this.defaultGrainFor(this.config.column)
       : this.config.valueGrain;
@@ -3748,14 +3749,14 @@ export class ChartCard {
   }
 
   /** Bucket width for `grain`: the typed one, or what Auto chose for the default grain. */
-  private everyFor(grain: TimeGrain): number {
+  everyFor(grain: TimeGrain): number {
     if (this.hasExplicitGrain()) return Math.max(1, Math.floor(this.config.valueEvery ?? 1));
     const auto = this.defaultStepFor(this.config.column);
     return auto.grain === grain ? auto.every : 1;
   }
 
   /** "week", "15 minutes": the bucket in use, for headlines. */
-  private stepNoun(plural = false): string {
+  stepNoun(plural = false): string {
     const grain = this.resolvedGrain();
     return describeStep(grain, this.everyFor(grain), plural);
   }
@@ -4870,7 +4871,7 @@ export class ChartCard {
   }
 
   /** Calendar dates and timestamps: the kinds a time axis can use. */
-  private isDateLike(meta: ColumnMeta | undefined): boolean {
+  isDateLike(meta: ColumnMeta | undefined): boolean {
     return meta !== undefined && (meta.type === "date" || meta.type === "datetime");
   }
 
@@ -5894,7 +5895,7 @@ export class ChartCard {
     return `${measure} ${link} ${dimension}${group === undefined ? "" : ` by ${group}`}`;
   }
 
-  private defaultTitle(): string {
+  defaultTitle(): string {
     if (this.config.kind === "kpi") {
       const measure = this.meta(this.config.valueColumn ?? -1)?.name ?? "Count of rows";
       return defaultChartTitle(measure);
@@ -6423,7 +6424,7 @@ export class ChartCard {
       });
   }
 
-  private drawTreemap(ctx: CanvasRenderingContext2D, frame: Frame): void {
+  drawTreemap(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const meta = this.meta(this.config.column);
     if (meta === undefined || !this.allowsPrimary(meta)) {
       const message = "Treemaps need a category or text column — pick one above.";
@@ -6619,7 +6620,7 @@ export class ChartCard {
   }
 
   /** Horizontal bars of the most frequent terms; clicking filters by term. */
-  private drawTerms(ctx: CanvasRenderingContext2D, frame: Frame): void {
+  drawTerms(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const meta = this.meta(this.config.column);
     if (meta === undefined || meta.type !== "string") {
       const message = "Top terms need a text column — pick one above.";
@@ -7047,7 +7048,7 @@ export class ChartCard {
     return hideErrorBarProgress(this);
   }
 
-  private errorBarAt(result: AggregateMessage, index: number): { low: number; high: number; n: number } | null {
+  errorBarAt(result: AggregateMessage, index: number): { low: number; high: number; n: number } | null {
     return errorBarAt(this, result, index);
   }
 
@@ -7057,16 +7058,16 @@ export class ChartCard {
   }
 
   /** The bar's end in tooltips. */
-  private errorBarLine(result: AggregateMessage, index: number): string[] {
+  errorBarLine(result: AggregateMessage, index: number): string[] {
     const bar = this.errorBarAt(result, index);
     return bar === null ? [] : [`${this.errorBarName()}: ${formatChartNumber(bar.low)} to ${formatChartNumber(bar.high)}`, `${bar.n.toLocaleString()} rows`];
   }
 
-  private drawWhisker(ctx: CanvasRenderingContext2D, frame: Frame, x0: number, y0: number, x1: number, y1: number): void {
+  drawWhisker(ctx: CanvasRenderingContext2D, frame: Frame, x0: number, y0: number, x1: number, y1: number): void {
     return drawWhisker(this, ctx, frame, x0, y0, x1, y1);
   }
 
-  private appendErrorBarNote(result: AggregateMessage | null): void {
+  appendErrorBarNote(result: AggregateMessage | null): void {
     return appendErrorBarNote(this, result);
   }
 
@@ -8521,7 +8522,7 @@ export class ChartCard {
    * period) so a selection of slots a..b is the dates from the start of a to the
    * end of b. The last period is as long as the one before it.
    */
-  private timeSlotBrush(times: readonly number[], column: number, frame: Frame): BrushSpace | null {
+  timeSlotBrush(times: readonly number[], column: number, frame: Frame): BrushSpace | null {
     if (times.length === 0 || column < 0) return null;
     const end = (i: number): number => {
       const next = times[i + 1];
@@ -8881,7 +8882,7 @@ export class ChartCard {
   }
 
   /** Zeroes histogram bins whose centre lies inside a range excluded on this column. */
-  private withoutExcludedBins(bins: number[], min: number, max: number): number[] {
+  withoutExcludedBins(bins: number[], min: number, max: number): number[] {
     const ranges = this.excludes().filter(
       (entry): entry is Extract<ChartExclusion, { kind: "range" }> =>
         entry.kind === "range" && entry.column === this.config.column,
@@ -8916,7 +8917,7 @@ export class ChartCard {
   }
 
   /** Legend codes index the grouped result's labels; the group column codes are the same list. */
-  private legendCodeToGroupCode(code: number): number {
+  legendCodeToGroupCode(code: number): number {
     return code;
   }
 
@@ -9019,7 +9020,7 @@ export class ChartCard {
    * value, a numeric range or a text term. Every entry is chart-local unless
    * it says "table"; exclusions never touch the table or other cards.
    */
-  private openExclusionMenu(
+  openExclusionMenu(
     actions: readonly HitAction[],
     at: { x: number; y: number },
     point: { x: number; y: number } | null = null,
@@ -9209,39 +9210,8 @@ export class ChartCard {
     }
   }
 
-  /** Wrapped message drawn inside the empty plot area. */
-  drawPlotMessage(
-    ctx: CanvasRenderingContext2D,
-    frame: Frame,
-    message: string,
-  ): void {
-    this.plotMessageDrawn = true;
-    this.font(ctx, frame.ui, 12);
-    ctx.fillStyle = frame.dim;
-    ctx.textAlign = "center";
-    const maxWidth = Math.max(40, frame.plotW - 24 * frame.ui);
-    const lines: string[] = [];
-    let line = "";
-    for (const word of message.split(" ")) {
-      const candidate = line === "" ? word : `${line} ${word}`;
-      if (line !== "" && ctx.measureText(candidate).width > maxWidth) {
-        lines.push(line);
-        line = word;
-      } else {
-        line = candidate;
-      }
-    }
-    if (line !== "") lines.push(line);
-    const lineHeight = 16 * frame.ui;
-    const startY = frame.top + frame.plotH / 2 - ((lines.length - 1) * lineHeight) / 2;
-    lines.forEach((text, index) => {
-      ctx.fillText(
-        text,
-        frame.left + frame.plotW / 2,
-        startY + index * lineHeight + 4 * frame.ui,
-      );
-    });
-    ctx.textAlign = "left";
+  drawPlotMessage(ctx: CanvasRenderingContext2D, frame: Frame, message: string): void {
+    return drawPlotMessage(this, ctx, frame, message);
   }
 
   /** False while the card has nothing its kind can plot. */
@@ -9349,36 +9319,20 @@ export class ChartCard {
     }
   }
 
-  /** Honest reason a series-style card has nothing to plot. */
-  private emptySeriesMessage(kind: "histogram" | "line" | "bar"): string {
-    if (kind === "line" && !this.columns.some((meta) => this.isDateLike(meta))) {
-      return "No date or datetime column in this file.";
-    }
-    const chartable = this.columns.some(
-      (meta) =>
-        isNumericType(meta.type) ||
-        meta.type === "date" ||
-        meta.type === "datetime" ||
-        meta.type === "time" ||
-        meta.type === "duration" ||
-        isGroupable(meta),
-    );
-    if (!chartable) {
-      return "This file has no numeric, temporal or category columns. Change a column's type in the filter list.";
-    }
-    return "Pick a column to chart.";
+  emptySeriesMessage(kind: "histogram" | "line" | "bar"): string {
+    return emptySeriesMessage(this, kind);
   }
 
   /**
    * Text scale: on screen the smallest 9px label must stay at least 11px, so
    * ui never drops below 1.25; exports keep the reference height/540 scale.
    */
-  private textScale(height: number, forExport: boolean): number {
+  textScale(height: number, forExport: boolean): number {
     const scale = height / 540;
     return forExport ? Math.max(0.7, Math.min(2.6, scale)) : Math.max(1.25, scale);
   }
 
-  private frame(
+  frame(
     ctx: CanvasRenderingContext2D,
     width: number,
     height: number,
@@ -9413,7 +9367,7 @@ export class ChartCard {
   }
 
   /** Widest expected Y tick label for the current kind, for the left margin. */
-  private widestYLabel(ctx: CanvasRenderingContext2D, ui: number): string {
+  widestYLabel(ctx: CanvasRenderingContext2D, ui: number): string {
     this.font(ctx, ui, 10);
     const widest = (labels: readonly string[]): string => {
       let best = "";
@@ -9474,7 +9428,7 @@ export class ChartCard {
     return `${cut}…`;
   }
 
-  private fillTopRounded(
+  fillTopRounded(
     ctx: CanvasRenderingContext2D,
     x: number,
     y: number,
@@ -9492,499 +9446,16 @@ export class ChartCard {
     ctx.fill();
   }
 
-  private subtitle(): string {
-    if (this.config.kind === "pivotHeatmap") {
-      const data = this.pivotHeatmapData();
-      if (data === null) return "Pivot view - waiting for the first result";
-      return `${data.measureName} - ${data.rowName} x ${data.colName} - ${data.rowLabels.length}x${data.colLabels.length} cells`;
-    }
-    if (this.config.kind === "kpi" && this.usesValueAggregate()) {
-      const result = this.aggregateResult();
-      const measure = result?.measureNames[0] ?? "measure";
-      if (result === null || result.dimensionNames.length === 0) {
-        return `${measure} · all filtered rows`;
-      }
-      return `${measure} over ${result.dimensionNames[0]} · ${result.groupCount.toLocaleString()} buckets`;
-    }
-    const rows = `${this.rowCount.toLocaleString()} rows shown`;
-    if (this.config.kind === "map") {
-      const lon = this.meta(this.config.x)?.name ?? "longitude";
-      const lat = this.meta(this.config.y)?.name ?? "latitude";
-      return `${lat} × ${lon} · ${rows}`;
-    }
-    if (this.usesAggregate()) {
-      const result = this.aggregateResult();
-      if (result === null) return "Aggregate · waiting for the first result";
-      const two = result.dimensions.length >= 2;
-      if (result.dimensionIsTime[0] === true && this.config.source === "") {
-        const periods = result.groupCount;
-        const step = this.resolvedGrain();
-        const every = this.everyFor(step);
-        const unit = every > 1 ? `${every}-${step} period` : step;
-        return `${plainMeasureName(result.measureNames[0] ?? "measure")}${
-          two ? ` by ${result.dimensionNames[1] ?? "group"}` : ""
-        } per ${this.stepNoun()} · ${two ? `${periods.toLocaleString()} values` : `${periods.toLocaleString()} ${periods === 1 ? unit : `${unit}s`}`}`;
-      }
-      return `${plainMeasureName(result.measureNames[0] ?? "measure")} by ${result.dimensionNames[0] ?? "group"}${
-        two ? ` and ${result.dimensionNames[1] ?? "group"}` : ""
-      } · ${result.groupCount.toLocaleString()} ${two ? "values" : "groups"}`;
-    }
-    if (this.config.kind === "scatter" || this.config.kind === "density") {
-      const x = this.meta(this.config.x)?.name ?? "X";
-      const y = this.meta(this.config.y)?.name ?? "Y";
-      const series = this.seriesResult;
-      // Not "30,021 rows shown" over a plot of a sample of them.
-      const sample = series !== null && series.mode === "points" && series.sampled ? `${series.shown.toLocaleString()} points sampled from ${series.total.toLocaleString()}` : rows;
-      return `${x} vs ${y} · ${sample}`;
-    }
-    if (this.config.kind === "box") {
-      const value = this.meta(this.config.x)?.name ?? "Value";
-      const group = this.meta(this.config.y)?.name ?? "groups";
-      return `${value} by ${group} · ${rows}`;
-    }
-    if (this.config.kind === "heatmap") {
-      const x = this.meta(this.config.x)?.name ?? "X";
-      const y = this.meta(this.config.y)?.name ?? "Y";
-      return `${x} × ${y} · ${rows}`;
-    }
-    if (this.config.kind === "correlation") {
-      return `Pearson r · ${rows}`;
-    }
-    const meta = this.meta(this.config.column);
-    if (meta === undefined) return rows;
-    return `${TYPE_LABELS[meta.type]} · ${rows} · ${meta.stats.distinct.toLocaleString()} distinct`;
+  subtitle(): string {
+    return subtitle(this);
   }
 
-  private drawChart(
-    ctx: CanvasRenderingContext2D,
-    width: number,
-    height: number,
-    forExport = false,
-  ): void {
-    ctx.clearRect(0, 0, width, height);
-    this.splitLegend = null;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "alphabetic";
-    this.hitRegions = [];
-    this.plotMessageDrawn = false;
-    const ui = this.textScale(height, forExport);
-    const labels = this.axisLabels();
-    this.plotHasHeadline = this.options.docked === true && !forExport;
-    const hasXTitle =
-      (labels.x ?? "") !== "" || (this.config.xTitle?.trim() ?? "") !== "";
-    const hasYTitle =
-      (labels.y ?? "") !== "" ||
-      (this.config.yTitle?.trim() ?? "") !== "" ||
-      (this.config.yUnit?.trim() ?? "") !== "";
-    const frame = this.frame(
-      ctx,
-      width,
-      height,
-      forExport,
-      this.widestYLabel(ctx, ui),
-      hasYTitle,
-      hasXTitle,
-    );
-    this.lastFrame = frame;
-
-    if (this.columns.length === 0) {
-      this.noteEl.textContent = "Load data to see charts.";
-      this.drawPlotMessage(ctx, frame, "Load data to see charts.");
-      return;
-    }
-
-    // The card heading above the plot already says what this aggregate is, so a
-    // generic "Aggregate" title is not drawn a second time.
-    const ownTitle = this.config.title.trim();
-    const genericAggregate =
-      ownTitle === "" && this.options.docked !== true && this.usesAggregate() && this.config.kind !== "pivotHeatmap" && this.config.kind !== "kpi";
-    if (this.plotHasHeadline) {
-      // One line above the plot says what this is; a title typed by the person is shown on it too.
-      if (ownTitle !== "" && this.options.titleOutside !== true) {
-        this.font(ctx, frame.ui, 13, "600");
-        ctx.fillStyle = frame.text;
-        ctx.fillText(this.fit(ctx, ownTitle, width - frame.left - frame.right), frame.left, 14 * frame.ui);
-      }
-    } else if (!genericAggregate) {
-      const title = ownTitle === "" ? this.defaultTitle() : ownTitle;
-      this.font(ctx, frame.ui, 15, "600");
-      ctx.fillStyle = frame.text;
-      ctx.fillText(this.fit(ctx, title, width - frame.left - frame.right), frame.left, 22 * frame.ui);
-    }
-    if (!this.plotHasHeadline) {
-      this.font(ctx, frame.ui, genericAggregate ? 12 : 11);
-      ctx.fillStyle = frame.dim;
-      ctx.fillText(
-        this.fit(ctx, this.subtitle(), width - frame.left - frame.right),
-        frame.left,
-        (genericAggregate ? 24 : 40) * frame.ui,
-      );
-    }
-
-    if (this.config.kind === "pivotHeatmap") {
-      this.drawPivotHeatmap(ctx, frame);
-      return;
-    }
-
-    if (this.usesAggregate()) {
-      this.drawViewAggregate(ctx, frame);
-      this.appendErrorBarNote(this.aggregateResult());
-      return;
-    }
-
-    switch (this.config.kind) {
-      case "bar":
-        this.drawBars(ctx, frame);
-        break;
-      case "scatter":
-      case "density":
-        this.drawScatterLike(ctx, frame);
-        break;
-      case "box":
-        this.drawBox(ctx, frame);
-        break;
-      case "treemap":
-        this.drawTreemap(ctx, frame);
-        break;
-      case "terms":
-        this.drawTerms(ctx, frame);
-        break;
-      case "heatmap":
-        this.drawHeatmap(ctx, frame);
-        break;
-      case "bubble":
-        this.drawBubble(ctx, frame);
-        break;
-      case "correlation":
-        this.drawCorrelation(ctx, frame);
-        break;
-      case "map":
-        this.drawMap(ctx, frame);
-        break;
-      case "kpi":
-      case "barplot":
-      case "dotplot":
-      case "stacked100":
-      case "smallmultiples":
-      case "slopegraph":
-      case "waterfall": {
-        const message = "Pick a numeric measure in the card settings.";
-        this.noteEl.textContent = message;
-        this.drawPlotMessage(ctx, frame, message);
-        break;
-      }
-      default:
-        this.drawSeries(ctx, frame, this.config.kind);
-        break;
-    }
-
-    if (!this.plotMessageDrawn) {
-      this.drawAxisTitles(ctx, frame, labels.x, labels.y);
-    }
-
-    if (this.config.suggested !== "") {
-      const existing = this.noteEl.textContent ?? "";
-      this.noteEl.textContent =
-        existing === ""
-          ? `Suggested: ${this.config.suggested}`
-          : `${existing} · Suggested: ${this.config.suggested}`;
-    }
+  private drawChart(ctx: CanvasRenderingContext2D, width: number, height: number, forExport = false): void {
+    return drawChart(this, ctx, width, height, forExport);
   }
 
-  /**
-   * Split-by series: a line/bar card whose aggregate carries a second (group)
-   * dimension draws one colored series per group value. The top 8 groups by
-   * absolute total are drawn; a legend names them and the note counts the rest.
-   */
-  private drawSplitAggregate(
-    ctx: CanvasRenderingContext2D,
-    frame: Frame,
-    result: AggregateMessage,
-    values: Float64Array,
-  ): void {
-    const n = result.groupCount;
-    const bucketLabels = result.dimensions[0] ?? [];
-    const groupLabels = result.dimensions[1] ?? [];
-    const bucketIndex = new Map<string, number>();
-    let buckets: string[] = [];
-    for (let i = 0; i < n; i++) {
-      const label = bucketLabels[i] ?? "";
-      if (!bucketIndex.has(label)) {
-        bucketIndex.set(label, buckets.length);
-        buckets.push(label);
-      }
-    }
-    // A pivot can have hundreds of rows, and a group of bars for each is unreadable: a chart of
-    // one shows the biggest (they arrive largest first) and says how many it left out.
-    const axisTotal = buckets.length;
-    if (this.config.source !== "" && result.dimensionIsTime[0] !== true && buckets.length > SPLIT_AXIS_LIMIT) {
-      buckets = buckets.slice(0, SPLIT_AXIS_LIMIT);
-      for (const label of [...bucketIndex.keys()]) if ((bucketIndex.get(label) ?? 0) >= SPLIT_AXIS_LIMIT) bucketIndex.delete(label);
-    }
-    // A time axis keeps empty periods in place (series show a gap there) rather
-    // than letting the neighbouring periods close up.
-    let bucketTimes: number[] | null = null;
-    const groupTimesRaw = result.dimensionTimes[0];
-    if (result.dimensionIsTime[0] === true && groupTimesRaw !== undefined && groupTimesRaw.length === n) {
-      const labelByTime = new Map<number, string>();
-      for (let i = 0; i < n; i++) {
-        const time = groupTimesRaw[i];
-        if (Number.isFinite(time) && !labelByTime.has(time)) labelByTime.set(time, bucketLabels[i] ?? "");
-      }
-      const axis = fillTimeAxis([...labelByTime.keys()], this.resolvedGrain(), 20_000, this.everyFor(this.resolvedGrain()));
-      if (axis.length > 0) {
-        bucketTimes = axis;
-        buckets = axis.map((time) => labelByTime.get(time) ?? `${new Date(time).toISOString().slice(0, 10)} (no data)`);
-        bucketIndex.clear();
-        buckets.forEach((label, index) => bucketIndex.set(label, index));
-      }
-    }
-    interface SplitSeries {
-      label: string;
-      color: string;
-      total: number;
-      values: Float64Array;
-      /** Where it first appeared: for a pivot chart, the pivot's own column order. */
-      first: number;
-    }
-    const byGroup = new Map<string, SplitSeries>();
-    for (let i = 0; i < n; i++) {
-      const label = groupLabels[i] ?? "(missing)";
-      let entry = byGroup.get(label);
-      if (entry === undefined) {
-        entry = {
-          label,
-          color: this.groupColor(byGroup.size),
-          total: 0,
-          values: new Float64Array(buckets.length).fill(Number.NaN),
-          first: byGroup.size,
-        };
-        byGroup.set(label, entry);
-      }
-      const value = values[i] ?? Number.NaN;
-      const bucket = bucketIndex.get(bucketLabels[i] ?? "");
-      if (Number.isFinite(value) && bucket !== undefined) {
-        entry.values[bucket] = value;
-        entry.total += Math.abs(value);
-      }
-    }
-    const all = [...byGroup.values()].sort((a, b) => b.total - a.total);
-    const seriesLimit = Math.max(1, Math.min(12, this.config.topN));
-    let shown = all.slice(0, seriesLimit);
-    // The largest are kept, but a pivot's series read in the pivot's order: years in year order.
-    if (this.config.source !== "") shown.sort((a, b) => a.first - b.first);
-    if (this.config.groupOther && all.length > seriesLimit) {
-      const other: SplitSeries = {
-        label: "Other",
-        color: this.groupColor(shown.length),
-        total: 0,
-        values: new Float64Array(buckets.length).fill(Number.NaN),
-        first: byGroup.size,
-      };
-      for (const series of all.slice(seriesLimit)) {
-        other.total += series.total;
-        for (let bucket = 0; bucket < buckets.length; bucket++) {
-          const value = series.values[bucket] ?? Number.NaN;
-          if (!Number.isFinite(value)) continue;
-          other.values[bucket] = Number.isFinite(other.values[bucket])
-            ? (other.values[bucket] as number) + value
-            : value;
-        }
-      }
-      shown = [...shown, other];
-    }
-    this.splitLegend = shown.map((series) => ({ label: series.label, color: series.color }));
-    shown = shown.filter((series) => !this.hiddenSplit.has(series.label));
-    if (shown.length === 0) {
-      const message = this.hiddenSplit.size > 0 ? "Every series is hidden. Click a name in the legend to show it." : "The aggregate has no groups to draw yet.";
-      this.noteEl.textContent = message;
-      this.drawPlotMessage(ctx, frame, message);
-      return;
-    }
-    // Periods a series has no rows for follow the chart's Missing periods rule, as on an unsplit
-    // line: a total really is zero there, a running total stays where it was, anything else is a gap.
-    if (bucketTimes !== null && this.config.source === "") {
-      const calc = this.config.valueCalc;
-      const policy = calc === "cumulative" ? "carry" : calc !== undefined ? "gap" : this.fillPolicy();
-      if (policy !== "gap") {
-        for (const series of shown) {
-          let last = Number.NaN;
-          let seen = false;
-          for (let b = 0; b < series.values.length; b++) {
-            const value = series.values[b] ?? Number.NaN;
-            if (Number.isFinite(value)) {
-              last = value;
-              seen = true;
-            } else if (policy === "zero") series.values[b] = 0;
-            else if (seen) series.values[b] = last;
-          }
-        }
-      }
-    }
-    const ui = frame.ui;
-    const stacked =
-      (this.config.kind === "barplot" || this.config.source !== "") && (this.config.barLayout ?? "group") === "stack";
-    let max = 0;
-    if (stacked) {
-      for (let bucket = 0; bucket < buckets.length; bucket++) {
-        let total = 0;
-        for (const series of shown) {
-          const value = series.values[bucket] ?? Number.NaN;
-          if (Number.isFinite(value) && value > 0) total += value;
-        }
-        if (total > max) max = total;
-      }
-    } else {
-      for (const series of shown) {
-        for (const value of series.values) {
-          if (Number.isFinite(value)) max = Math.max(max, value);
-        }
-      }
-    }
-    const top = Math.max(1, max);
-
-    // Shared y grid and baseline (same shape as the single-series bars).
-    const yTicks = niceTicks(0, top, 4).filter(
-      (value, index, list) =>
-        index === 0 || formatChartNumber(value) !== formatChartNumber(list[index - 1]),
-    );
-    ctx.strokeStyle = frame.border;
-    ctx.lineWidth = 1;
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    ctx.textAlign = "right";
-    for (const value of yTicks) {
-      const y = frame.top + frame.plotH - (value / top) * frame.plotH;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(frame.left, y + 0.5);
-      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillText(formatCompact(value), frame.left - 6 * ui, y + 3 * ui);
-    }
-    ctx.textAlign = "left";
-    ctx.beginPath();
-    ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
-    ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
-    ctx.stroke();
-
-    const slot = frame.plotW / Math.max(1, buckets.length);
-    const lineCard = result.dimensionIsTime[0] === true;
-    if (lineCard) {
-      for (const series of shown) {
-        ctx.strokeStyle = series.color;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        let started = false;
-        // A period with a gap on both sides has no line to belong to: it is drawn as a dot,
-        // so a series of scattered periods is never an empty chart.
-        const lone: [number, number][] = [];
-        for (let b = 0; b < buckets.length; b++) {
-          const value = series.values[b] ?? Number.NaN;
-          if (!Number.isFinite(value)) {
-            started = false;
-            continue;
-          }
-          const x = frame.left + (b + 0.5) * slot;
-          const y = frame.top + frame.plotH - (value / top) * frame.plotH;
-          if (!started) {
-            ctx.moveTo(x, y);
-            started = true;
-            if (!Number.isFinite(series.values[b + 1] ?? Number.NaN)) lone.push([x, y]);
-          } else {
-            ctx.lineTo(x, y);
-          }
-        }
-        ctx.stroke();
-        ctx.fillStyle = series.color;
-        for (const [x, y] of lone) {
-          ctx.beginPath();
-          ctx.arc(x, y, 1.75 * ui, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-    } else if (stacked) {
-      for (let b = 0; b < buckets.length; b++) {
-        let base = 0;
-        for (const series of shown) {
-          const value = series.values[b] ?? Number.NaN;
-          if (!Number.isFinite(value) || value <= 0) continue;
-          const height = (value / top) * frame.plotH;
-          ctx.fillStyle = series.color;
-          ctx.globalAlpha = 0.85;
-          this.fillTopRounded(
-            ctx,
-            frame.left + b * slot + slot * 0.1,
-            frame.top + frame.plotH - base - height,
-            Math.max(1, slot * 0.8),
-            height,
-            2 * ui,
-          );
-          base += height;
-        }
-        ctx.globalAlpha = 1;
-      }
-    } else {
-      const barW = Math.max(1, (slot * 0.8) / shown.length);
-      shown.forEach((series, s) => {
-        ctx.fillStyle = series.color;
-        ctx.globalAlpha = 0.85;
-        for (let b = 0; b < buckets.length; b++) {
-          const value = series.values[b] ?? Number.NaN;
-          if (!Number.isFinite(value) || value <= 0) continue;
-          const height = (value / top) * frame.plotH;
-          this.fillTopRounded(
-            ctx,
-            frame.left + b * slot + slot * 0.1 + s * barW,
-            frame.top + frame.plotH - height,
-            Math.max(1, barW - 1),
-            height,
-            2 * ui,
-          );
-        }
-        ctx.globalAlpha = 1;
-      });
-    }
-
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    ctx.textAlign = "center";
-    if (bucketTimes !== null) {
-      const room = Math.max(3, Math.floor(frame.plotW / (70 * ui)));
-      for (const tick of calendarTicks(bucketTimes, room)) {
-        ctx.fillText(tick.label, frame.left + (tick.index + 0.5) * slot, frame.top + frame.plotH + 14 * ui);
-      }
-    } else {
-      const step = Math.max(1, Math.ceil(buckets.length / 8));
-      for (let b = 0; b < buckets.length; b += step) {
-        ctx.fillText(
-          this.fit(ctx, buckets[b] ?? "", Math.max(16, slot * step - 4 * ui)),
-          frame.left + (b + 0.5) * slot,
-          frame.top + frame.plotH + 14 * ui,
-        );
-      }
-    }
-    ctx.textAlign = "left";
-    if (bucketTimes !== null && lineCard && this.config.source === "") {
-      this.brushSpace = this.timeSlotBrush(bucketTimes, this.config.column, frame);
-    }
-    // The legend is the clickable one under the chart (same colours, toggles series).
-
-    const measure = result.measureNames[0] ?? "measure";
-    ctx.fillStyle = frame.dim;
-    ctx.fillText(
-      `${plainMeasureName(measure)} · ${shown.length}${all.length > shown.length ? ` of ${all.length}` : ""} series`,
-      frame.left,
-      frame.top + frame.plotH + 30 * ui,
-    );
-    this.noteEl.textContent = `${plainMeasureName(measure)} by ${
-      result.dimensionNames[1] ?? "group"
-    } · ${shown.length} of ${all.length} series shown${stacked ? " (stacked)" : ""} · ${
-      axisTotal > buckets.length && bucketTimes === null
-        ? `the ${buckets.length} largest of ${axisTotal.toLocaleString()} ${result.dimensionNames[0] ?? "groups"}`
-        : `${result.dimensionNames[0] ?? "group"} advances left to right`
-    }`;
+  drawSplitAggregate(ctx: CanvasRenderingContext2D, frame: Frame, result: AggregateMessage, values: Float64Array): void {
+    return drawSplitAggregate(this, ctx, frame, result, values);
   }
 
   /**
@@ -10027,7 +9498,7 @@ export class ChartCard {
     this.render();
   }
 
-  private drawMap(ctx: CanvasRenderingContext2D, frame: Frame): void {
+  drawMap(ctx: CanvasRenderingContext2D, frame: Frame): void {
     return drawMap(this, ctx, frame);
   }
 
@@ -10057,7 +9528,7 @@ export class ChartCard {
    * green/red, and a faint sparkline of the series behind it. Without a date
    * column the series has one row and the card is the grand total.
    */
-  private drawKpi(
+  drawKpi(
     ctx: CanvasRenderingContext2D,
     frame: Frame,
     result: AggregateMessage,
@@ -10146,7 +9617,7 @@ export class ChartCard {
    * draw from the same aggregate as the other measure charts; their layouts
    * live in chart-extra-draw. Returns false for every other kind.
    */
-  private drawExtraKind(
+  drawExtraKind(
     ctx: CanvasRenderingContext2D,
     frame: Frame,
     result: AggregateMessage,
@@ -10197,994 +9668,45 @@ export class ChartCard {
     return true;
   }
 
-  /**
-   * Many categories: horizontal bars, every name readable, the first Top N in the chart's order.
-   * A total can gather the rest into Other; an average cannot, so the note counts what is left out.
-   */
-  private drawRankedBars(ctx: CanvasRenderingContext2D, frame: Frame, result: AggregateMessage, values: Float64Array): void {
-    const ui = frame.ui;
-    const n = result.groupCount;
-    const limit = Math.min(n, Math.max(1, this.config.topN));
-    const measure = plainMeasureName(result.measureNames[0] ?? "value");
-    const agg = this.config.valueAgg ?? "mean";
-    const additive = (this.config.valueColumn ?? -1) < 0 || agg === "sum" || agg === "count";
-    let rest = 0;
-    for (let i = limit; i < n; i++) if (Number.isFinite(values[i])) rest += values[i]!;
-    const withOther = additive && this.config.groupOther && limit < n;
-    const rows: { label: string; value: number; index: number }[] = [];
-    for (let i = 0; i < limit; i++) rows.push({ label: result.labels[i] === "" ? "(blank)" : (result.labels[i] ?? ""), value: values[i] ?? Number.NaN, index: i });
-    if (withOther) rows.push({ label: `Other (${(n - limit).toLocaleString()})`, value: rest, index: -1 });
-    let top = 0;
-    for (const row of rows) if (Number.isFinite(row.value)) top = Math.max(top, Math.abs(row.value));
-    for (const row of rows) if (row.index >= 0) top = Math.max(top, this.errorBarAt(result, row.index)?.high ?? 0);
-    top = Math.max(top, 1e-12);
-    this.font(ctx, ui, 11);
-    let widest = 0;
-    for (const row of rows) widest = Math.max(widest, ctx.measureText(row.label).width);
-    const labelW = Math.min(frame.plotW * 0.34, widest + 8 * ui);
-    const left = Math.max(frame.left, labelW + 10 * ui);
-    const valueW = 62 * ui;
-    const barsW = Math.max(10, frame.left + frame.plotW - left - valueW);
-    const slot = frame.plotH / rows.length;
-    const barH = Math.max(3, Math.min(slot * 0.72, 30 * ui));
-    const dimensionColumn = this.config.source === "" ? this.config.column : -1;
-    const codes = this.meta(dimensionColumn)?.categories?.labels ?? [];
-    this.hitRegions = [];
-    rows.forEach((row, k) => {
-      const y = frame.top + k * slot;
-      const width = Number.isFinite(row.value) ? (Math.abs(row.value) / top) * barsW : 0;
-      ctx.fillStyle = row.index < 0 ? frame.dim : this.primaryColor();
-      ctx.globalAlpha = row.index < 0 ? 0.5 : 0.85;
-      ctx.fillRect(left, y + (slot - barH) / 2, width, barH);
-      ctx.globalAlpha = 1;
-      const middle = y + slot / 2 + 4 * ui;
-      this.font(ctx, ui, 11);
-      ctx.textAlign = "right";
-      ctx.fillStyle = frame.text;
-      ctx.fillText(this.fit(ctx, row.label, labelW), left - 6 * ui, middle);
-      ctx.textAlign = "left";
-      ctx.fillStyle = frame.dim;
-      const bar = row.index < 0 ? null : this.errorBarAt(result, row.index);
-      const barEnd = bar === null ? 0 : (Math.max(0, bar.high) / top) * barsW;
-      ctx.fillText(Number.isFinite(row.value) ? formatCompact(row.value) : "—", left + Math.max(width, barEnd) + 5 * ui, middle);
-      if (bar !== null) {
-        const mid = y + slot / 2;
-        this.drawWhisker(ctx, frame, left + (Math.max(0, bar.low) / top) * barsW, mid, left + barEnd, mid);
-      }
-      const code = row.index < 0 ? -1 : codes.indexOf(result.labels[row.index] ?? "");
-      this.hitRegions.push({
-        x: 0,
-        y,
-        w: frame.left + frame.plotW,
-        h: slot,
-        lines: [row.label, `${measure}: ${Number.isFinite(row.value) ? formatChartNumber(row.value) : "—"}`, ...(row.index < 0 ? [] : this.errorBarLine(result, row.index))],
-        actions: code >= 0 ? [{ kind: "values", column: dimensionColumn, code }] : [],
-      });
-    });
-    ctx.textAlign = "left";
-    const ordered = (this.config.chartSort ?? "none") === "none" || this.config.chartSort === "valueDesc";
-    const leftOut = withOther ? "" : limit < n ? ` · ${(n - limit).toLocaleString()} more not shown (raise Top bars in the chart settings)` : "";
-    this.noteEl.textContent = `${ordered ? "Top" : "First"} ${limit.toLocaleString()} of ${n.toLocaleString()} ${result.dimensionNames[0] ?? "groups"}${leftOut}`;
+  drawRankedBars(ctx: CanvasRenderingContext2D, frame: Frame, result: AggregateMessage, values: Float64Array): void {
+    return drawRankedBars(this, ctx, frame, result, values);
   }
 
-  private drawViewAggregate(ctx: CanvasRenderingContext2D, frame: Frame): void {
-    const result = this.aggregateResult();
-    if (result === null || result.groupCount === 0) {
-      const message = "The aggregate has no groups to draw yet.";
-      this.noteEl.textContent = message;
-      this.drawPlotMessage(ctx, frame, message);
-      return;
-    }
-    const values = result.measures[0];
-    if (values === undefined) {
-      const message = "The aggregate has no measures.";
-      this.noteEl.textContent = message;
-      this.drawPlotMessage(ctx, frame, message);
-      return;
-    }
-    if (this.config.source === "" && this.drawExtraKind(ctx, frame, result, values)) return;
-    if (this.config.source === "" && result.dimensions.length === 1 && result.measures.length > 1 && this.extraValues().length > 0) {
-      const columns = [this.config.valueColumn ?? -1, ...this.extraValues()];
-      const long = measuresToSeries(result, columns.map((column) => this.meta(column)?.name ?? "value"));
-      this.drawSplitAggregate(ctx, frame, long, long.measures[0] ?? new Float64Array(0));
-      return;
-    }
-    if (result.dimensions.length >= 2) {
-      this.drawSplitAggregate(ctx, frame, result, values);
-      return;
-    }
-    if (this.config.kind === "kpi" && this.config.source === "") {
-      this.drawKpi(ctx, frame, result, values);
-      return;
-    }
-    if (result.dimensionIsTime[0] !== true && result.groupCount > RANKED_BARS_ABOVE) {
-      this.drawRankedBars(ctx, frame, result, values);
-      return;
-    }
-    const ui = frame.ui;
-    const n = result.groupCount;
-    let max = 0;
-    for (const value of values) {
-      if (Number.isFinite(value)) max = Math.max(max, value);
-    }
-    for (let i = 0; i < n; i++) max = Math.max(max, this.errorBarAt(result, i)?.high ?? 0);
-    // Room above the tallest bar for its value label, clear of any whisker.
-    const labelled = result.dimensionIsTime[0] !== true && n <= RANKED_BARS_ABOVE && this.options.docked === true;
-    const top = Math.max(1, labelled ? max * 1.1 : max);
-
-    const yTicks = niceTicks(0, top, 4).filter((value, index, all) => index === 0 || formatChartNumber(value) !== formatChartNumber(all[index - 1]));
-    ctx.strokeStyle = frame.border;
-    ctx.lineWidth = 1;
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    ctx.textAlign = "right";
-    for (const value of yTicks) {
-      const y = frame.top + frame.plotH - (value / top) * frame.plotH;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(frame.left, y + 0.5);
-      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillText(formatCompact(value), frame.left - 6 * ui, y + 3 * ui);
-    }
-    ctx.textAlign = "left";
-    ctx.beginPath();
-    ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
-    ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
-    ctx.stroke();
-
-    const slot = frame.plotW / Math.max(1, n);
-    const isTime = result.dimensionIsTime[0] === true;
-    ctx.strokeStyle = this.primaryColor();
-    ctx.fillStyle = this.primaryColor();
-    let gapPeriods = 0;
-    if (isTime) {
-      // A missing period (NaN) breaks the line; it is never drawn as a zero.
-      const base = frame.top + frame.plotH;
-      let segment: { x: number; y: number }[] = [];
-      const flush = (): void => {
-        if (segment.length === 0) return;
-        ctx.beginPath();
-        segment.forEach((point, k) => (k === 0 ? ctx.moveTo(point.x, point.y) : ctx.lineTo(point.x, point.y)));
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        if (segment.length === 1) {
-          ctx.beginPath();
-          ctx.arc(segment[0]!.x, segment[0]!.y, 2.5 * ui, 0, Math.PI * 2);
-          ctx.fill();
-        } else if (this.errorBarResult === null) {
-          ctx.lineTo(segment[segment.length - 1]!.x, base);
-          ctx.lineTo(segment[0]!.x, base);
-          ctx.closePath();
-          ctx.globalAlpha = 0.18;
-          ctx.fill();
-          ctx.globalAlpha = 1;
-        }
-        segment = [];
-      };
-      // The band first, under the line; it replaces the usual area fill, which would read as part of it.
-      if (this.errorBarResult !== null) {
-        const clamp = (value: number): number => Math.max(frame.top, Math.min(base, base - (value / top) * frame.plotH));
-        let band: { x: number; low: number; high: number }[] = [];
-        const paint = (): void => {
-          if (band.length === 1) {
-            this.drawWhisker(ctx, frame, band[0]!.x, band[0]!.low, band[0]!.x, band[0]!.high);
-          } else if (band.length > 1) {
-            ctx.beginPath();
-            band.forEach((point, k) => (k === 0 ? ctx.moveTo(point.x, point.high) : ctx.lineTo(point.x, point.high)));
-            for (let k = band.length - 1; k >= 0; k--) ctx.lineTo(band[k]!.x, band[k]!.low);
-            ctx.closePath();
-            ctx.globalAlpha = 0.25;
-            ctx.fillStyle = this.primaryColor();
-            ctx.fill();
-            ctx.globalAlpha = 1;
-          }
-          band = [];
-        };
-        for (let i = 0; i < n; i++) {
-          const bar = this.errorBarAt(result, i);
-          if (bar === null) {
-            paint();
-            continue;
-          }
-          band.push({ x: frame.left + (i + 0.5) * slot, low: clamp(bar.low), high: clamp(bar.high) });
-        }
-        paint();
-        ctx.fillStyle = this.primaryColor();
-        ctx.strokeStyle = this.primaryColor();
-      }
-      for (let i = 0; i < n; i++) {
-        const value = values[i];
-        if (!Number.isFinite(value)) {
-          gapPeriods++;
-          // Shade the empty period so the gap is visible, not just absent.
-          ctx.save();
-          ctx.globalAlpha = 0.07;
-          ctx.fillStyle = frame.dim;
-          ctx.fillRect(frame.left + i * slot, frame.top, slot, frame.plotH);
-          ctx.restore();
-          flush();
-          continue;
-        }
-        segment.push({
-          x: frame.left + (i + 0.5) * slot,
-          y: base - (value / top) * frame.plotH,
-        });
-      }
-      flush();
-    } else {
-      // A few bars get air between them and their value on top; many stay a solid profile.
-      const roomy = n <= RANKED_BARS_ABOVE && this.options.docked === true;
-      const barW = roomy ? Math.max(1, slot * 0.8) : Math.max(1, slot - 1);
-      const inset = roomy ? (slot - barW) / 2 : 0;
-      for (let i = 0; i < n; i++) {
-        const height = ((values[i] || 0) / top) * frame.plotH;
-        if (height <= 0) continue;
-        ctx.globalAlpha = 0.85;
-        ctx.fillStyle = this.primaryColor();
-        this.fillTopRounded(ctx, frame.left + i * slot + inset, frame.top + frame.plotH - height, barW, height, 3 * ui);
-        ctx.globalAlpha = 1;
-        const bar = this.errorBarAt(result, i);
-        const base = frame.top + frame.plotH;
-        const barTop = bar === null ? base - height : base - (Math.max(0, bar.high) / top) * frame.plotH;
-        if (bar !== null) {
-          const x = frame.left + (i + 0.5) * slot;
-          this.drawWhisker(ctx, frame, x, base - (Math.max(0, bar.low) / top) * frame.plotH, x, barTop);
-        }
-        if (roomy) {
-          this.font(ctx, ui, 10);
-          ctx.textAlign = "center";
-          ctx.fillStyle = frame.text;
-          ctx.fillText(formatCompact(values[i] ?? 0), frame.left + (i + 0.5) * slot, Math.max(frame.top + 10 * ui, Math.min(base - height, barTop) - 4 * ui));
-          ctx.textAlign = "left";
-        }
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    // Incomplete edge periods are hatched so the truncated period is visible.
-    const partials = result.partials ?? null;
-    let partialCount = 0;
-    if (partials !== null) {
-      partials.forEach((partial, i) => {
-        if (partial) {
-          partialCount++;
-          const x = frame.left + i * slot;
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(x, frame.top, slot, frame.plotH);
-          ctx.clip();
-          ctx.strokeStyle = frame.dim;
-          ctx.globalAlpha = 0.4;
-          ctx.lineWidth = 1;
-          const step = 8 * ui;
-          for (let offset = -frame.plotH; offset < slot + frame.plotH; offset += step) {
-            ctx.beginPath();
-            ctx.moveTo(x + offset, frame.top + frame.plotH);
-            ctx.lineTo(x + offset + frame.plotH, frame.top);
-            ctx.stroke();
-          }
-          ctx.restore();
-        }
-      });
-    }
-
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    ctx.textAlign = "center";
-    const axisTimes = result.dimensionTimes[0];
-    if (isTime && axisTimes !== undefined && axisTimes.length === n) {
-      // Calendar boundaries (quarters, months, weeks), not arbitrary bucket labels.
-      const room = Math.max(3, Math.floor(frame.plotW / (70 * ui)));
-      for (const tick of calendarTicks(Array.from(axisTimes), room)) {
-        ctx.fillText(tick.label, frame.left + (tick.index + 0.5) * slot, frame.top + frame.plotH + 14 * ui);
-      }
-    } else {
-      const step = Math.max(1, Math.ceil(n / 8));
-      for (let i = 0; i < n; i += step) {
-        const label = result.labels[i] ?? "";
-        ctx.fillText(
-          this.fit(ctx, label, Math.max(16, slot * step - 4 * ui)),
-          frame.left + (i + 0.5) * slot,
-          frame.top + frame.plotH + 14 * ui,
-        );
-      }
-    }
-    ctx.textAlign = "left";
-    const measure = plainMeasureName(result.measureNames[0] ?? "value");
-    ctx.fillText(measure, frame.left, frame.top - 6 * ui);
-    if (gapPeriods > 0) {
-      ctx.textAlign = "right";
-      ctx.fillText(
-        `${gapPeriods} ${gapPeriods === 1 ? "period has" : "periods have"} no data`,
-        frame.left + frame.plotW,
-        frame.top - 6 * ui,
-      );
-      ctx.textAlign = "left";
-    }
-
-    // One hoverable slot per group: a tooltip, and the value/period it stands
-    // for so a right-click can leave it out (click filters the table, as for
-    // count bars). Bound views have no table column to act on.
-    const dimensionColumn = this.config.source === "" ? this.config.column : -1;
-    const dimensionMeta = this.meta(dimensionColumn);
-    const categoryLabels = dimensionMeta?.categories?.labels ?? [];
-    const times = result.dimensionTimes[0];
-    this.hitRegions = [];
-    for (let i = 0; i < n; i++) {
-      const label = result.labels[i] ?? "";
-      const value = values[i];
-      const actions: HitAction[] = [];
-      if (dimensionMeta !== undefined && this.config.kind !== "histogram") {
-        if (isTime && times !== undefined && Number.isFinite(times[i])) {
-          const lo = times[i] as number;
-          const next = times[i + 1];
-          const previous = times[i - 1];
-          const hi =
-            next !== undefined && Number.isFinite(next)
-              ? next - 1
-              : previous !== undefined && Number.isFinite(previous)
-                ? lo + (lo - previous) - 1
-                : lo;
-          actions.push({ kind: "range", column: dimensionColumn, min: lo, max: hi });
-        } else if (!isTime) {
-          const code = categoryLabels.indexOf(label);
-          if (code >= 0) actions.push({ kind: "values", column: dimensionColumn, code });
-        }
-      }
-      this.hitRegions.push({
-        x: frame.left + i * slot,
-        y: frame.top,
-        w: slot,
-        h: frame.plotH,
-        lines: [
-          label === "" ? "(blank)" : label,
-          `${measure}: ${value !== undefined && Number.isFinite(value) ? formatChartNumber(value) : "—"}`,
-          ...this.errorBarLine(result, i),
-        ],
-        actions,
-      });
-    }
-
-    if (isTime && times !== undefined && times.length === n && this.config.source === "") {
-      this.brushSpace = this.timeSlotBrush(Array.from(times), dimensionColumn, frame);
-    }
-    const valueAgg = this.config.valueAgg ?? "mean";
-    if (
-      this.config.source === "" &&
-      dimensionColumn >= 0 &&
-      (this.config.valueCalc ?? "") === "" &&
-      (valueAgg === "sum" || valueAgg === "mean" || valueAgg === "min" || valueAgg === "max" || valueAgg === "count") &&
-      (this.config.valueColumn ?? -1) >= 0
-    ) {
-      this.valueScale = {
-        yMax: top,
-        top: frame.top,
-        plotH: frame.plotH,
-        mode: isTime ? "line" : "bars",
-        inset: 0,
-        barW: Math.max(1, slot - 1),
-        regionColumn: dimensionColumn,
-        measure: { column: this.config.valueColumn as number, agg: valueAgg },
-        scoped: true,
-      };
-    }
-
-    const ms = result.ms < 1 ? "<1" : String(Math.round(result.ms));
-    const partialNote =
-      partialCount > 0
-        ? ` · ${partialCount} incomplete ${partialCount === 1 ? "period" : "periods"} (hatched)`
-        : "";
-    this.noteEl.textContent = `${n.toLocaleString()} groups · ${plainMeasureName(measure)} by ${
-      result.dimensionNames[0] ?? "group"
-    } · ${ms} ms${partialNote}`;
+  drawViewAggregate(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    return drawViewAggregate(this, ctx, frame);
   }
 
-  private drawSeries(
-    ctx: CanvasRenderingContext2D,
-    frame: Frame,
-    kind: "histogram" | "line",
-  ): void {
-    const meta = this.meta(this.config.column);
-    if (meta === undefined) {
-      const message = this.emptySeriesMessage(kind);
-      this.noteEl.textContent = message;
-      this.drawPlotMessage(ctx, frame, message);
-      return;
-    }
-    if (kind === "line" && this.groupResult !== null) {
-      this.drawGroupedLines(ctx, frame);
-      return;
-    }
-    if (kind === "histogram" && this.groupResult !== null) {
-      this.drawGroupedHistogram(ctx, frame);
-      return;
-    }
-    if (kind === "histogram" && this.animationResult?.hist !== undefined) {
-      this.drawAnimatedHistogram(ctx, frame);
-      return;
-    }
-    const automatic = meta.histogram;
-    const custom = kind === "histogram" ? this.binResult : this.lineBinResult;
-    const liveBins = this.histograms[this.config.column] ?? automatic?.bins ?? [];
-    const bins =
-      custom !== null
-        ? custom.bins
-        : automatic === null
-          ? liveBins
-          : this.withoutExcludedBins(liveBins, automatic.min, automatic.max);
-    if (bins.length === 0 || automatic === null) {
-      const message = "This column has no histogram data yet.";
-      this.noteEl.textContent = message;
-      this.drawPlotMessage(ctx, frame, message);
-      return;
-    }
-    const ui = frame.ui;
-    const hasOverflow = custom !== null && custom.overflow > 0;
-    const overflowCount = custom?.overflow ?? 0;
-    const maxCount = Math.max(1, ...bins, overflowCount);
-    const slots = bins.length + (hasOverflow ? 1 : 0);
-    const slotW = frame.plotW / slots;
-    const barW = Math.max(1, slotW - 1);
-    const min =
-      this.lineBinRange?.min ??
-      this.chartXZoom?.min ??
-      this.config.binOptions?.min ??
-      automatic.min;
-    const max =
-      this.lineBinRange?.max ??
-      this.chartXZoom?.max ??
-      this.config.binOptions?.max ??
-      automatic.max;
-    this.brushSpace = {
-      left: frame.left,
-      top: frame.top,
-      plotW: frame.plotW,
-      plotH: frame.plotH,
-      xColumn: this.config.column,
-      xMin: min,
-      xMax: max,
-      xFraction: bins.length / slots,
-    };
-    this.valueScale = {
-      yMax: maxCount,
-      top: frame.top,
-      plotH: frame.plotH,
-      mode: kind === "line" ? "line" : "bars",
-      inset: 0,
-      barW,
-      regionColumn: this.config.column,
-      measure: null,
-      scoped: true,
-    };
-    this.hitRegions = seriesHitRegions(
-      { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
-      {
-        column: this.config.column,
-        bins,
-        overflow: hasOverflow ? overflowCount : 0,
-        min,
-        max,
-        dateAxis: kind === "line",
-        axisFormat: axisKindFor(meta.type) ?? undefined,
-      },
-    );
-
-    this.drawCountAxis(ctx, frame, maxCount);
-
-    if (kind === "line") {
-      // Say what one point on the line counts: "Rows per day" and not just ticks.
-      const unit = this.lineUnitLabel(min, max, bins.length);
-      const tzNote = meta.timeZoneAware === true ? " · source offsets shown in UTC" : "";
-      ctx.fillStyle = frame.dim;
-      this.font(ctx, ui, 10);
-      ctx.textAlign = "left";
-      ctx.fillText(`${unit}${tzNote}`, frame.left, frame.top - 6 * ui);
-    }
-
-    if (kind === "histogram") {
-      for (let i = 0; i < bins.length; i++) {
-        const h = (bins[i] / maxCount) * frame.plotH;
-        if (h <= 0) continue;
-        ctx.globalAlpha = 0.85;
-        ctx.fillStyle = this.primaryColor();
-        this.fillTopRounded(ctx, frame.left + i * slotW, frame.top + frame.plotH - h, barW, h, 3 * ui);
-      }
-      if (hasOverflow) {
-        const h = (overflowCount / maxCount) * frame.plotH;
-        const x = frame.left + bins.length * slotW + 3 * ui;
-        ctx.globalAlpha = 0.55;
-        this.fillTopRounded(ctx, x, frame.top + frame.plotH - h, Math.max(1, slotW - 4 * ui), h, 3 * ui);
-      }
-      ctx.globalAlpha = 1;
-    } else {
-      ctx.beginPath();
-      for (let i = 0; i < bins.length; i++) {
-        const x = frame.left + (i + 0.5) * slotW;
-        const y = frame.top + frame.plotH - (bins[i] / maxCount) * frame.plotH;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.strokeStyle = this.primaryColor();
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH);
-      ctx.lineTo(frame.left, frame.top + frame.plotH);
-      ctx.closePath();
-      ctx.globalAlpha = 0.18;
-      ctx.fillStyle = this.primaryColor();
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-
-    if (kind === "histogram" && this.config.kde && bins.length >= 4) {
-      const smooth = smoothSeries(bins, KDE_SIGMA_BINS);
-      ctx.beginPath();
-      for (let i = 0; i < smooth.length; i++) {
-        const x = frame.left + (i + 0.5) * slotW;
-        const y = frame.top + frame.plotH - (smooth[i] / maxCount) * frame.plotH;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.strokeStyle = frame.text;
-      ctx.globalAlpha = 0.7;
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
-      ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH);
-      ctx.lineTo(frame.left, frame.top + frame.plotH);
-      ctx.closePath();
-      ctx.globalAlpha = 0.08;
-      ctx.fillStyle = this.primaryColor();
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-
-    if (
-      kind === "histogram" &&
-      custom !== null &&
-      this.binMedian !== null &&
-      max > min &&
-      !automatic.symlog
-    ) {
-      const ratio = (this.binMedian - min) / (max - min);
-      if (ratio >= 0 && ratio <= 1) {
-        const x = frame.left + ratio * frame.plotW;
-        ctx.strokeStyle = frame.text;
-        ctx.globalAlpha = 0.7;
-        ctx.setLineDash([5, 3]);
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x, frame.top);
-        ctx.lineTo(x, frame.top + frame.plotH);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.globalAlpha = 1;
-        const label = `median ${formatChartNumber(this.binMedian)}`;
-        this.font(ctx, ui, 10);
-        const width = ctx.measureText(label).width;
-        ctx.fillStyle = frame.text;
-        const labelX =
-          x + 4 * ui + width > frame.left + frame.plotW ? x - 4 * ui - width : x + 4 * ui;
-        ctx.fillText(label, labelX, frame.top + 12 * ui);
-      }
-    }
-
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    const tickKind: "histogram" | AxisFormat =
-      axisKindFor(meta.type) ?? (kind === "line" ? "line" : "histogram");
-    const tickSpan = max - min;
-    const mid = (min + max) / 2;
-    const calendarAxis = kind === "line" && (meta.type === "date" || meta.type === "datetime") && tickSpan > 0;
-    if (calendarAxis) {
-      // Ticks on calendar boundaries across the whole range, not just three raw dates.
-      const dayMs = 86_400_000;
-      const stepMs = tickSpan / dayMs > 2000 ? 7 * dayMs : tickSpan / dayMs > 3 ? dayMs : 3_600_000;
-      const times: number[] = [];
-      for (let t = Math.ceil(min / stepMs) * stepMs; t <= max && times.length < 6000; t += stepMs) times.push(t);
-      const room = Math.max(3, Math.floor(frame.plotW / (74 * ui)));
-      ctx.textAlign = "center";
-      for (const tick of calendarTicks(times, room)) {
-        const x = frame.left + ((times[tick.index]! - min) / tickSpan) * frame.plotW;
-        const half = ctx.measureText(tick.label).width / 2;
-        ctx.fillText(tick.label, Math.min(frame.left + frame.plotW - half, Math.max(frame.left + half, x)), frame.top + frame.plotH + 16 * ui);
-      }
-      ctx.textAlign = "left";
-    }
-    const minLabel = formatTick(min, tickKind, tickSpan);
-    if (!calendarAxis) ctx.fillText(minLabel, frame.left, frame.top + frame.plotH + 16 * ui);
-    // On narrow cards the midpoint label collides with the edge labels.
-    if (!calendarAxis && frame.plotW >= 220 * (ui / 1.25)) {
-      const midLabel = formatTick(mid, tickKind, tickSpan);
-      ctx.fillText(
-        midLabel,
-        frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
-        frame.top + frame.plotH + 16 * ui,
-      );
-    }
-    const maxLabel = formatTick(max, tickKind, tickSpan);
-    if (!calendarAxis) {
-      ctx.fillText(
-        maxLabel,
-        frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
-        frame.top + frame.plotH + 16 * ui,
-      );
-    }
-    if (hasOverflow) {
-      const overflowLabel = `> ${formatTick(max, tickKind, tickSpan)}`;
-      ctx.fillText(
-        overflowLabel,
-        frame.left + frame.plotW - ctx.measureText(overflowLabel).width,
-        frame.top + frame.plotH + 30 * ui,
-      );
-    }
-
-    const notes: string[] = [];
-    if (custom !== null) {
-      notes.push(`${custom.bins.length} bins`);
-      if (this.config.binClipped) notes.push("End clipped to p95 — Full range shows everything");
-      if (custom.below > 0) notes.push(`${custom.below.toLocaleString()} below start`);
-      if (custom.overflow > 0) notes.push(`${custom.overflow.toLocaleString()} in “> Max”`);
-      if (custom.above > 0) notes.push(`${custom.above.toLocaleString()} above end`);
-    } else if (automatic.symlog) {
-      notes.push("signed-log scale (heavy tail)");
-    }
-    if (custom === null) {
-      const outside = automatic.below + automatic.above;
-      if (outside > 0) notes.push(`${outside.toLocaleString()} values beyond the p1-p99 chart range`);
-    }
-    notes.push("Ctrl+scroll to zoom · drag to pan · double-click resets");
-    this.noteEl.textContent = notes.join(" · ");
+  drawSeries(ctx: CanvasRenderingContext2D, frame: Frame, kind: "histogram" | "line"): void {
+    return drawSeries(this, ctx, frame, kind);
   }
 
-  /** Shared count-axis grid and baseline for histogram and line kinds. */
-  private drawCountAxis(
-    ctx: CanvasRenderingContext2D,
-    frame: Frame,
-    maxCount: number,
-  ): void {
-    const ui = frame.ui;
-    const yTicks = niceTicks(0, maxCount, 4).filter((value, index, all) => index === 0 || formatCount(value) !== formatCount(all[index - 1]));
-    ctx.strokeStyle = frame.border;
-    ctx.lineWidth = 1;
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    ctx.textAlign = "right";
-    for (const value of yTicks) {
-      const y = frame.top + frame.plotH - (value / maxCount) * frame.plotH;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(frame.left, y + 0.5);
-      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillText(formatCount(value), frame.left - 6 * ui, y + 3 * ui);
-    }
-    ctx.textAlign = "left";
-    ctx.beginPath();
-    ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
-    ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
-    ctx.stroke();
+  drawCountAxis(ctx: CanvasRenderingContext2D, frame: Frame, maxCount: number): void {
+    return drawCountAxis(this, ctx, frame, maxCount);
   }
 
-  /** "Rows per day" for the time-series Y axis, from the bin's date span. */
-  private lineUnitLabel(min: number, max: number, bins: number): string {
-    if (!(max > min) || bins <= 0) return "Rows";
-    const per = (max - min) / bins;
-    const units: readonly (readonly [number, string])[] = [
-      [365.25 * 86_400_000, "year"],
-      [30.44 * 86_400_000, "month"],
-      [7 * 86_400_000, "week"],
-      [86_400_000, "day"],
-      [3_600_000, "hour"],
-      [60_000, "minute"],
-      [1000, "second"],
-    ];
-    for (const [span, name] of units) {
-      if (per >= span * 0.9) {
-        const count = Math.round((per / span) * 10) / 10;
-        return `Rows per ${count === 1 ? name : `${count} ${name}s`}`;
-      }
-    }
-    return "Rows";
+  lineUnitLabel(min: number, max: number, bins: number): string {
+    return lineUnitLabel(this, min, max, bins);
   }
 
-  /**
-   * Time series split by a category: one line per visible group over the same
-   * automatic date range, a clickable legend and per-group tooltip counts.
-   */
-  /**
-   * Overlaid histograms for a grouped histogram: one outline per category,
-   * drawn as the share of that group's rows per bin so curves compare shapes
-   * even when the groups have very different sizes.
-   */
-  private drawGroupedHistogram(ctx: CanvasRenderingContext2D, frame: Frame): void {
-    const result = this.groupResult;
-    const meta = this.meta(this.config.column);
-    if (result === null || meta === undefined || meta.histogram === null) {
-      const message = "This column has no histogram data yet.";
-      this.noteEl.textContent = message;
-      this.drawPlotMessage(ctx, frame, message);
-      return;
-    }
-    const automatic = meta.histogram;
-    const min = this.config.binOptions?.min ?? automatic.min;
-    const max = this.config.binOptions?.max ?? automatic.max;
-    const bins = Math.max(1, result.bins > 0 ? result.bins : automatic.bins.length);
-    const ui = frame.ui;
-
-    const groups = result.labels
-      .map((label, index) => ({
-        label,
-        code: result.codes[index] ?? index,
-        index,
-        counts: result.groups[index] ?? [],
-        total: result.totals[index] ?? 0,
-      }))
-      .filter((entry) => !this.hiddenGroups.has(entry.code) && entry.total > 0);
-    if (groups.length === 0) {
-      const message = "Every group is hidden in the legend.";
-      this.noteEl.textContent = message;
-      this.drawPlotMessage(ctx, frame, message);
-      return;
-    }
-
-    const shares = groups.map((group) =>
-      Array.from(group.counts, (count) => {
-        const share = count / group.total;
-        return Number.isFinite(share) ? share : 0;
-      }),
-    );
-    // Smooth the outlines when bins are numerous so overlaid curves read as
-    // curves rather than spikes.
-    const smooth = bins >= 8 ? shares.map((share) => smoothSeries(share, 1.2)) : shares;
-    let maxShare = 0.0001;
-    for (const share of smooth) {
-      for (const value of share) {
-        if (value > maxShare) maxShare = value;
-      }
-    }
-
-    // Y axis in percent of the group (share), not counts.
-    const yTicks = niceTicks(0, maxShare, 4).filter((value, index, all) => index === 0 || `${Math.round(value * 100)}%` !== `${Math.round(all[index - 1] * 100)}%`);
-    ctx.strokeStyle = frame.border;
-    ctx.lineWidth = 1;
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    ctx.textAlign = "right";
-    for (const value of yTicks) {
-      const y = frame.top + frame.plotH - (value / maxShare) * frame.plotH;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(frame.left, y + 0.5);
-      ctx.lineTo(frame.left + frame.plotW, y + 0.5);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillText(`${Math.round(value * 100)}%`, frame.left - 6 * ui, y + 3 * ui);
-    }
-    ctx.textAlign = "left";
-    ctx.beginPath();
-    ctx.moveTo(frame.left, frame.top + frame.plotH + 0.5);
-    ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH + 0.5);
-    ctx.stroke();
-
-    const slot = frame.plotW / bins;
-    groups.forEach((group, groupIndex) => {
-      const share = smooth[groupIndex] ?? [];
-      const color = this.groupColor(group.index);
-      ctx.beginPath();
-      share.forEach((value, bin) => {
-        const x = frame.left + (bin + 0.5) * slot;
-        const y = frame.top + frame.plotH - (value / maxShare) * frame.plotH;
-        if (bin === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      });
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
-      ctx.lineTo(frame.left + frame.plotW, frame.top + frame.plotH);
-      ctx.lineTo(frame.left, frame.top + frame.plotH);
-      ctx.closePath();
-      ctx.globalAlpha = 0.12;
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    });
-
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    ctx.fillText("share of each group per bin", frame.left, frame.top - 6 * ui);
-    const histTickKind: "histogram" | AxisFormat = axisKindFor(meta.type) ?? "histogram";
-    const histTickSpan = max - min;
-    const mid = (min + max) / 2;
-    ctx.fillText(formatTick(min, histTickKind, histTickSpan), frame.left, frame.top + frame.plotH + 16 * ui);
-    const midLabel = formatTick(mid, histTickKind, histTickSpan);
-    ctx.fillText(
-      midLabel,
-      frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
-      frame.top + frame.plotH + 16 * ui,
-    );
-    const maxLabel = formatTick(max, histTickKind, histTickSpan);
-    ctx.fillText(
-      maxLabel,
-      frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
-      frame.top + frame.plotH + 16 * ui,
-    );
-
-    const groupName = this.meta(this.config.groupColumn)?.name ?? "group";
-    this.noteEl.textContent = `${groups.length} curves by ${groupName} · share of each group per bin · ${result.total.toLocaleString()} rows`;
+  drawGroupedHistogram(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    return drawGroupedHistogram(this, ctx, frame);
   }
 
-  private drawGroupedLines(ctx: CanvasRenderingContext2D, frame: Frame): void {
-    const result = this.groupResult;
-    const histogram = this.meta(this.config.column)?.histogram ?? null;
-    if (result === null || histogram === null || result.bins === 0) {
-      const message = "This column has no histogram data yet.";
-      this.noteEl.textContent = message;
-      this.drawPlotMessage(ctx, frame, message);
-      return;
-    }
-    const binCount = result.bins;
-    const min = histogram.min;
-    const max = histogram.max;
-    const ui = frame.ui;
-    const slotW = frame.plotW / binCount;
-    const visible = result.groups
-      .map((bins, index) => ({ bins, index }))
-      .filter((entry) => !this.hiddenGroups.has(result.codes[entry.index]));
-    let maxCount = 1;
-    for (const entry of visible) {
-      for (const value of entry.bins) if (value > maxCount) maxCount = value;
-    }
-
-    this.drawCountAxis(ctx, frame, maxCount);
-
-    for (const entry of visible) {
-      ctx.beginPath();
-      for (let i = 0; i < binCount; i++) {
-        const x = frame.left + (i + 0.5) * slotW;
-        const y = frame.top + frame.plotH - (entry.bins[i] / maxCount) * frame.plotH;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.strokeStyle = this.groupColor(entry.index);
-      ctx.lineWidth = Math.max(1.5, 1.6 * ui);
-      ctx.globalAlpha = 0.9;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-
-    ctx.fillStyle = frame.dim;
-    this.font(ctx, ui, 10);
-    const lineTickKind: "histogram" | AxisFormat =
-      axisKindFor(this.meta(this.config.column)?.type ?? "date") ?? "line";
-    const lineTickSpan = max - min;
-    const mid = (min + max) / 2;
-    ctx.fillText(formatTick(min, lineTickKind, lineTickSpan), frame.left, frame.top + frame.plotH + 16 * ui);
-    const midLabel = formatTick(mid, lineTickKind, lineTickSpan);
-    ctx.fillText(
-      midLabel,
-      frame.left + frame.plotW / 2 - ctx.measureText(midLabel).width / 2,
-      frame.top + frame.plotH + 16 * ui,
-    );
-    const maxLabel = formatTick(max, lineTickKind, lineTickSpan);
-    ctx.fillText(
-      maxLabel,
-      frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
-      frame.top + frame.plotH + 16 * ui,
-    );
-
-    this.hitRegions = groupedSeriesHitRegions(
-      { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
-      {
-        column: this.config.column,
-        groups: visible.map((entry) => ({
-          label: result.labels[entry.index],
-          bins: entry.bins,
-        })),
-        min,
-        max,
-        axisFormat: axisKindFor(this.meta(this.config.column)?.type ?? "date") ?? "line",
-      },
-    );
-
-    const groupName = this.meta(this.config.groupColumn)?.name ?? "group";
-    const total = result.groups.length;
-    const notes = [
-      this.hiddenGroups.size === 0
-        ? `${total} lines by ${groupName}`
-        : `${visible.length} of ${total} lines by ${groupName}`,
-    ];
-    if (result.otherIndex >= 0) notes.push(`top ${GROUP_LINE_LIMIT} + Other`);
-    notes.push(`${result.total.toLocaleString()} rows`);
-    if (result.ms > 0) notes.push(`${Math.round(result.ms)} ms`);
-    this.noteEl.textContent = notes.join(" · ");
+  drawGroupedLines(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    return drawGroupedLines(this, ctx, frame);
   }
 
-  private groupColor(index: number): string {
+  groupColor(index: number): string {
     return this.paletteColor(index);
   }
 
-  /** Clickable legend under grouped time series; entries toggle line visibility. */
   private syncLegend(): void {
-    const result = this.groupResult;
-    const bubbleGroups =
-      this.config.kind === "bubble"
-        ? (this.bubbleResult?.groups ?? this.animationResult?.bubble?.groups ?? null)
-        : null;
-    const entries =
-      bubbleGroups !== null
-        ? bubbleGroups.map((group) => ({ label: group.label, code: group.code }))
-        : (this.config.kind === "line" || this.config.kind === "histogram") && result !== null
-          ? result.labels.map((label, index) => ({
-              label,
-              code: result.codes[index] ?? index,
-            }))
-          : null;
-    if (this.splitLegend !== null && this.usesAggregate()) {
-      this.legendEl.classList.remove("hidden");
-      this.legendEl.replaceChildren();
-      for (const { label, color } of this.splitLegend) {
-        const off = this.hiddenSplit.has(label);
-        const item = el(
-          "button",
-          { class: "chart-legend-item", type: "button", "aria-pressed": off ? "false" : "true", title: off ? `Show ${label}` : `Hide ${label}` },
-          [label],
-        ) as HTMLButtonElement;
-        const swatch = el("span", { class: "chart-legend-swatch" });
-        swatch.style.background = color;
-        item.prepend(swatch);
-        item.classList.toggle("off", off);
-        item.addEventListener("click", () => {
-          if (this.hiddenSplit.has(label)) this.hiddenSplit.delete(label);
-          else this.hiddenSplit.add(label);
-          this.render();
-        });
-        this.legendEl.append(item);
-      }
-      return;
-    }
-    this.legendEl.classList.toggle("hidden", entries === null);
-    this.legendEl.replaceChildren();
-    if (entries === null) return;
-    entries.forEach(({ label, code }, index) => {
-      const off = this.hiddenGroups.has(code);
-      const item = el(
-        "button",
-        {
-          class: "chart-legend-item",
-          type: "button",
-          "aria-pressed": off ? "false" : "true",
-          title: off ? `Show ${label}` : `Hide ${label}`,
-        },
-        [label],
-      ) as HTMLButtonElement;
-      const swatch = el("span", { class: "chart-legend-swatch" });
-      swatch.style.background = this.groupColor(index);
-      item.prepend(swatch);
-      item.classList.toggle("off", off);
-      item.addEventListener("click", () => {
-        if (this.hiddenGroups.has(code)) this.hiddenGroups.delete(code);
-        else this.hiddenGroups.add(code);
-        this.render();
-      });
-      item.addEventListener("contextmenu", (event) => {
-        const groupColumn = this.config.groupColumn;
-        if (groupColumn < 0) return;
-        event.preventDefault();
-        this.openExclusionMenu(
-          [{ kind: "values", column: groupColumn, code: this.legendCodeToGroupCode(code) }],
-          { x: event.clientX, y: event.clientY },
-        );
-      });
-      this.legendEl.append(item);
-    });
+    return syncLegend(this);
   }
 
   /** Animated bars: category counts for the current frame only. */
   /** Animated histogram: bin counts for the current frame on a global scale. */
-  private drawAnimatedHistogram(ctx: CanvasRenderingContext2D, frame: Frame): void {
+  drawAnimatedHistogram(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const result = this.animationResult;
     const hist = result?.hist;
     if (result === null || hist === undefined) {
@@ -11489,7 +10011,7 @@ export class ChartCard {
   }
 
   /** Bubble chart: rows per x/y grid cell, sized by count or a measure. */
-  private drawBubble(ctx: CanvasRenderingContext2D, frame: Frame): void {
+  drawBubble(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const animated = this.animationResult?.bubble;
     if (animated !== undefined && this.animationResult !== null) {
       const frames = this.animationResult.frames;
@@ -11934,7 +10456,7 @@ export class ChartCard {
    * Column names for the axes of the current chart, or null where a title
    * would be noise (treemaps label their tiles, correlation its cells).
    */
-  private axisLabels(): { x: string | null; y: string | null } {
+  axisLabels(): { x: string | null; y: string | null } {
     const name = (index: number): string | null =>
       index >= 0 ? (this.meta(index)?.name ?? null) : null;
     if (this.config.kind === "barplot") {
@@ -11973,7 +10495,7 @@ export class ChartCard {
   }
 
   /** Axis titles: X centred under the plot, Y rotated beside its ticks. */
-  private drawAxisTitles(
+  drawAxisTitles(
     ctx: CanvasRenderingContext2D,
     frame: Frame,
     xLabel: string | null,
@@ -12033,7 +10555,7 @@ export class ChartCard {
     ctx.textAlign = "left";
   }
 
-  private drawBars(ctx: CanvasRenderingContext2D, frame: Frame): void {
+  drawBars(ctx: CanvasRenderingContext2D, frame: Frame): void {
     if (this.animationResult?.bar !== undefined) {
       this.drawAnimatedBars(ctx, frame);
       return;
@@ -12171,7 +10693,7 @@ export class ChartCard {
     )}${this.config.groupOther && bars.some((bar) => bar.other === true) ? " + Other" : ""}${windowNote} · Ctrl+scroll to zoom · drag to pan · double-click resets`;
   }
 
-  private drawScatterLike(ctx: CanvasRenderingContext2D, frame: Frame): void {
+  drawScatterLike(ctx: CanvasRenderingContext2D, frame: Frame): void {
     if (this.config.kind === "density" && this.animationResult?.bubble !== undefined) {
       this.drawAnimatedDensity(ctx, frame);
       return;
@@ -12731,7 +11253,7 @@ export class ChartCard {
     ctx.textAlign = "left";
   }
 
-  private drawBox(ctx: CanvasRenderingContext2D, frame: Frame): void {
+  drawBox(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const result = this.boxResult;
     if (result === null || result.groups.length === 0) {
       const message =
@@ -12936,7 +11458,7 @@ export class ChartCard {
     this.noteEl.textContent = notes.join(" · ");
   }
 
-  private pivotHeatmapData(): {
+  pivotHeatmapData(): {
     rowLabels: string[];
     colLabels: string[];
     values: Float64Array;
@@ -13023,7 +11545,7 @@ export class ChartCard {
     };
   }
 
-  private drawPivotHeatmap(ctx: CanvasRenderingContext2D, frame: Frame): void {
+  drawPivotHeatmap(ctx: CanvasRenderingContext2D, frame: Frame): void {
     if (this.config.source === "" || !this.isPivotSource()) {
       const message = "Choose a pivot view source in the Source menu.";
       this.noteEl.textContent = message;
@@ -13128,7 +11650,7 @@ export class ChartCard {
     }
     this.noteEl.textContent = notes.join(" - ");
   }
-  private drawHeatmap(ctx: CanvasRenderingContext2D, frame: Frame): void {
+  drawHeatmap(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const result = this.crossResult;
     if (result === null || result.xLabels.length === 0 || result.yLabels.length === 0) {
       const message =
@@ -13239,7 +11761,7 @@ export class ChartCard {
     this.noteEl.textContent = notes.join(" · ");
   }
 
-  private drawCorrelation(ctx: CanvasRenderingContext2D, frame: Frame): void {
+  drawCorrelation(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const result = this.correlationResult;
     if (result === null || result.labels.length < 2) {
       let message: string;
