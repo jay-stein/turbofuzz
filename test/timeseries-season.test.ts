@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { buildTable } from "../src/data/timeseries/base.js";
 import { defaultConfig, TsEngine } from "../src/data/timeseries/engine.js";
 import { seasonalityTest } from "../src/data/timeseries/seasonality.js";
-import { MODEL_KEYS } from "../src/data/timeseries/models.js";
 
 let seed = 9;
 const rnd = (): number => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31 - 0.5);

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildTable } from "../src/data/timeseries/base.js";
 import { defaultConfig, TsEngine } from "../src/data/timeseries/engine.js";
-import { MODEL_INFO, MODEL_KEYS } from "../src/data/timeseries/models.js";
+import { MODEL_INFO } from "../src/data/timeseries/models.js";
 import { backtestRows, forecastRows, scorecardRows } from "../src/ui/timeseries-export.js";
 
 function snap(backtest: boolean) {

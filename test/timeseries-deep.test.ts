@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildTable } from "../src/data/timeseries/base.js";
 import { defaultConfig, TsEngine } from "../src/data/timeseries/engine.js";
-import { MODEL_KEYS } from "../src/data/timeseries/models.js";
 import { chiSquareSf, tTwoSided } from "../src/data/timeseries/stats.js";
 
 test("t and chi-square tails match the tables", () => {
