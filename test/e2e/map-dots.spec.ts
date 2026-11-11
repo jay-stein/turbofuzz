@@ -21,12 +21,16 @@ async function openMap(page: Page): Promise<void> {
   await page.locator(".chart-note").first().waitFor();
 }
 
-test("the map is about twice as wide as tall, and the dock keeps your markers together", async ({ page }) => {
+test("the map is wider than tall and fills the window below its controls, and the dock keeps your markers together", async ({ page }) => {
   await openMap(page);
   const box = (await page.locator(".map-card canvas.chart-canvas").boundingBox())!;
   const ratio = box.width / box.height;
-  expect(ratio).toBeGreaterThan(1.6);
+  // The Map page uses the workspace layout: the plot takes the height the window has left (not a fixed 2:1),
+  // so it is a clear landscape, never a strip, and its bottom edge is in view.
+  expect(ratio).toBeGreaterThan(1.2);
   expect(ratio).toBeLessThan(2.4);
+  expect(box.height).toBeGreaterThan(400);
+  expect(box.y + box.height).toBeLessThanOrEqual(900);
   // Marker tools are one labelled group; the data dots are sized in the Dots row, not by that slider.
   const group = page.getByRole("group", { name: "Your markers" });
   await expect(group.getByLabel("Size of your markers")).toBeVisible();

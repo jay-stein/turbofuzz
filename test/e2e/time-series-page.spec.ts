@@ -75,7 +75,10 @@ test("forecast, decompose and patterns each draw from the worker", async ({ page
 
 test("clicking a period filters the Table to it, shown as dates", async ({ page }) => {
   await openPage(page);
-  const box = await page.locator(".ts-page canvas[data-ref=heroOverlay]").boundingBox();
+  // The banner and the findings sit above the chart, so it starts below the fold: bring it into view first.
+  const overlay = page.locator(".ts-page canvas[data-ref=heroOverlay]");
+  await overlay.scrollIntoViewIfNeeded();
+  const box = await overlay.boundingBox();
   if (!box) throw new Error("no chart");
   await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.5);
   await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.5);
