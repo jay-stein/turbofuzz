@@ -5,6 +5,9 @@ const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4173";
 export default defineConfig({
   testDir: "./test/e2e",
   timeout: 30_000,
+  // Few workers on purpose: with many, a busy machine makes timing-sensitive specs fail for no reason
+  // and a red run stops meaning a real break.
+  workers: process.env.CI ? 2 : 3,
   expect: { timeout: 10_000 },
   use: {
     baseURL,
