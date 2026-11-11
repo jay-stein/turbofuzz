@@ -421,7 +421,10 @@ export class ChartCard {
     return groupSettings(this);
   }
 
-  readonly dataDrawer = new ChartDataDrawer(() => this.dataDrawerRows());
+  readonly dataDrawer = new ChartDataDrawer(
+    () => this.dataDrawerRows(),
+    () => (this.config.source === "" ? this.options.onShowTable : undefined),
+  );
 
   private dataDrawerRows(): string[][] {
     return dataDrawerRows(this);

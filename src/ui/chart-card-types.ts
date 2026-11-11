@@ -380,6 +380,8 @@ export interface ChartCardOptions {
   onFilterTable?(filters: readonly ChartTableFilter[], label: string): void;
   /** Apply filters, switch to the table, and show the matching rows. */
   onShowRows?(filters: readonly ChartTableFilter[], label: string): void;
+  /** Opens the Table on the rows the chart uses (the table's own filters already apply to them). */
+  onShowTable?(): void;
   /** Drill the selected chart to a finer time grain or a new breakdown. */
   onDrill?(card: ChartCard, filters: readonly ChartTableFilter[], label: string): void;
   /** Open the shared setup dialog for a new breakdown chart. */

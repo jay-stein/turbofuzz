@@ -165,6 +165,7 @@ export interface ChartsPanelOptions {
   onFilterTable?(filters: readonly ChartTableFilter[], label: string): void;
   /** Apply filters and switch to the table. */
   onShowRows?(filters: readonly ChartTableFilter[], label: string): void;
+  onShowTable?(): void;
   /** Open a line card's series on the Time Series page. */
   onDeepDive?(series: ChartSeriesTarget): void;
   /** Open a map card full width on the Map page. */
@@ -902,6 +903,7 @@ export class ChartsPanel {
         onResetSuggested: (target) => this.resetCard(target),
         onFilterTable: this.options.onFilterTable,
         onShowRows: this.options.onShowRows,
+        onShowTable: this.options.onShowTable,
         onDrill: (target, filters, label) =>
           void this.drillCard(target, filters, label),
         onBreakDown: (target) => this.breakDownCard(target),

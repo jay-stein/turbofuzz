@@ -126,3 +126,26 @@ test("beside a chart of a pivot the field list shows the pivot's fields, a click
   await card(page).locator(".chart-source-chip").click();
   await expect(page.getByRole("tab", { name: "Pivot View", exact: true })).toHaveAttribute("aria-selected", "true");
 });
+
+test("the data drawer of a chart of a pivot has no Show rows in Table", async ({ page }) => {
+  await load(page);
+  await page.getByRole("tab", { name: "Pivot View", exact: true }).click();
+  await addField(page, "column", "product");
+  await page.locator(".views-chart-this").first().click();
+  const pivotDrawer = card(page).locator(".chart-data-drawer");
+  await pivotDrawer.locator("summary").click();
+  await expect(pivotDrawer.locator(".chart-data-show-table")).toBeHidden();
+});
+
+test("the data drawer of a chart of the table has Show rows in Table, which opens the Table", async ({ page }) => {
+  await load(page);
+  await page.getByRole("tab", { name: "Chart", exact: true }).click();
+  await page.locator(".chart-add-panel").waitFor();
+  await page.locator(".chart-add-field").filter({ has: page.locator(".chart-add-field-name", { hasText: /^amount$/ }) }).first().click();
+  await page.locator(".chart-add-tile").first().click();
+  await card(page).locator(".chart-canvas").waitFor();
+  const drawer = card(page).locator(".chart-data-drawer");
+  await drawer.locator("summary").click();
+  await drawer.locator(".chart-data-show-table").click();
+  await expect(page.getByRole("tab", { name: "Table", exact: true })).toHaveAttribute("aria-selected", "true");
+});

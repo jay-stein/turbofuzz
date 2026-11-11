@@ -17,17 +17,27 @@ export class ChartDataDrawer {
   private timer = 0;
   private disposed = false;
 
-  constructor(private readonly rows: () => string[][]) {
+  /** `showTable` gives the action that opens the Table on the rows the chart uses, or undefined when there is none. */
+  constructor(
+    private readonly rows: () => string[][],
+    private readonly showTable: () => (() => void) | undefined = () => undefined,
+  ) {
     const count = el("span", { class: "chart-data-count" });
     const copy = el(
       "button",
       { class: "ghost small chart-data-copy", type: "button", title: "Copy these rows, tab-separated, to paste into a spreadsheet" },
       ["Copy"],
     ) as HTMLButtonElement;
+    const table = el(
+      "button",
+      { class: "link small chart-data-show-table hidden", type: "button", title: "Open the Table on the rows this chart uses; the table's filters apply here too" },
+      ["Show rows in Table"],
+    ) as HTMLButtonElement;
+    table.addEventListener("click", () => this.showTable()?.());
     const body = el("div", { class: "chart-data-body" });
     this.root = el("details", { class: "chart-data-drawer" }, [
       el("summary", { class: "chart-data-title" }, [el("span", { class: "chart-data-name" }, ["Data behind this chart"]), count]),
-      el("div", { class: "chart-data-bar" }, [el("span", { class: "chart-data-note" }), copy]),
+      el("div", { class: "chart-data-bar" }, [el("span", { class: "chart-data-note" }), table, copy]),
       body,
     ]) as HTMLDetailsElement;
     this.root.open = readGroupOpen("data");
@@ -71,6 +81,7 @@ export class ChartDataDrawer {
     if (key === this.key) return;
     this.key = key;
     drawer.classList.toggle("hidden", total === 0);
+    drawer.querySelector(".chart-data-show-table")?.classList.toggle("hidden", this.showTable() === undefined);
     const count = drawer.querySelector(".chart-data-count");
     if (count !== null) count.textContent = `${total.toLocaleString()} ${total === 1 ? "row" : "rows"}`;
     const body = drawer.querySelector(".chart-data-body");

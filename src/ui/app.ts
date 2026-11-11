@@ -3076,6 +3076,10 @@ export class App {
       currentFilter: (column) => this.filters.get(column) ?? null,
       onFilterTable: (filters, label) => this.applyChartFilters(filters, label, false),
       onShowRows: (filters, label) => this.applyChartFilters(filters, label, true),
+      onShowTable: () => {
+        this.setView("table");
+        this.table?.scrollToTop();
+      },
       onDeepDive: (series) => this.openSeries(series),
       onOpenMap: (config) => this.openMap(config),
       research: () => this.mode === "research",
