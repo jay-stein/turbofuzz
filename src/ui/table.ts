@@ -7,7 +7,7 @@ import {
   type ColumnSuggestion,
 } from "../data/suggestions.js";
 import { clusterSimilar, type SimilarCluster } from "../search/similar.js";
-import { chipClass, chipText, collapsedFixLabel, suggestionChipLabel } from "./chips.js";
+import { chipClass, chipText, suggestionChipLabel } from "./chips.js";
 import { dismissedClusterCount, isClusterDismissed } from "./similar-dismissals.js";
 import { isNullToken, isNullWithWire } from "../parse/null-tokens.js";
 import { parseDate, toDateInputValue, toTimeInputValue } from "../parse/dates.js";
@@ -871,35 +871,16 @@ export class ResultTable {
         hint: `show values that don't match ${pattern.mask}`,
       });
     }
-    if (issues.length <= 2) {
-      for (const issue of issues) {
-        const chip = this.qaChip(
-          column,
-          index,
-          issue.kind,
-          issue.count,
-          issue.noun,
-          issue.action,
-          issue.hint,
-        );
-        if (chip !== null) row.append(chip);
-      }
-    } else {
-      row.append(this.mergedQaChip(column, index, issues));
+    for (const issue of issues) {
+      const chip = this.qaChip(column, index, issue.kind, issue.count, issue.noun, issue.action, issue.hint);
+      if (chip !== null) row.append(chip);
     }
     const fixes = [
       ...tokenChips,
       ...this.buildIssueFixChips(column, index, issues),
       ...this.buildFixChips(column, index),
     ];
-    if (fixes.length > 2) row.append(this.mergedFixChip(column, fixes));
-    else {
-      // The one-line strip has room for the count and little else, so the fixes would be clipped out of
-      // sight. A short "Fix ▾" stays in view beside the count and opens them; hovering the strip shows
-      // the fixes themselves in its place.
-      if (fixes.length > 0 && row.childElementCount > 0) row.append(this.fixMenuChip(column, fixes));
-      row.append(...fixes);
-    }
+    row.append(...fixes);
     const similarPairs = column.similarGroups - dismissedClusterCount(column.name);
     if (similarPairs > 0 && column.categories !== null) {
       const merge = el(
@@ -928,48 +909,50 @@ export class ResultTable {
       );
       row.append(constant);
     }
+    const chips = [...row.children] as HTMLButtonElement[];
+    if (chips.length > 0) {
+      // One chip shows the issue; the chips above stay in the row, out of sight, as what its menu acts on.
+      row.classList.add("th-qa-one");
+      row.prepend(this.summaryChip(column, chips, issues, placeholders));
+    }
     return row;
   }
 
   /**
-   * One chip for a column with several count issues; the menu offers each
-   * issue (with its own filter toggle) without making the header taller.
+   * The only chip a header shows: what is wrong, in a few words. Clicking it opens a menu of what can be
+   * done: show the rows, fix it, review it. Each entry presses the chip it stands for.
    */
-  private mergedQaChip(
+  private summaryChip(
     column: ColumnMeta,
-    index: number,
-    issues: readonly {
-      kind: ColumnQaKind;
-      count: number;
-      noun: { one: string; many: string };
-      action: string;
-      hint: string;
-    }[],
+    chips: readonly HTMLButtonElement[],
+    issues: readonly { kind: ColumnQaKind; count: number; noun: { one: string; many: string } }[],
+    placeholders: boolean,
   ): HTMLButtonElement {
-    const anyActive = issues.some((issue) => this.columnQa.has(`${index}:${issue.kind}`));
-    const chip = el(
-      "button",
-      { class: "th-qa-chip warn", type: "button" },
-      [`View ${issues.length} issue types`],
-    ) as HTMLButtonElement;
+    let label: string;
+    const only = issues.length === 1 ? issues[0] : undefined;
+    if (only !== undefined) {
+      const words = only.kind === "nulls" && placeholders ? "missing" : only.count === 1 ? only.noun.one : only.noun.many;
+      label = `${only.count.toLocaleString()} ${words}`;
+    } else if (issues.length > 1) label = `${issues.length} issues`;
+    else label = chips.length === 1 ? (chips[0]!.textContent ?? "Review") : `${chips.length} to review`;
+    const chip = el("button", { class: `th-qa-chip th-qa-summary ${issues.length > 0 ? "is-issue" : "is-review"}`, type: "button" }, [`${label} ▾`]) as HTMLButtonElement;
+    const anyActive = chips.some((c) => c.classList.contains("active"));
     chip.classList.toggle("active", anyActive);
-    chip.setAttribute("aria-pressed", anyActive ? "true" : "false");
-    chip.title = `${issues.length} issue types in “${column.name}” — choose what to show`;
+    chip.setAttribute("aria-haspopup", "menu");
+    chip.title = `${label} in “${column.name}” — click to show the rows or fix them`;
     chip.addEventListener("click", () => {
-      openMenu(
-        chip,
-        issues.map((issue) => {
-          const label = `${issue.action} · ${issue.count.toLocaleString()}`;
-          const active = this.columnQa.has(`${index}:${issue.kind}`);
-          return {
-            label: `${label}${active ? " ✓" : ""}`,
-            title: `${issue.count.toLocaleString()} ${
-              issue.count === 1 ? issue.noun.one : issue.noun.many
-            } in “${column.name}” — ${active ? "click to clear" : issue.hint}`,
-            action: () => this.options.onColumnSpecial(index, issue.kind),
-          };
-        }),
-      );
+      const group = (c: HTMLButtonElement): string =>
+        c.classList.contains("fix") ? "Fix" : c.classList.contains("merge") || c.classList.contains("flag") ? "Review" : "Show rows";
+      const items: MenuItem[] = [];
+      for (const heading of ["Show rows", "Fix", "Review"]) {
+        const inGroup = chips.filter((c) => group(c) === heading);
+        if (inGroup.length === 0) continue;
+        if (chips.some((c) => group(c) !== heading)) items.push({ label: heading, heading: true, action: () => undefined });
+        for (const c of inGroup) {
+          items.push({ label: c.textContent ?? heading, title: c.title, checked: c.classList.contains("active") || undefined, action: () => c.click() });
+        }
+      }
+      openMenu(chip, items);
     });
     return chip;
   }
@@ -1180,43 +1163,6 @@ export class ResultTable {
     });
   }
 
-  /** A short, always-visible way into the fixes of a header whose strip has no room to show them. */
-  private fixMenuChip(column: ColumnMeta, fixes: readonly HTMLButtonElement[]): HTMLButtonElement {
-    const chip = el("button", { class: "th-qa-chip fix-menu", type: "button" }, ["Fix ▾"]) as HTMLButtonElement;
-    chip.title = `${fixes.length} ${fixes.length === 1 ? "fix" : "fixes"} for “${column.name}” — click to choose; each is undoable`;
-    chip.setAttribute("aria-haspopup", "menu");
-    chip.addEventListener("click", () => {
-      openMenu(
-        chip,
-        fixes.map((fix) => ({ label: fix.textContent ?? "Fix", title: fix.title, action: () => fix.click() })),
-      );
-    });
-    return chip;
-  }
-
-  /** Keep busy headers to one line: >2 fixes collapse into a menu. */
-  private mergedFixChip(
-    column: ColumnMeta,
-    fixes: readonly HTMLButtonElement[],
-  ): HTMLButtonElement {
-    const chip = el(
-      "button",
-      { class: `${chipClass("fix")} merge`, type: "button" },
-      [collapsedFixLabel(fixes.length)],
-    ) as HTMLButtonElement;
-    chip.title = `${fixes.length} fixes in "${column.name}" - choose one; each is undoable`;
-    chip.addEventListener("click", () => {
-      openMenu(
-        chip,
-        fixes.map((fix) => ({
-          label: fix.textContent ?? "Fix",
-          title: fix.title,
-          action: () => fix.click(),
-        })),
-      );
-    });
-    return chip;
-  }
   private render(): void {
     const height = this.scroller.clientHeight || 600;
     this.reportViewport(height);

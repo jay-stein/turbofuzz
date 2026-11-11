@@ -157,7 +157,7 @@ test("cancelling a type change restores the header select", () => {
   select.dispatchEvent(new window.Event("change") as unknown as Event);
   assert.equal(select.value, "string");
 });
-test("more than two fixes collapse into one Fix issues menu", () => {
+test("a header shows one chip, and a column's fixes are in its menu", () => {
   const { host } = buildTable([
     meta({
       name: "Amount",
@@ -169,10 +169,10 @@ test("more than two fixes collapse into one Fix issues menu", () => {
       ],
     }),
   ]);
-  const fixes = host.querySelectorAll(".th-qa-chip.fix");
-  assert.equal(fixes.length, 1);
-  assert.equal(fixes[0].textContent, "Fix issues (3)");
-  (fixes[0] as unknown as { click(): void }).click();
+  const summary = host.querySelectorAll(".th-qa-summary");
+  assert.equal(summary.length, 1);
+  assert.equal(summary[0].textContent, "3 to review ▾");
+  (summary[0] as unknown as { click(): void }).click();
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
   const items = [...doc.querySelectorAll(".context-menu .context-item")];
   assert.equal(items.length, 3);
@@ -402,6 +402,27 @@ test("placeholder tokens get a header chip that blanks them in one column", () =
   );
   chip.click();
   assert.deepEqual(converts, [{ column: 0, tokens: ["NA", "TBD"] }]);
+});
+
+test("the one header chip says what is wrong and its menu runs the fix", () => {
+  const { host, converts } = buildTable([
+    meta({
+      name: "amount",
+      stats: { ...meta().stats, nulls: 12 },
+      nullTokens: [{ label: "NA", count: 9 }, { label: "", count: 3 }],
+    }),
+  ]);
+  const summary = host.querySelector(".th-qa-summary") as unknown as { textContent: string; click(): void };
+  assert.equal(summary.textContent, "12 missing ▾");
+  summary.click();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const items = [...doc.querySelectorAll(".context-menu .context-item")] as unknown as { textContent: string; click(): void }[];
+  const labels = items.map((item) => item.textContent);
+  assert.ok(labels.some((label) => label.startsWith("View placeholders")), "the rows can be shown");
+  const fix = items.find((item) => item.textContent === "Fix: Blank 9 placeholders");
+  assert.ok(fix !== undefined, "the fix is in the menu");
+  fix.click();
+  assert.deepEqual(converts, [{ column: 0, tokens: ["NA"] }]);
 });
 
 test("columns with only blank cells get no placeholder chip", () => {

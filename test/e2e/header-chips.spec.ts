@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("the issue chips on a column header open sideways and never cover the type control, even right after a click", async ({ page }) => {
+test("a column header shows one chip for what is wrong, which never covers the type control, and its menu does the work", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   const rows = ["name,amount,city"];
@@ -16,19 +16,21 @@ test("the issue chips on a column header open sideways and never cover the type 
       const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       return hit !== null && !node.contains(hit) && !hit.contains(node);
     });
-  // With the strip open, every chip is visible and the type control is still on top.
+  // One chip is visible, whatever is wrong with the column.
+  await expect(th.locator(".th-qa-summary")).toBeVisible();
+  await expect(th.locator(".th-qa-chip:visible")).toHaveCount(1);
   await th.locator(".th-qa").hover();
-  await expect(th.locator(".th-qa-chip").last()).toBeVisible();
   expect(await covers()).toBe(false);
-  // A mouse click on a chip applies its filter, and the strip does not stay open over the header afterwards.
-  await th.locator(".th-qa button").first().click();
+  // Its menu offers the rows and the fixes; choosing the rows filters the table, and the header stays tidy.
+  await th.locator(".th-qa-summary").click();
+  await page.getByRole("menuitem", { name: /^View (empty cells|placeholders|outliers)/ }).first().click();
   await page.mouse.move(700, 400);
   expect(await covers()).toBe(false);
   await type.hover();
   expect(await covers()).toBe(false);
 });
 
-test("a column with placeholder text keeps a Fix menu in view on its header, however narrow", async ({ page }) => {
+test("a column with placeholder text shows one chip, and its menu offers to blank them", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 800 });
   await page.goto("/");
   const rows = ["id,city,score"];
@@ -37,16 +39,13 @@ test("a column with placeholder text keeps a Fix menu in view on its header, how
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
   const th = page.locator(".th").nth(2);
-  const fix = th.locator(".fix-menu");
-  await expect(fix).toBeVisible();
-  // The count stays readable beside it: the number, not a clipped word.
-  await expect(th.locator(".th-qa-chip.warn").first()).toHaveText(/^\s*View [^·]*· \d+$|^\d+$/);
-  const box = await fix.boundingBox();
+  const chip = th.locator(".th-qa-summary");
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveText(/^\d+ missing ▾$/);
+  const box = await chip.boundingBox();
   const strip = await th.locator(".th-qa").boundingBox();
   expect(box!.x + box!.width).toBeLessThanOrEqual(strip!.x + strip!.width + 1);
-  // Pointing at the strip opens it: the fix itself is there to click, in words.
-  await th.locator(".th-qa").hover();
-  const token = th.locator(".th-qa-chip.token");
-  await expect(token).toBeVisible();
-  await expect(token).toHaveText(/Blank \d+ placeholders/);
+  await chip.click();
+  await expect(page.getByRole("menuitem", { name: /Blank \d+ placeholders/ })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: /^View placeholders/ })).toBeVisible();
 });

@@ -17712,3 +17712,42 @@ button.cmp-change-name:hover {
 .th-qa:has(> .fix-menu):not(:hover):not(:has(:focus-visible)) > .th-qa-chip.warn:has(.qa-verb) {
   flex: none;
 }
+
+/* A column header shows one chip for what is wrong; its menu holds the rest. The other chips stay in the
+   row (they are what the menu presses) but are never shown. */
+.th-qa.th-qa-one > .th-qa-chip:not(.th-qa-summary) {
+  display: none !important;
+}
+.th-qa-chip.th-qa-summary {
+  flex: 0 1 auto;
+  min-width: 0;
+  opacity: 1;
+  font-weight: 600;
+}
+.th-qa-chip.th-qa-summary.is-issue {
+  color: var(--qa-warn-text);
+  background: color-mix(in srgb, var(--qa-warn) 12%, transparent);
+  border-color: color-mix(in srgb, var(--qa-warn) 35%, transparent);
+}
+.th-qa-chip.th-qa-summary.is-issue:hover {
+  background: color-mix(in srgb, var(--qa-warn) 20%, transparent);
+}
+.th-qa-chip.th-qa-summary.is-review {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.th-qa-chip.th-qa-summary.is-review:hover {
+  background: var(--accent-soft);
+}
+/* One chip needs no room to open into. */
+.th-qa.th-qa-one:not(:empty):hover,
+.th-qa.th-qa-one:not(:empty):has(:focus-visible) {
+  position: static;
+  width: auto;
+  max-width: none;
+  height: 28px;
+  padding-bottom: 0;
+  overflow: hidden;
+  background: none;
+  box-shadow: none;
+}
