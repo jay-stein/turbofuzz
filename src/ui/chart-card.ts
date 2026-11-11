@@ -1,3 +1,6 @@
+import { buildPart7, buildPart8 } from "./chart-card-build-3.js";
+import { buildPart4, buildPart5, buildPart6 } from "./chart-card-build-2.js";
+import { buildPart1, buildPart2, buildPart3 } from "./chart-card-build-1.js";
 import { dataDrawerRows, undo, setColumns, setSources, refreshView, aggregateResult, valueViewDef, refreshValue, syncScope, syncNote, lintNote, syncSummaryText, issueColumns, syncDataIssues, fieldsInUse, setKind, dropSettingsTheNewKindCannotUse, refreshForConfig, setPrimaryColumn, applyColumnDefaults, defaultStepFor, defaultTitle, seriesTarget, resetBinRange, commitBinOptions, refreshBins, xZoomBase, chartScope, canvasLabel, boundFormatter, canDraw } from "./chart-card-data.js";
 import { groupSettings, dock, fieldSlots, toggleSidebar, syncSettingsOpen, bindSettingsDismiss, renderSourceOptions, syncSourceControls, syncFieldVisibility, toggleExtraValue, syncExtraValues, setViewShape, pivotRailItems, syncViewShapeOptions, syncPivotOptions, allowsPrimary, syncValueAggOptions, syncOptions, syncChartFilterControls, fillColumnSelect, renderControls, fillPaletteOptions, syncPalette, applyPalette , forgetSettingsDisclosure } from "./chart-card-settings.js";
 import { importChartSpecFile, exportPng, openStats, chartExtract, drawnBins, histogramExtract, exportCsv, chartCsvRows, gridCsvRows, syncDeepDive, openCardMenu, toggleFocus, closeFocus, openExportMenu, downloadChartSpec, downloadChartCode, downloadBlob } from "./chart-card-export.js";
@@ -763,7 +766,7 @@ export const DEFAULT_BIN_COUNT = 32;
 export const POINT_LIMIT = 20_000;
 /** Grouped time series: distinct lines before the rest folds into Other. */
 export const GROUP_LINE_LIMIT = 8;
-const HEX = /^#?[0-9a-f]{6}$/i;
+export const HEX = /^#?[0-9a-f]{6}$/i;
 
 /** What the Map page's regions ask of the worker. */
 export type RegionRequests = Pick<MapRegionsOptions, "load" | "suggest" | "values" | "clear" | "preview">;
@@ -826,7 +829,7 @@ export const ANIMATED_KINDS: ReadonlySet<ChartCardKind> = new Set<ChartCardKind>
 export const MAP_COLOR_AGG_NAMES = { mean: "average", sum: "total", min: "lowest", max: "highest" } as const;
 
 export class ChartCard {
-  readonly root: HTMLElement;
+  root!: HTMLElement;
 
   /** Staleness token for the value-aggregate request only. */
   valueGeneration = 0;
@@ -906,16 +909,16 @@ export class ChartCard {
   animationPlaying = false;
   animationTimer: number | null = null;
   animationSetupOpen = false;
-  readonly bubbleBinsInput: HTMLInputElement;
-  readonly gridField: HTMLElement;
-  readonly gridHint: HTMLElement;
-  readonly bubbleAggSelect: HTMLSelectElement;
+  bubbleBinsInput!: HTMLInputElement;
+  gridField!: HTMLElement;
+  gridHint!: HTMLElement;
+  bubbleAggSelect!: HTMLSelectElement;
   bubbleAggHint!: HTMLElement;
-  private readonly bubbleScaleSelect: HTMLSelectElement;
-  readonly animateButton: HTMLButtonElement;
-  readonly focusButton: HTMLButtonElement;
-  readonly pngButton: HTMLButtonElement;
-  readonly statsButton: HTMLButtonElement;
+  bubbleScaleSelect!: HTMLSelectElement;
+  animateButton!: HTMLButtonElement;
+  focusButton!: HTMLButtonElement;
+  pngButton!: HTMLButtonElement;
+  statsButton!: HTMLButtonElement;
   kindButton: HTMLButtonElement | null = null;
   undoButton: HTMLButtonElement | null = null;
   /** Earlier settings of this chart, newest last, as JSON. */
@@ -928,55 +931,55 @@ export class ChartCard {
   /** Plot top the docked height was last worked out from: a legend appearing moves it. */
   private dockedTop = -1;  focusOverlay: HTMLElement | null = null;
   readonly focusPlaceholder = document.createComment("chart-focus");
-  readonly animationSetup: HTMLElement;
-  readonly bubbleSettings: HTMLElement;
-  readonly bubbleTitle: HTMLElement;
-  readonly bubbleScaleField: HTMLElement;
-  readonly mapModeSelect: HTMLSelectElement;
-  readonly mapModeWrap: HTMLElement;
+  animationSetup!: HTMLElement;
+  bubbleSettings!: HTMLElement;
+  bubbleTitle!: HTMLElement;
+  bubbleScaleField!: HTMLElement;
+  mapModeSelect!: HTMLSelectElement;
+  mapModeWrap!: HTMLElement;
   /** The Dots row under the map's settings: radius, value range, scale and opacity. */
-  readonly dotSettings: HTMLElement;
-  readonly dotMinInput: HTMLInputElement;
-  readonly dotMaxInput: HTMLInputElement;
-  readonly dotMaxWrap: HTMLElement;
-  readonly dotMinLabel: HTMLElement;
-  readonly dotValueMinInput: HTMLInputElement;
-  readonly dotValueMaxInput: HTMLInputElement;
-  readonly dotValuesWrap: HTMLElement;
-  readonly dotScaleSelect: HTMLSelectElement;
-  readonly dotScaleWrap: HTMLElement;
-  readonly errorBarRow: HTMLElement;
-  readonly errorBarInput: HTMLInputElement;
-  readonly errorBarSelect: HTMLSelectElement;
-  readonly errorBarHint: HTMLElement;
+  dotSettings!: HTMLElement;
+  dotMinInput!: HTMLInputElement;
+  dotMaxInput!: HTMLInputElement;
+  dotMaxWrap!: HTMLElement;
+  dotMinLabel!: HTMLElement;
+  dotValueMinInput!: HTMLInputElement;
+  dotValueMaxInput!: HTMLInputElement;
+  dotValuesWrap!: HTMLElement;
+  dotScaleSelect!: HTMLSelectElement;
+  dotScaleWrap!: HTMLElement;
+  errorBarRow!: HTMLElement;
+  errorBarInput!: HTMLInputElement;
+  errorBarSelect!: HTMLSelectElement;
+  errorBarHint!: HTMLElement;
   errorBarResult: ErrorBarsMessage | null = null;
   errorBarIndex = new Map<string, number>();
   errorBarJob: { cancel: () => void } | null = null;
   errorBarRun = 0;
   errorBarProgress: HTMLElement | null = null;
   errorBarProgressTimer: number | null = null;
-  readonly mapColorAggSelect: HTMLSelectElement;
-  readonly mapColorAggWrap: HTMLElement;
-  readonly mapColorScaleSelect: HTMLSelectElement;
-  readonly mapColorScaleWrap: HTMLElement;
-  readonly mapLabelSelect: HTMLSelectElement;
-  readonly mapLabelWrap: HTMLElement;
+  mapColorAggSelect!: HTMLSelectElement;
+  mapColorAggWrap!: HTMLElement;
+  mapColorScaleSelect!: HTMLSelectElement;
+  mapColorScaleWrap!: HTMLElement;
+  mapLabelSelect!: HTMLSelectElement;
+  mapLabelWrap!: HTMLElement;
   /** Names of the places drawn, from the worker, and which place each of the current frame's dots is. */
   placeLabels: string[] | null = null;
   framePlaces: number[] | null = null;
-  readonly dotOpacityInput: HTMLInputElement;
-  readonly dotShapeSelect: HTMLSelectElement;
-  readonly refSection: HTMLElement;
-  readonly refRows: HTMLElement;
+  dotOpacityInput!: HTMLInputElement;
+  dotShapeSelect!: HTMLSelectElement;
+  refSection!: HTMLElement;
+  refRows!: HTMLElement;
   refKey = "";
-  private readonly dotShapeWrap: HTMLElement;
+  dotShapeWrap!: HTMLElement;
   /** The clusters drawn last, with the box of the markers each holds, so a click can zoom to it. */
   mapClusters: { x: number; y: number; r: number; lonMin: number; lonMax: number; latMin: number; latMax: number }[] = [];
-  readonly fitWrap: HTMLElement;
-  readonly fitLineInput: HTMLInputElement;
-  readonly fitR2Input: HTMLInputElement;
-  readonly dotOpacityOut: HTMLElement;
-  private readonly resetViewButton: HTMLButtonElement;
+  fitWrap!: HTMLElement;
+  fitLineInput!: HTMLInputElement;
+  fitR2Input!: HTMLInputElement;
+  dotOpacityOut!: HTMLElement;
+  resetViewButton!: HTMLButtonElement;
   /** Map heat grid (count or measure per cell), computed by the worker. */
   mapGrid: GridCountsResult | null = null;
   /** Map viewport in degrees (null = the whole world). */
@@ -985,7 +988,7 @@ export class ChartCard {
   mapPicker: ((lon: number, lat: number) => void) | null = null;
   mapOverlay: MapOverlay | null = null;
   /** Optional user-supplied regions (GeoJSON / zipped Shapefile). */
-  readonly regions: MapRegions | null;
+  regions!: MapRegions | null;
   mapDrag: { x: number; y: number } | null = null;
   /** True once a drag moved: the release click must not also fire a filter. */
   dragMoved = false;
@@ -1010,32 +1013,32 @@ export class ChartCard {
   corrWindow: { start: number; count: number } | null = null;
   /** Treemap / top-terms item window. */
   itemWindow: { start: number; count: number } | null = null;
-  readonly animationTimeSelect: HTMLSelectElement;
-  readonly animationGrainSelect: HTMLSelectElement;
+  animationTimeSelect!: HTMLSelectElement;
+  animationGrainSelect!: HTMLSelectElement;
   /** "every" before a time grain, "by" before each value / steps of N. */
   readonly animationStepLabel = el("span", { class: "chart-field-label" }, ["every"]);
-  readonly animationBar: HTMLElement;
-  readonly animationPlayButton: HTMLButtonElement;
-  readonly animationSlider: HTMLInputElement;
-  readonly animationSpeedSelect: HTMLSelectElement;
-  readonly animationFrameLabel: HTMLElement;
-  readonly animationLoopInput: HTMLInputElement;
-  private readonly animationExportButton: HTMLButtonElement;
+  animationBar!: HTMLElement;
+  animationPlayButton!: HTMLButtonElement;
+  animationSlider!: HTMLInputElement;
+  animationSpeedSelect!: HTMLSelectElement;
+  animationFrameLabel!: HTMLElement;
+  animationLoopInput!: HTMLInputElement;
+  animationExportButton!: HTMLButtonElement;
   readonly hiddenGroups = new Set<number>();
   statsMs = 0;
 
-  readonly kindSelect: HTMLSelectElement;
-  readonly sourceSelect: HTMLSelectElement;
-  readonly sourceWrap: HTMLElement;
+  kindSelect!: HTMLSelectElement;
+  sourceSelect!: HTMLSelectElement;
+  sourceWrap!: HTMLElement;
   sources: ChartSource[] = [];
-  readonly viewKindSelect: HTMLSelectElement;
-  readonly viewAxisSelect: HTMLSelectElement;
-  readonly viewSeriesSelect: HTMLSelectElement;
-  readonly viewMeasureSelect: HTMLSelectElement;
-  readonly viewAxisWrap: HTMLElement;
-  readonly viewSeriesWrap: HTMLElement;
-  readonly viewMeasureWrap: HTMLElement;
-  readonly backToSource: HTMLButtonElement;
+  viewKindSelect!: HTMLSelectElement;
+  viewAxisSelect!: HTMLSelectElement;
+  viewSeriesSelect!: HTMLSelectElement;
+  viewMeasureSelect!: HTMLSelectElement;
+  viewAxisWrap!: HTMLElement;
+  viewSeriesWrap!: HTMLElement;
+  viewMeasureWrap!: HTMLElement;
+  backToSource!: HTMLButtonElement;
   readonly sourceChip = el(
     "button",
     { class: "chart-source-chip hidden", type: "button", title: "Open the Pivot View this chart draws, as you left it" },
@@ -1047,108 +1050,108 @@ export class ChartCard {
   /** A view-bound card cannot change type, so its real type is shown as text. */
   readonly kindStatic = el("span", { class: "chart-kind-static hidden" });
   pivotResult: PivotMessage | null = null;
-  readonly pivotRowSelect: HTMLSelectElement;
-  readonly pivotColSelect: HTMLSelectElement;
-  readonly pivotMeasureSelect: HTMLSelectElement;
-  readonly pivotRowWrap: HTMLElement;
-  readonly pivotColWrap: HTMLElement;
-  readonly pivotMeasureWrap: HTMLElement;
-  readonly primarySelect: HTMLSelectElement;
-  readonly groupSelect: HTMLSelectElement;
-  readonly groupWrap: HTMLElement;
-  readonly valueSelect: HTMLSelectElement;
-  readonly valueWrap: HTMLElement;
-  readonly valueAggSelect: HTMLSelectElement;
-  readonly valueAggWrap: HTMLElement;
-  readonly valueGrainSelect: HTMLSelectElement;
-  readonly valueGrainWrap: HTMLElement;
-  readonly valueEveryInput: HTMLInputElement;
-  readonly valueEveryWrap: HTMLElement;
-  readonly valueFillSelect: HTMLSelectElement;
-  readonly valueFillWrap: HTMLElement;
-  readonly weekStartSelect: HTMLSelectElement;
-  readonly weekStartWrap: HTMLElement;
-  readonly fiscalSelect: HTMLSelectElement;
-  readonly fiscalWrap: HTMLElement;
+  pivotRowSelect!: HTMLSelectElement;
+  pivotColSelect!: HTMLSelectElement;
+  pivotMeasureSelect!: HTMLSelectElement;
+  pivotRowWrap!: HTMLElement;
+  pivotColWrap!: HTMLElement;
+  pivotMeasureWrap!: HTMLElement;
+  primarySelect!: HTMLSelectElement;
+  groupSelect!: HTMLSelectElement;
+  groupWrap!: HTMLElement;
+  valueSelect!: HTMLSelectElement;
+  valueWrap!: HTMLElement;
+  valueAggSelect!: HTMLSelectElement;
+  valueAggWrap!: HTMLElement;
+  valueGrainSelect!: HTMLSelectElement;
+  valueGrainWrap!: HTMLElement;
+  valueEveryInput!: HTMLInputElement;
+  valueEveryWrap!: HTMLElement;
+  valueFillSelect!: HTMLSelectElement;
+  valueFillWrap!: HTMLElement;
+  weekStartSelect!: HTMLSelectElement;
+  weekStartWrap!: HTMLElement;
+  fiscalSelect!: HTMLSelectElement;
+  fiscalWrap!: HTMLElement;
   /** Series colours of the last split-by time chart, for the one shared legend. */
   splitLegend: { label: string; color: string }[] | null = null;
   readonly hiddenSplit = new Set<string>();
-  readonly valueCalcSelect: HTMLSelectElement;
-  readonly valueCalcWrap: HTMLElement;
-  readonly sortSelect: HTMLSelectElement;
-  readonly sortWrap: HTMLElement;
-  readonly filterColumnSelect: HTMLSelectElement;
-  readonly filterValueSelect: HTMLSelectElement;
-  readonly filterRespectInput: HTMLInputElement;
-  readonly chartFilterRow: HTMLElement;
+  valueCalcSelect!: HTMLSelectElement;
+  valueCalcWrap!: HTMLElement;
+  sortSelect!: HTMLSelectElement;
+  sortWrap!: HTMLElement;
+  filterColumnSelect!: HTMLSelectElement;
+  filterValueSelect!: HTMLSelectElement;
+  filterRespectInput!: HTMLInputElement;
+  chartFilterRow!: HTMLElement;
   /** Aggregate result for the card's own value-over-time line. */
   valueResult: AggregateMessage | null = null;
-  readonly xSelect: HTMLSelectElement;
-  readonly ySelect: HTMLSelectElement;
-  readonly colorSelect: HTMLSelectElement;
-  readonly sizeSelect: HTMLSelectElement;
-  readonly modeSelect: HTMLSelectElement;
-  readonly densityStyleSelect: HTMLSelectElement;
-  readonly kdeInput: HTMLInputElement;
-  readonly correlationSelect: HTMLSelectElement;
-  readonly primaryWrap: HTMLElement;
-  readonly axesPanel: HTMLElement;
-  readonly xWrap: HTMLElement;
-  readonly yWrap: HTMLElement;
-  readonly colorWrap: HTMLElement;
-  readonly sizeWrap: HTMLElement;
-  readonly sizeTagLabel: HTMLElement;
-  readonly primaryTagLabel: HTMLElement;
-  readonly bubbleAggField: HTMLElement;
-  readonly modeWrap: HTMLElement;
-  readonly densityStyleWrap: HTMLElement;
-  readonly xTagLabel: HTMLElement;
-  readonly yTagLabel: HTMLElement;
-  readonly colorGroup: HTMLElement;
-  readonly paletteGroup: HTMLElement;
-  readonly paletteSelect: HTMLSelectElement;
-  readonly palettePreview: HTMLElement;
-  readonly paletteReverseInput: HTMLInputElement;
-  private readonly paletteStatus: HTMLElement;
-  readonly colorMinInput: HTMLInputElement;
-  readonly colorMaxInput: HTMLInputElement;
-  readonly colorCenterInput: HTMLInputElement;
-  readonly colorDomainRow: HTMLElement;
-  readonly histogramSettings: HTMLElement;
-  readonly barSettings: HTMLElement;
-  readonly barStackField: HTMLElement;
-  readonly barStackInput: HTMLInputElement;
-  readonly correlationSettings: HTMLElement;
-  readonly topLabel: HTMLElement;
-  readonly minInput: HTMLInputElement;
-  readonly maxInput: HTMLInputElement;
-  readonly binsInput: HTMLInputElement;
-  readonly overflowInput: HTMLInputElement;
-  private readonly topInput: HTMLInputElement;
-  private readonly otherInput: HTMLInputElement;
-  readonly multiInput: HTMLInputElement;
-  private readonly swatches: HTMLButtonElement[] = [];
-  readonly hexInput: HTMLInputElement;
-  readonly titleInput: HTMLInputElement;
-  private readonly xTitleInput: HTMLInputElement;
-  private readonly yTitleInput: HTMLInputElement;
-  private readonly yUnitInput: HTMLInputElement;
-  readonly canvas: HTMLCanvasElement;
-  private readonly mapControls: HTMLElement;
-  readonly canvasWrap: HTMLElement;
-  readonly scopeEl: HTMLElement;
-  readonly summaryEl: HTMLElement;
+  xSelect!: HTMLSelectElement;
+  ySelect!: HTMLSelectElement;
+  colorSelect!: HTMLSelectElement;
+  sizeSelect!: HTMLSelectElement;
+  modeSelect!: HTMLSelectElement;
+  densityStyleSelect!: HTMLSelectElement;
+  kdeInput!: HTMLInputElement;
+  correlationSelect!: HTMLSelectElement;
+  primaryWrap!: HTMLElement;
+  axesPanel!: HTMLElement;
+  xWrap!: HTMLElement;
+  yWrap!: HTMLElement;
+  colorWrap!: HTMLElement;
+  sizeWrap!: HTMLElement;
+  sizeTagLabel!: HTMLElement;
+  primaryTagLabel!: HTMLElement;
+  bubbleAggField!: HTMLElement;
+  modeWrap!: HTMLElement;
+  densityStyleWrap!: HTMLElement;
+  xTagLabel!: HTMLElement;
+  yTagLabel!: HTMLElement;
+  colorGroup!: HTMLElement;
+  paletteGroup!: HTMLElement;
+  paletteSelect!: HTMLSelectElement;
+  palettePreview!: HTMLElement;
+  paletteReverseInput!: HTMLInputElement;
+  paletteStatus!: HTMLElement;
+  colorMinInput!: HTMLInputElement;
+  colorMaxInput!: HTMLInputElement;
+  colorCenterInput!: HTMLInputElement;
+  colorDomainRow!: HTMLElement;
+  histogramSettings!: HTMLElement;
+  barSettings!: HTMLElement;
+  barStackField!: HTMLElement;
+  barStackInput!: HTMLInputElement;
+  correlationSettings!: HTMLElement;
+  topLabel!: HTMLElement;
+  minInput!: HTMLInputElement;
+  maxInput!: HTMLInputElement;
+  binsInput!: HTMLInputElement;
+  overflowInput!: HTMLInputElement;
+  topInput!: HTMLInputElement;
+  otherInput!: HTMLInputElement;
+  multiInput!: HTMLInputElement;
+  readonly swatches: HTMLButtonElement[] = [];
+  hexInput!: HTMLInputElement;
+  titleInput!: HTMLInputElement;
+  xTitleInput!: HTMLInputElement;
+  yTitleInput!: HTMLInputElement;
+  yUnitInput!: HTMLInputElement;
+  canvas!: HTMLCanvasElement;
+  mapControls!: HTMLElement;
+  canvasWrap!: HTMLElement;
+  scopeEl!: HTMLElement;
+  summaryEl!: HTMLElement;
   /** One short note under the heading (see lint); dismissed notes stay dismissed. */
   readonly lintEl = el("div", { class: "chart-lint hidden", role: "note" });
   readonly dismissedNotes = new Set<string>();
-  readonly dataIssueEl: HTMLElement;
-  readonly deepDiveEl: HTMLElement;
+  dataIssueEl!: HTMLElement;
+  deepDiveEl!: HTMLElement;
   issueSignature = "";
-  readonly noteEl: HTMLElement;
+  noteEl!: HTMLElement;
   totalRowCount = 0;
-  readonly legendEl: HTMLElement;
-  readonly tooltipEl: HTMLElement;
-  readonly settingsBody: HTMLElement;
+  legendEl!: HTMLElement;
+  tooltipEl!: HTMLElement;
+  settingsBody!: HTMLElement;
   settingsDisclosure: HTMLDetailsElement | null = null;
   sidebar!: HTMLElement;
   sidebarToggle!: HTMLButtonElement;
@@ -1162,8 +1165,8 @@ export class ChartCard {
   lastActionRegion: HitRegion | null = null;
   pointerFrame: number | null = null;
 
-  private readonly onResize = (): void => this.scheduleRender(this.options.docked === true);
-  private readonly onThemeChange = (): void => this.scheduleRender(true);
+  readonly onResize = (): void => this.scheduleRender(this.options.docked === true);
+  readonly onThemeChange = (): void => this.scheduleRender(true);
   private renderQueued = false;
   private renderForce = false;
   /** True while the frame only shows an empty-state message, so no axes. */
@@ -1174,1557 +1177,21 @@ export class ChartCard {
   private lastWrapWidth = -1;
   /** The width before the last repaint; a return to it is a scrollbar feedback flip. */
   private prevWrapWidth = -1;
-  private resizeObserver: ResizeObserver | null = null;
+  resizeObserver: ResizeObserver | null = null;
 
   constructor(
     root: HTMLElement,
     readonly options: ChartCardOptions,
     preset?: Partial<ChartCardConfig>,
   ) {
-    this.root = root;
-    this.root.classList.add("chart-card");
-    this.config = chartConfigWithDefaults(preset);
-
-    const head = el("div", { class: "chart-card-head" });
-    // Source selector: the filtered table or a saved aggregate view. A card
-    // bound to a view reads that view's result; there is no raw-row path.
-    const sourceWrap = el("label", { class: "chart-field chart-source-field" });
-    sourceWrap.append(el("span", { class: "chart-field-label" }, ["Source"]));
-    this.sourceSelect = this.buildSelect("chart-picker chart-picker-small chart-source", "Data source");
-    this.renderSourceOptions();
-    this.sourceSelect.addEventListener("change", () => {
-      this.config.source = this.sourceSelect.value;
-      this.config.viewAxis = undefined;
-      this.config.viewSeries = undefined;
-      this.config.viewMeasure = undefined;
-      this.generation++;
-      this.viewResult = null;
-      this.pivotResult = null;
-      this.syncSourceControls();
-      if (this.config.source !== "") this.refreshView();
-      else this.refreshValue();
-      this.render();
-    });
-    sourceWrap.append(this.sourceSelect);
-    this.sourceWrap = sourceWrap;
-
-    this.kindSelect = el("select", {
-      class: "chart-kind",
-      "aria-label": "Chart type",
-    }) as HTMLSelectElement;
-    (Object.keys(CHART_KIND_LABELS) as ChartCardKind[]).forEach((kind) => {
-      // Maps are the Map page's; a card there or from an old spec still needs its own name here.
-      if (kind === "map" && this.config.kind !== "map") return;
-      this.kindSelect.append(
-        el("option", { value: kind }, [CHART_KIND_LABELS[kind]]) as HTMLOptionElement,
-      );
-    });
-    this.kindSelect.addEventListener("change", () =>
-      this.setKind(this.kindSelect.value as ChartCardKind),
-    );
-
-    this.primarySelect = this.buildSelect("chart-picker", "Chart column");
-    this.primarySelect.addEventListener("change", () =>
-      this.setPrimaryColumn(Number(this.primarySelect.value)),
-    );
-    const primaryTag = this.tagged("Column", this.primarySelect);
-    this.primaryWrap = primaryTag.wrap;
-    this.primaryTagLabel = primaryTag.label;
-
-    this.groupSelect = this.buildSelect(
-      "chart-picker chart-picker-small",
-      "Group by",
-    );
-    this.groupSelect.addEventListener("change", () => {
-      this.config.groupColumn = Number(this.groupSelect.value);
-      // Split by a field or by several values, one at a time.
-      if (this.config.groupColumn >= 0) this.config.extraValueColumns = [];
-      this.hiddenGroups.clear();
-      this.generation++;
-      this.refreshGroupedBins();
-      this.refreshBubble();
-      this.refreshAnimation();
-      this.refreshValue();
-      this.renderControls();
-      this.render();
-    });
-    this.groupWrap = this.tagged("Group by", this.groupSelect).wrap;
-
-    this.valueSelect = this.buildSelect("chart-picker chart-picker-small", "Value column");
-    this.valueSelect.addEventListener("change", () => {
-      this.config.valueColumn = Number(this.valueSelect.value);
-      this.syncValueAggOptions();
-      // A numeric treemap measure defaults to sum, matching pivot conventions.
-      if (this.config.kind === "treemap" && (this.config.valueColumn ?? -1) >= 0) {
-        this.config.valueAgg = "sum";
-        this.valueAggSelect.value = "sum";
-      }
-      // A value and a group can only share a chart whose type splits into series
-      // (lines, bars and their relatives); anywhere else the value choice clears the group.
-      if ((this.config.valueColumn ?? -1) >= 0 && !SPLIT_KINDS.includes(this.config.kind)) {
-        this.config.groupColumn = -1;
-      }
-      this.generation++;
-      this.syncOptions();
-      this.renderControls();
-      this.refreshValue();
-      this.refreshTreemap();
-      this.render();
-    });
-    this.valueWrap = this.tagged("Value", this.valueSelect).wrap;
-
-    this.valueAggSelect = this.buildSelect("chart-picker chart-picker-small", "Aggregation");
-    (
-      [
-        ["mean", "Average (mean)"],
-        ["sum", "Sum"],
-        ["median", "Median"],
-        ["min", "Min"],
-        ["max", "Max"],
-        ["count", "Count of values"],
-        ["distinct", "Distinct values"],
-      ] as const
-    ).forEach(([value, label]) => {
-      this.valueAggSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    });
-    this.valueAggSelect.addEventListener("change", () => {
-      this.config.valueAgg = this.valueAggSelect.value as ChartCardConfig["valueAgg"];
-      this.generation++;
-      this.refreshValue();
-      this.refreshTreemap();
-      this.render();
-    });
-    this.valueAggWrap = this.tagged("Aggregate", this.valueAggSelect).wrap;
-
-    this.valueGrainSelect = this.buildSelect("chart-picker chart-picker-small", "Bucket");
-    (["auto", "second", "minute", "hour", "day", "week", "month", "quarter", "year"] as const).forEach(
-      (grain) => {
-        const label = grain === "auto" ? "Auto" : grain.charAt(0).toUpperCase() + grain.slice(1);
-        this.valueGrainSelect.append(el("option", { value: grain }, [label]) as HTMLOptionElement);
-      },
-    );
-    this.valueGrainSelect.addEventListener("change", () => {
-      this.config.valueGrain = this.valueGrainSelect.value as ChartCardConfig["valueGrain"];
-      this.generation++;
-      this.renderControls();
-      this.refreshValue();
-      this.render();
-    });
-    this.valueGrainSelect.title = "How finely time is grouped. Dates are used as stored: no time-zone shift is applied.";
-    this.valueGrainWrap = this.tagged("Time resolution", this.valueGrainSelect).wrap;
-
-    this.valueEveryInput = el("input", {
-      class: "chart-picker chart-picker-small chart-every-input",
-      type: "number",
-      min: "1",
-      step: "1",
-      inputmode: "numeric",
-      "aria-label": "Every N time units",
-      title: "Group every N units together: 15 with Minute is quarter-hourly, 2 with Week is fortnightly.",
-    }) as HTMLInputElement;
-    this.valueEveryInput.addEventListener("change", () => {
-      const value = Math.floor(Number(this.valueEveryInput.value));
-      this.config.valueEvery = Number.isFinite(value) && value >= 2 ? Math.min(value, 100_000) : undefined;
-      this.valueEveryInput.value = String(this.config.valueEvery ?? 1);
-      this.generation++;
-      this.renderControls();
-      this.refreshValue();
-      this.render();
-    });
-    this.valueEveryWrap = el("label", { class: "chart-tag" }, [
-      el("span", { class: "chart-tag-label" }, ["Every"]),
-      this.valueEveryInput,
-    ]);
-
-    this.valueFillSelect = this.buildSelect("chart-picker chart-picker-small", "Missing periods");
-    (
-      [
-        ["auto", "Automatic"],
-        ["gap", "Show gaps"],
-        ["zero", "Count as zero"],
-        ["carry", "Carry last value"],
-      ] as const
-    ).forEach(([value, label]) => {
-      this.valueFillSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    });
-    this.valueFillSelect.addEventListener("change", () => {
-      const value = this.valueFillSelect.value;
-      this.config.valueFill = value === "auto" ? undefined : (value as "gap" | "zero" | "carry");
-      this.generation++;
-      this.refreshValue();
-      this.render();
-    });
-    this.valueFillWrap = this.tagged("Missing periods", this.valueFillSelect).wrap;
-
-    this.weekStartSelect = this.buildSelect("chart-picker chart-picker-small", "Week starts on");
-    [["1", "Monday"], ["0", "Sunday"]].forEach(([value, label]) => {
-      this.weekStartSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    });
-    this.weekStartSelect.addEventListener("change", () => {
-      this.config.valueWeekStart = this.weekStartSelect.value === "0" ? 0 : undefined;
-      this.generation++;
-      this.refreshValue();
-      this.render();
-    });
-    this.weekStartWrap = this.tagged("Week starts", this.weekStartSelect).wrap;
-
-    this.fiscalSelect = this.buildSelect("chart-picker chart-picker-small", "Financial year starts in");
-    ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].forEach((label, index) => {
-      this.fiscalSelect.append(el("option", { value: String(index + 1) }, [index === 0 ? "January (calendar year)" : label]) as HTMLOptionElement);
-    });
-    this.fiscalSelect.addEventListener("change", () => {
-      const month = Number(this.fiscalSelect.value);
-      this.config.valueFiscalStart = month > 1 ? month : undefined;
-      this.generation++;
-      this.refreshValue();
-      this.render();
-    });
-    this.fiscalWrap = this.tagged("Year starts", this.fiscalSelect).wrap;
-
-    this.valueCalcSelect = this.buildSelect(
-      "chart-picker chart-picker-small",
-      "Chart calculation",
-    );
-    (
-      [
-        ["", "None"],
-        ["rolling7", "Rolling mean (7)"],
-        ["cumulative", "Cumulative"],
-        ["diff", "Difference"],
-        ["pctChange", "% change"],
-        ["pctTotal", "% of total"],
-        ["pctRows", "% of rows"],
-        ["rank", "Rank"],
-        ["yoy", "Year-over-year %"],
-      ] as const
-    ).forEach(([value, label]) => {
-      this.valueCalcSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    });
-    this.valueCalcSelect.addEventListener("change", () => {
-      this.config.valueCalc =
-        (this.valueCalcSelect.value as ChartCardConfig["valueCalc"]) || undefined;
-      this.generation++;
-      this.refreshValue();
-      this.syncScope();
-      this.render();
-    });
-    this.valueCalcWrap = this.tagged("Calc", this.valueCalcSelect).wrap;
-
-    this.sortSelect = this.buildSelect(
-      "chart-picker chart-picker-small",
-      "Chart sort order",
-    );
-    for (const [value, label] of [
-      ["none", "Automatic"],
-      ["valueDesc", "Value high to low"],
-      ["valueAsc", "Value low to high"],
-      ["labelAsc", "Label A-Z"],
-      ["labelDesc", "Label Z-A"],
-      ["timeAsc", "Oldest first"],
-      ["timeDesc", "Newest first"],
-    ] as const) {
-      this.sortSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    }
-    this.sortSelect.addEventListener("change", () => {
-      this.config.chartSort = this.sortSelect.value as ChartCardConfig["chartSort"];
-      this.render();
-    });
-    this.sortWrap = this.tagged("Sort", this.sortSelect).wrap;
-
-    this.filterColumnSelect = this.buildSelect(
-      "chart-picker chart-picker-small",
-      "Chart filter column",
-    );
-    this.filterValueSelect = this.buildSelect(
-      "chart-picker chart-picker-small",
-      "Chart filter value",
-    );
-    this.filterColumnSelect.addEventListener("change", () => {
-      this.config.filterColumn = Number(this.filterColumnSelect.value);
-      this.config.filterCode = -1;
-      this.generation++;
-      this.syncChartFilterControls();
-      this.syncScope();
-      this.refreshValue();
-      this.refreshTreemap();
-      this.regions?.refresh();
-      this.refreshSeries();
-      this.refreshCrosstab();
-      this.refreshCorrelation();
-      this.render();
-    });
-    this.filterValueSelect.addEventListener("change", () => {
-      this.config.filterCode = Number(this.filterValueSelect.value);
-      this.generation++;
-      this.syncScope();
-      this.refreshValue();
-      this.refreshTreemap();
-      this.regions?.refresh();
-      this.refreshSeries();
-      this.refreshCrosstab();
-      this.refreshCorrelation();
-      this.render();
-    });
-    this.filterRespectInput = el("input", { type: "checkbox" }) as HTMLInputElement;
-    this.filterRespectInput.checked = true;
-    const filterRespectField = el("label", { class: "control check clean-check chart-check" });
-    filterRespectField.title = "Include the current table filters in this chart";
-    filterRespectField.append(this.filterRespectInput, "Also respect table filters");
-    this.filterRespectInput.addEventListener("change", () => {
-      this.config.respectFilters = this.filterRespectInput.checked;
-      this.generation++;
-      this.syncScope();
-      this.refreshValue();
-      this.refreshTreemap();
-      this.regions?.refresh();
-      this.refreshSeries();
-      this.refreshCrosstab();
-      this.refreshCorrelation();
-      this.render();
-    });
-    this.chartFilterRow = el("div", { class: "chart-settings" }, [
-      el("span", { class: "chart-field-label" }, ["Chart filter"]),
-      this.filterColumnSelect,
-      this.filterValueSelect,
-      filterRespectField,
-    ]);
-
-    this.xSelect = this.buildSelect("chart-picker", "X column");
-    this.xSelect.addEventListener("change", () => {
-      this.config.x = Number(this.xSelect.value);
-      this.plotView = null;
-      this.mapView = null;
-      this.chartXZoom = null;
-      this.barWindow = null;
-      this.generation++;
-      this.refreshSeries();
-      this.refreshBox();
-      this.refreshCrosstab();
-      this.refreshBubble();
-      this.refreshMapGrid();
-      this.refreshAnimation();
-      this.render();
-    });
-    const xTag = this.tagged("X", this.xSelect);
-    this.xWrap = xTag.wrap;
-    this.xTagLabel = xTag.label;
-
-    this.ySelect = this.buildSelect("chart-picker", "Y column");
-    this.ySelect.addEventListener("change", () => {
-      this.config.y = Number(this.ySelect.value);
-      this.plotView = null;
-      this.mapView = null;
-      this.chartXZoom = null;
-      this.barWindow = null;
-      this.generation++;
-      this.refreshSeries();
-      this.refreshBox();
-      this.refreshCrosstab();
-      this.refreshBubble();
-      this.refreshMapGrid();
-      this.refreshAnimation();
-      this.render();
-    });
-    const yTag = this.tagged("Y", this.ySelect);
-    this.yWrap = yTag.wrap;
-    this.yTagLabel = yTag.label;
-
-    this.colorSelect = this.buildSelect("chart-picker chart-picker-small", "Colour column");
-    this.colorSelect.addEventListener("change", () => {
-      this.config.colorColumn = Number(this.colorSelect.value);
-      this.generation++;
-      this.refreshSeries();
-      this.refreshAnimation();
-      this.renderControls();
-      this.syncPalette();
-      this.render();
-    });
-    this.colorWrap = this.tagged("Colour", this.colorSelect).wrap;
-
-    this.sizeSelect = this.buildSelect("chart-picker chart-picker-small", "Size column");
-    this.sizeSelect.addEventListener("change", () => {
-      this.config.sizeColumn = Number(this.sizeSelect.value);
-      // Picking a column for a bubble or heat map means "measure by this
-      // column": switch the measure away from count so the choice takes
-      // effect immediately, and back to count when the column is cleared.
-      if (this.config.kind === "bubble" || (this.config.kind === "map" && (this.config.mapMode ?? DEFAULT_MAP_MODE) !== "points")) {
-        if (this.config.sizeColumn < 0) {
-          this.config.bubbleAgg = "count";
-          this.bubbleAggSelect.value = "count";
-        } else if ((this.config.bubbleAgg ?? "count") === "count") {
-          this.config.bubbleAgg = "sum";
-          this.bubbleAggSelect.value = "sum";
-        }
-      }
-      this.generation++;
-      this.refreshSeries();
-      this.refreshTreemap();
-      this.refreshBubble();
-      this.refreshMapGrid();
-      this.refreshAnimation();
-      this.renderControls();
-      this.render();
-    });
-    const sizeTag = this.tagged("Size", this.sizeSelect);
-    this.sizeWrap = sizeTag.wrap;
-    this.sizeTagLabel = sizeTag.label;
-
-    this.modeSelect = this.buildSelect("chart-picker chart-picker-small", "Render mode");
-    ([
-      ["points", "Points"],
-      ["density", "Density (heat map)"],
-    ] as const).forEach(([value, label]) => {
-      this.modeSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    });
-    this.modeSelect.addEventListener("change", () => {
-      this.config.mode = this.modeSelect.value as SeriesMode;
-      this.generation++;
-      this.renderControls();
-      this.refreshSeries();
-      this.render();
-    });
-    this.modeWrap = this.tagged("Render", this.modeSelect).wrap;
-
-    this.densityStyleSelect = this.buildSelect("chart-picker chart-picker-small", "Density style");
-    (
-      [
-        ["heat", "Heat"],
-        ["contours", "Contours"],
-        ["both", "Heat + lines"],
-      ] as const
-    ).forEach(([value, label]) => {
-      this.densityStyleSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    });
-    this.densityStyleSelect.addEventListener("change", () => {
-      this.config.densityStyle = this.densityStyleSelect.value as DensityStyle;
-      this.render();
-    });
-    this.densityStyleWrap = this.tagged("Style", this.densityStyleSelect).wrap;
-
-    const more = el(
-      "button",
-      {
-        class: "icon-btn chart-more",
-        type: "button",
-        title: "More actions",
-        "aria-label": "Chart actions",
-      },
-      ["⋯"],
-    ) as HTMLButtonElement;
-    more.addEventListener("click", () => this.openCardMenu(more));
-
-    // Axis controls live in their own bordered group so they read as "what is
-    // plotted" rather than another settings row.
-    this.axesPanel = el("div", { class: "chart-axes" }, [
-      el("span", { class: "chart-axes-label" }, ["Axes"]),
-      this.primaryWrap,
-      this.xWrap,
-      this.yWrap,
-    ]);
-    this.focusButton = el(
-      "button",
-      {
-        class: "ghost small chart-focus-btn",
-        type: "button",
-        title: "Expand this chart for a closer look (Esc to close)",
-        "aria-label": "Focus chart",
-      },
-      [],
-    ) as HTMLButtonElement;
-    this.focusButton.append(focusIcon(), el("span", {}, ["Focus"]));
-    this.focusButton.addEventListener("click", () => this.toggleFocus());
-    this.pngButton = el(
-      "button",
-      {
-        class: "ghost small chart-png-btn",
-        type: "button",
-        title: "Download this chart as a PNG",
-        "aria-label": "Download PNG",
-      },
-      [],
-    ) as HTMLButtonElement;
-    this.pngButton.append(pngIcon(), el("span", {}, ["PNG"]));
-    this.pngButton.addEventListener("click", () => this.options.onExport(this));
-    this.statsButton = el(
-      "button",
-      { class: "ghost small chart-stats-btn", type: "button", "aria-label": "Extract chart stats", title: "See and copy the numbers behind this chart: bin counts, box ranges, curve and line parameters" },
-      [el("span", { class: "chart-stats-long" }, ["Extract stats"]), el("span", { class: "chart-stats-short" }, ["Stats"])],
-    ) as HTMLButtonElement;
-    this.statsButton.addEventListener("click", () => this.openStats());
-    this.animateButton = el(
-      "button",
-      {
-        class: "ghost small chart-animate-btn",
-        type: "button",
-        title: "Step this chart through time",
-        "aria-label": "Animate chart",
-      },
-      [],
-    ) as HTMLButtonElement;
-    this.animateButton.append(movieIcon(), el("span", {}, ["Animate"]));
-    this.animateButton.addEventListener("click", () => this.toggleAnimationSetup());
-
-    this.pivotRowSelect = this.buildSelect(
-      "chart-picker chart-picker-small",
-      "Pivot row level",
-    );
-    this.pivotRowSelect.addEventListener("change", () => {
-      this.config.pivotRowLevel = Number(this.pivotRowSelect.value);
-      this.render();
-    });
-    this.pivotRowWrap = this.tagged("Rows", this.pivotRowSelect).wrap;
-    this.pivotColSelect = this.buildSelect(
-      "chart-picker chart-picker-small",
-      "Pivot column level",
-    );
-    this.pivotColSelect.addEventListener("change", () => {
-      this.config.pivotColLevel = Number(this.pivotColSelect.value);
-      this.render();
-    });
-    this.pivotColWrap = this.tagged("Columns", this.pivotColSelect).wrap;
-    this.pivotMeasureSelect = this.buildSelect(
-      "chart-picker chart-picker-small",
-      "Pivot measure",
-    );
-    this.pivotMeasureSelect.addEventListener("change", () => {
-      this.config.pivotMeasure = Number(this.pivotMeasureSelect.value);
-      this.render();
-    });
-    this.pivotMeasureWrap = this.tagged("Value", this.pivotMeasureSelect).wrap;
-
-    // A chart of a Pivot View: bars and lines or a heatmap, and which pivot field goes where.
-    this.viewKindSelect = this.buildSelect("chart-picker chart-picker-small hidden", "Chart type for this pivot");
-    this.viewKindSelect.addEventListener("change", () => {
-      this.noteBeforeChange();
-      this.config.kind = this.viewKindSelect.value === "pivotHeatmap" ? "pivotHeatmap" : "bar";
-      this.viewResult = null;
-      this.pivotResult = null;
-      this.syncSourceControls();
-      this.refreshForConfig();
-    });
-    const shapeSelect = (label: string, key: "viewAxis" | "viewSeries" | "viewMeasure"): HTMLSelectElement => {
-      const select = this.buildSelect("chart-picker chart-picker-small", label);
-      select.addEventListener("change", () => this.setViewShape(key, Number(select.value)));
-      return select;
-    };
-    this.viewAxisSelect = shapeSelect("Pivot field on the axis", "viewAxis");
-    this.viewSeriesSelect = shapeSelect("Pivot field for the series", "viewSeries");
-    this.viewMeasureSelect = shapeSelect("Pivot value", "viewMeasure");
-    this.viewAxisWrap = this.tagged("Axis", this.viewAxisSelect).wrap;
-    this.viewSeriesWrap = this.tagged("Series", this.viewSeriesSelect).wrap;
-    this.viewMeasureWrap = this.tagged("Value", this.viewMeasureSelect).wrap;
-    this.backToSource = el(
-      "button",
-      { class: "link small chart-back-to-source hidden", type: "button", title: "Open the Pivot View this chart draws, as you left it" },
-      ["← Back to pivot"],
-    ) as HTMLButtonElement;
-    this.backToSource.addEventListener("click", () => {
-      if (this.config.source !== "") this.options.onOpenSource?.(this.config.source);
-    });
-    // Every control below already shows or hides itself for the chart type;
-    // the sidebar only decides where they live.
-    const sidebarRow = (label: string, control: HTMLElement): HTMLElement =>
-      el("label", { class: "chart-tag chart-side-row" }, [
-        el("span", { class: "chart-tag-label" }, [label]),
-        control,
-      ]);
-    const sideSection = (...children: HTMLElement[]): HTMLElement =>
-      el("div", { class: "chart-side-section" }, children);
-    this.kindSelect.classList.add("chart-picker");
-    this.sidebar = el("aside", { class: "chart-sidebar", "aria-label": "Chart settings" }, [
-      sideSection(
-        sidebarRow(
-          "Chart type",
-          el("span", { class: "chart-kind-field" }, [this.kindSelect, this.kindStatic, this.viewKindSelect]),
-        ),
-        this.sourceWrap,
-        this.backToSource,
-      ),
-      sideSection(this.axesPanel, this.sortWrap),
-      sideSection(this.valueWrap, this.extraValuesWrap, this.groupWrap, this.valueCalcWrap),
-      sideSection(this.viewAxisWrap, this.viewSeriesWrap, this.viewMeasureWrap),
-      sideSection(this.pivotRowWrap, this.pivotColWrap, this.pivotMeasureWrap),
-    ]);
-    this.sidebarToggle = el(
-      "button",
-      {
-        class: "ghost small chart-sidebar-toggle",
-        type: "button",
-        title: "Open the settings drawer: type, fields, colours",
-        "aria-label": "Customize this chart",
-        "aria-expanded": "false",
-      },
-      ["Customize"],
-    ) as HTMLButtonElement;
-    this.sidebarToggle.addEventListener("click", () => this.toggleSidebar());
-    // A visible way out: the drawer overlays the card, so it carries its own Done button at the top, always in view.
-    const sideHead = el("div", { class: "chart-side-head" }, [el("b", {}, ["Chart settings"])]);
-    const sideDone = el("button", { class: "ghost small", type: "button", "aria-label": "Close the settings drawer", title: "Close the settings (Escape)" }, ["Done"]);
-    sideDone.addEventListener("click", () => { this.toggleSidebar(); this.sidebarToggle.focus(); });
-    sideHead.append(sideDone);
-    this.sidebar.prepend(sideHead);
-    this.sidebar.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape" || !this.sidebarShown || this.options.docked === true) return;
-      event.stopPropagation();
-      this.toggleSidebar();
-      this.sidebarToggle.focus();
-    });
-    head.prepend(this.sidebarToggle);
-    head.append(
-      el("span", { class: "grow" }),
-      this.focusButton,
-      this.statsButton,
-      this.pngButton,
-      this.animateButton,
-      more,
-    );
-
-    const field = (label: string, input: HTMLElement): HTMLElement => {
-      const wrap = el("label", { class: "chart-field" });
-      wrap.append(el("span", { class: "chart-field-label" }, [label]), input);
-      return wrap;
-    };
-    this.minInput = el("input", {
-      class: "chart-number chart-number-wide",
-      type: "text",
-      inputmode: "decimal",
-      spellcheck: "false",
-    }) as HTMLInputElement;
-    this.maxInput = el("input", {
-      class: "chart-number chart-number-wide",
-      type: "text",
-      inputmode: "decimal",
-      spellcheck: "false",
-    }) as HTMLInputElement;
-    this.binsInput = el("input", {
-      class: "chart-number",
-      type: "number",
-      min: "1",
-      max: "256",
-      step: "1",
-      title: "Number of bins (1–256)",
-      spellcheck: "false",
-    }) as HTMLInputElement;
-    this.overflowInput = el("input", { type: "checkbox" }) as HTMLInputElement;
-    const overflowField = el("label", { class: "control check clean-check chart-check" });
-    overflowField.title = "Aggregate everything above the last bin into one bar";
-    overflowField.append(this.overflowInput, "“> Max” bar");
-    const fullRange = el(
-      "button",
-      { class: "ghost small", type: "button", title: "Reset Start/End to the data's full range" },
-      ["Full range"],
-    );
-    fullRange.addEventListener("click", () => this.resetBinRange());
-    this.kdeInput = el("input", { type: "checkbox" }) as HTMLInputElement;
-    this.kdeInput.checked = this.config.kde;
-    const kdeField = el("label", { class: "control check clean-check chart-check" });
-    kdeField.title = "Overlay a smooth kernel density curve on the histogram";
-    kdeField.append(this.kdeInput, "KDE curve");
-    this.kdeInput.addEventListener("change", () => {
-      this.config.kde = this.kdeInput.checked;
-      this.render();
-    });
-    this.errorBarInput = el("input", { type: "checkbox", "aria-label": "Error bars" }) as HTMLInputElement;
-    this.errorBarInput.checked = this.config.errorBars === true;
-    this.errorBarInput.addEventListener("change", () => {
-      this.config.errorBars = this.errorBarInput.checked;
-      this.syncErrorBarControls();
-      this.refreshErrorBars();
-      this.render();
-    });
-    this.errorBarSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Error bar type" }) as HTMLSelectElement;
-    for (const { id, label, asks } of INTERVAL_KINDS) {
-      this.errorBarSelect.append(el("option", { value: id, title: asks }, [label]) as HTMLOptionElement);
-    }
-    this.errorBarSelect.addEventListener("change", () => {
-      this.config.errorBarKind = this.errorBarSelect.value as IntervalKind;
-      this.syncErrorBarControls();
-      this.refreshErrorBars();
-      this.render();
-    });
-    this.errorBarHint = el("span", { class: "chart-field-hint chart-error-hint" });
-    this.errorBarRow = el("div", { class: "chart-settings chart-error-row" }, [
-      el("label", { class: "control check clean-check chart-check" }, [this.errorBarInput, "Error bars"]),
-      this.errorBarSelect,
-      this.errorBarHint,
-    ]);
-    this.histogramSettings = el("div", { class: "chart-settings" }, [
-      field("Start", this.minInput),
-      field("End", this.maxInput),
-      field("Bins", this.binsInput),
-      overflowField,
-      kdeField,
-      fullRange,
-    ]);
-    const onBinChange = (): void => this.commitBinOptions();
-    this.minInput.addEventListener("change", onBinChange);
-    this.maxInput.addEventListener("change", onBinChange);
-    this.binsInput.addEventListener("change", onBinChange);
-    this.overflowInput.addEventListener("change", onBinChange);
-
-    this.topInput = el("input", {
-      class: "chart-number",
-      type: "number",
-      min: "1",
-      max: "50",
-      step: "1",
-      value: String(this.config.topN),
-      title: "How many bars before the rest is grouped as Other",
-      spellcheck: "false",
-      "aria-label": "Number of category bars",
-    }) as HTMLInputElement;
-    this.topInput.addEventListener("change", () => {
-      const value = Math.floor(Number(this.topInput.value));
-      this.config.topN = Number.isFinite(value) ? Math.max(1, Math.min(50, value)) : 5;
-      this.topInput.value = String(this.config.topN);
-      this.barWindow = null;
-      this.generation++;
-      this.refreshBox();
-      this.refreshCrosstab();
-      this.refreshBubble();
-      this.refreshAnimation();
-      this.render();
-    });
-    this.otherInput = el("input", { type: "checkbox" }) as HTMLInputElement;
-    this.otherInput.checked = this.config.groupOther;
-    const otherField = el("label", { class: "control check clean-check chart-check" });
-    otherField.append(this.otherInput, "Group rest as Other");
-    this.otherInput.addEventListener("change", () => {
-      this.config.groupOther = this.otherInput.checked;
-      this.generation++;
-      this.refreshBox();
-      this.refreshCrosstab();
-      this.refreshBubble();
-      this.refreshAnimation();
-      this.render();
-    });
-    this.multiInput = el("input", { type: "checkbox" }) as HTMLInputElement;
-    this.multiInput.checked = this.config.multiColor;
-    const multiField = el("label", { class: "control check clean-check chart-check" });
-    multiField.title = "Give every bar its own colour from the palette";
-    multiField.append(this.multiInput, "Colour each bar");
-    this.multiInput.addEventListener("change", () => {
-      this.config.multiColor = this.multiInput.checked;
-      this.render();
-    });
-    const topField = el("label", { class: "chart-field" });
-    this.topLabel = el("span", { class: "chart-field-label" }, ["Top bars"]);
-    topField.append(this.topLabel, this.topInput);
-    this.bubbleBinsInput = el("input", {
-      class: "chart-number",
-      type: "number",
-      min: "4",
-      max: "120",
-      step: "1",
-      title: "Bubble grid resolution per axis (4–120)",
-      spellcheck: "false",
-    }) as HTMLInputElement;
-    this.bubbleBinsInput.value = String(this.config.bubbleBins ?? 40);
-    const bubbleBinsChange = (): void => {
-      const value = Math.round(Number(this.bubbleBinsInput.value));
-      if (Number.isFinite(value) && value >= 4 && value <= 120) {
-        this.config.bubbleBins = value;
-        this.generation++;
-        this.refreshBubble();
-        this.refreshMapGrid();
-        this.refreshAnimation();
-        this.render();
-      }
-    };
-    this.bubbleBinsInput.addEventListener("change", bubbleBinsChange);
-    const bubbleField = el("label", { class: "chart-field" });
-    bubbleField.title = "How many cells each axis is divided into before counting rows";
-    this.gridHint = el("span", { class: "chart-field-hint" });
-    bubbleField.append(
-      el("span", { class: "chart-field-label" }, ["Grid"]),
-      this.bubbleBinsInput,
-      this.gridHint,
-    );
-    this.gridField = bubbleField;
-    this.bubbleAggSelect = el("select", {
-      class: "chart-picker chart-picker-small",
-      "aria-label": "Bubble size measure",
-      title: "What the bubble area represents: rows per cell or an aggregate of a numeric column",
-    }) as HTMLSelectElement;
-    for (const [value, label] of [
-      ["count", "Rows"],
-      ["sum", "Sum"],
-      ["mean", "Average (mean)"],
-      ["min", "Min"],
-      ["max", "Max"],
-    ] as const) {
-      this.bubbleAggSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    }
-    this.bubbleAggSelect.value = this.config.bubbleAgg ?? "count";
-    this.bubbleAggSelect.addEventListener("change", () => {
-      this.config.bubbleAgg = this.bubbleAggSelect.value as
-        | "count"
-        | "sum"
-        | "mean"
-        | "min"
-        | "max";
-      this.generation++;
-      this.refreshBubble();
-      this.refreshSeries();
-      this.refreshMapGrid();
-      this.refreshAnimation();
-      this.render();
-    });
-    const bubbleAggField = el("label", { class: "chart-field" });
-    this.bubbleAggField = bubbleAggField;
-    bubbleAggField.title = "How the rows in each area combine into one value";
-    this.bubbleAggHint = el("span", { class: "chart-field-hint" });
-    bubbleAggField.append(
-      el("span", { class: "chart-field-label" }, ["Aggregate"]),
-      this.bubbleAggSelect,
-      this.bubbleAggHint,
-    );
-    this.bubbleScaleSelect = el("select", {
-      class: "chart-picker chart-picker-small",
-      "aria-label": "Bubble size scale",
-      title: "How the measure maps to bubble radius — area is the honest default",
-    }) as HTMLSelectElement;
-    for (const [value, label] of [
-      ["area", "Area ∝ value"],
-      ["radius", "Radius ∝ value"],
-      ["log", "Log scale"],
-    ] as const) {
-      this.bubbleScaleSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    }
-    this.bubbleScaleSelect.value = this.config.bubbleScale ?? "area";
-    this.bubbleScaleSelect.addEventListener("change", () => {
-      this.config.bubbleScale = this.bubbleScaleSelect.value as "area" | "radius" | "log";
-      this.render();
-    });
-    const bubbleScaleField = el("label", { class: "chart-field" });
-    bubbleScaleField.title = "How values become radius: area keeps sizes proportional, log compresses extremes";
-    bubbleScaleField.append(
-      el("span", { class: "chart-field-label" }, ["Mapping"]),
-      this.bubbleScaleSelect,
-    );
-    this.barStackInput = el("input", { type: "checkbox" }) as HTMLInputElement;
-    this.barStackInput.checked = (this.config.barLayout ?? "group") === "stack";
-    this.barStackField = el("label", { class: "control check clean-check chart-check" });
-    this.barStackField.title = "Stack grouped barplot values instead of placing them side by side";
-    this.barStackField.append(this.barStackInput, "Stack groups");
-    this.barStackInput.addEventListener("change", () => {
-      this.config.barLayout = this.barStackInput.checked ? "stack" : "group";
-      this.render();
-    });
-    this.barSettings = el("div", { class: "chart-settings" }, [
-      topField,
-      otherField,
-      multiField,
-      this.barStackField,
-    ]);
-    // Bubble options sit in their own visible row, not inside Settings: the
-    // size measure is the whole point of a bubble chart. Map cards reuse the
-    // same row for display mode, grid resolution and the heat/size measure.
-    this.bubbleTitle = el("span", { class: "chart-animate-title" }, ["Bubbles"]);
-    this.mapModeSelect = this.buildSelect("chart-picker chart-picker-small", "Map display mode");
-    for (const [value, label] of [
-      ["places", "One dot per place"],
-      ["points", "One dot per row"],
-      ["cluster", "One dot per row, clustered"],
-    ] as const) {
-      this.mapModeSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    }
-    if (this.config.mapMode !== "heat" && this.config.mapMode !== "regions") this.mapModeSelect.value = this.mapModeChoice();
-    this.mapModeSelect.addEventListener("change", () => {
-      const value = this.mapModeSelect.value;
-      // Clustering is a way of drawing one dot per row: it is the points mode with the groups switched on.
-      this.config.mapCluster = value === "cluster";
-      this.setMapMode(value === "places" ? "places" : "points");
-    });
-    this.mapModeWrap = this.tagged("Show", this.mapModeSelect).wrap;
-    this.regions = this.options.requestRegions === undefined ? null : new MapRegions(this.regionOptions(this.options.requestRegions));
-    this.bubbleScaleField = bubbleScaleField;
-    this.bubbleSettings = el("div", { class: "chart-bubble-settings hidden" }, [
-      this.bubbleTitle,
-      this.mapModeWrap,
-      ...(this.regions === null ? [] : [this.regions.root]),
-      bubbleField,
-      bubbleAggField,
-      bubbleScaleField,
-    ]);
-
-    // Dots: what a GIS calls proportional symbols. Radius of the smallest and largest dot, the value
-    // range they span, how value becomes radius, and opacity. Pure drawing, so nothing is refetched.
-    const dotNumber = (label: string, title: string, min: string, step: string): HTMLInputElement =>
-      el("input", {
-        class: "chart-number chart-dot-number",
-        type: "number",
-        min,
-        step,
-        "aria-label": label,
-        title,
-      }) as HTMLInputElement;
-    this.dotMinInput = dotNumber("Smallest dot radius (pixels)", "Radius in pixels of the smallest dot (or of every dot when nothing sizes them)", "0.5", "0.5");
-    this.dotMaxInput = dotNumber("Largest dot radius (pixels)", "Radius in pixels of the largest dot", "0.5", "0.5");
-    this.dotValueMinInput = dotNumber("Value for the smallest dot", "The value that gets the smallest dot; smaller values are drawn the same size. Leave empty to use the lowest value in the data.", "", "any");
-    this.dotValueMaxInput = dotNumber("Value for the largest dot", "The value that gets the largest dot; larger values are drawn the same size. Leave empty to use the highest value in the data.", "", "any");
-    this.dotScaleSelect = el("select", {
-      class: "chart-picker chart-picker-small",
-      "aria-label": "How value becomes dot radius",
-      title: "How value becomes radius",
-    }) as HTMLSelectElement;
-    for (const scale of DOT_SCALES) {
-      this.dotScaleSelect.append(el("option", { value: scale.id, title: scale.hint }, [scale.label]) as HTMLOptionElement);
-    }
-    this.dotOpacityInput = el("input", {
-      type: "range",
-      min: "10",
-      max: "100",
-      step: "5",
-      class: "chart-dot-opacity",
-      "aria-label": "Dot opacity",
-      title: "How see-through the dots are: lower shows where dots pile up",
-    }) as HTMLInputElement;
-    this.dotOpacityOut = el("output", { class: "chart-field-hint" });
-    const dotField = (label: string, children: (HTMLElement | string)[], title: string): HTMLElement =>
-      el("label", { class: "chart-field", title }, [el("span", { class: "chart-field-label" }, [label]), ...children]);
-    this.dotMinLabel = el("span", { class: "chart-field-label" }, ["Radius"]);
-    this.dotMaxWrap = el("span", { class: "chart-dot-to" }, ["to ", this.dotMaxInput]);
-    const dotRadiusField = el("label", { class: "chart-field", title: "Radius of the dots, in pixels" }, [
-      this.dotMinLabel,
-      this.dotMinInput,
-      this.dotMaxWrap,
-      el("span", { class: "chart-field-hint" }, ["px"]),
-    ]);
-    this.dotValuesWrap = dotField("Values", [this.dotValueMinInput, "to", this.dotValueMaxInput], "The value range the radii span: values outside it get the smallest or largest dot, so one extreme cannot shrink the rest");
-    this.dotScaleWrap = dotField("Scale", [this.dotScaleSelect], "How value becomes radius");
-    this.mapColorAggSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Colour of a place" }) as HTMLSelectElement;
-    for (const [value, label] of [["mean", "Average (mean)"], ["sum", "Sum"], ["min", "Min"], ["max", "Max"]] as const) {
-      this.mapColorAggSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    }
-    this.mapColorAggSelect.addEventListener("change", () => {
-      this.config.mapColorAgg = this.mapColorAggSelect.value as "sum" | "mean" | "min" | "max";
-      this.generation++;
-      this.refreshSeries();
-      this.refreshAnimation();
-      this.render();
-    });
-    this.mapColorAggWrap = dotField("Colour is the", [this.mapColorAggSelect], "How the rows at a place combine into its colour");
-    this.mapColorScaleSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Colour scale" }) as HTMLSelectElement;
-    for (const [value, label] of [["linear", "Linear"], ["log", "Logarithmic"]] as const) {
-      this.mapColorScaleSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    }
-    this.mapColorScaleSelect.addEventListener("change", () => {
-      this.config.mapColorScale = this.mapColorScaleSelect.value as "linear" | "log";
-      this.render();
-    });
-    this.mapColorScaleWrap = dotField("Colour scale", [this.mapColorScaleSelect], "Logarithmic spreads out values with a long tail, such as durations or prices");
-    this.mapLabelSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Place label" }) as HTMLSelectElement;
-    this.mapLabelSelect.addEventListener("change", () => {
-      this.config.mapLabelColumn = Number(this.mapLabelSelect.value);
-      this.generation++;
-      this.refreshSeries();
-      this.refreshAnimation();
-      this.render();
-    });
-    this.mapLabelWrap = dotField("Label", [this.mapLabelSelect], "The column that names a place when you hover its dot");
-    this.dotShapeSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Dot shape", title: "The shape of each dot" }) as HTMLSelectElement;
-    for (const shape of MARKER_SHAPES) this.dotShapeSelect.append(el("option", { value: shape.id }, [shape.label]) as HTMLOptionElement);
-    this.dotShapeWrap = dotField("Shape", [this.dotShapeSelect], "The shape of each dot");
-    this.fitLineInput = el("input", { type: "checkbox", "aria-label": "Line of best fit" }) as HTMLInputElement;
-    this.fitR2Input = el("input", { type: "checkbox", "aria-label": "Show R squared" }) as HTMLInputElement;
-    this.fitWrap = el("div", { class: "chart-field chart-fit" }, [
-      el("label", { class: "chart-check", title: "A dashed least-squares line through the points" }, [this.fitLineInput, " Line of best fit"]),
-      el("label", { class: "chart-check", title: "How much of the spread in Y the line accounts for (0 to 1). Shown only with the line." }, [this.fitR2Input, " R²"]),
-    ]);
-    this.dotShapeSelect.addEventListener("change", () => {
-      this.config.markerShape = this.dotShapeSelect.value as MarkerShape;
-      this.render();
-    });
-    this.fitLineInput.addEventListener("change", () => {
-      this.config.fitLine = this.fitLineInput.checked;
-      this.fitR2Input.disabled = !this.fitLineInput.checked;
-      this.render();
-    });
-    this.fitR2Input.addEventListener("change", () => {
-      this.config.fitR2 = this.fitR2Input.checked;
-      this.render();
-    });
-    this.dotSettings = el("div", { class: "chart-bubble-settings chart-dot-settings hidden" }, [
-      el("span", { class: "chart-animate-title" }, ["Dots"]),
-      this.dotShapeWrap,
-      dotRadiusField,
-      this.dotValuesWrap,
-      this.dotScaleWrap,
-      this.mapColorAggWrap,
-      this.mapColorScaleWrap,
-      this.mapLabelWrap,
-      dotField("Opacity", [this.dotOpacityInput, this.dotOpacityOut], "How see-through the dots are"),
-      this.fitWrap,
-    ]);
-    this.refRows = el("div", { class: "chart-ref-rows" });
-    const addRef = el("button", { class: "ghost small", type: "button", title: "Add a line across the chart at one value" }, ["+ Add a line"]);
-    addRef.addEventListener("click", () => {
-      const axis = this.refAxisColumn("y") >= 0 || this.hasValueAxis() ? "y" : "x";
-      this.config.refLines = [...(this.config.refLines ?? []), { axis, source: "value" }];
-      this.refKey = "";
-      this.syncRefLines();
-      this.render();
-    });
-    this.refSection = el("div", { class: "chart-bubble-settings chart-ref-settings" }, [
-      el("span", { class: "chart-animate-title" }, ["Reference lines"]),
-      this.refRows,
-      el("div", { class: "chart-field" }, [addRef]),
-      el("span", { class: "chart-field-hint chart-ref-hint" }, ["Drawn on charts with a numeric axis. A line is one value: type it, or use the mean of the plotted column (all rows)."]),
-    ]);
-    const dotNumberValue = (input: HTMLInputElement): number | null => {
-      const text = input.value.trim();
-      const value = Number(text);
-      return text !== "" && Number.isFinite(value) ? value : null;
-    };
-    this.dotMinInput.addEventListener("input", () => {
-      const value = dotNumberValue(this.dotMinInput);
-      if (value !== null && value > 0) this.config.dotMinRadius = value;
-      this.render();
-    });
-    this.dotMaxInput.addEventListener("input", () => {
-      const value = dotNumberValue(this.dotMaxInput);
-      if (value !== null && value > 0) this.config.dotMaxRadius = value;
-      this.render();
-    });
-    this.dotValueMinInput.addEventListener("input", () => {
-      this.config.dotValueMin = dotNumberValue(this.dotValueMinInput);
-      this.render();
-    });
-    this.dotValueMaxInput.addEventListener("input", () => {
-      this.config.dotValueMax = dotNumberValue(this.dotValueMaxInput);
-      this.render();
-    });
-    this.dotScaleSelect.addEventListener("change", () => {
-      this.config.dotScale = this.dotScaleSelect.value as DotScale;
-      this.render();
-    });
-    this.dotOpacityInput.addEventListener("input", () => {
-      this.config.dotOpacity = Number(this.dotOpacityInput.value) / 100;
-      this.dotOpacityOut.textContent = `${this.dotOpacityInput.value}%`;
-      this.render();
-    });
-
-    this.correlationSelect = el("select", {
-      class: "chart-multiselect",
-      multiple: "multiple",
-      size: "5",
-      "aria-label": "Correlation columns",
-      title: "Numeric columns included in the matrix",
-    }) as HTMLSelectElement;
-    this.correlationSelect.addEventListener("change", () => {
-      this.config.correlationColumns = [...this.correlationSelect.options]
-        .filter((option) => option.selected)
-        .map((option) => Number(option.value));
-      this.generation++;
-      this.refreshCorrelation();
-      this.render();
-    });
-    this.correlationSettings = el("div", { class: "chart-settings" }, [
-      el("span", { class: "chart-field-label" }, ["Columns"]),
-      this.correlationSelect,
-    ]);
-
-    this.colorGroup = el("div", { class: "chart-colors" });
-    CHART_COLORS.forEach((color) => {
-      const swatch = el("button", {
-        class: "chart-swatch",
-        type: "button",
-        title: color,
-        "aria-label": `Use colour ${color}`,
-      }) as HTMLButtonElement;
-      swatch.style.background = color;
-      swatch.addEventListener("click", () => {
-        this.config.color = color;
-        this.config.colorCustom = true;
-        this.hexInput.value = this.primaryColor();
-        this.syncSwatches();
-        this.render();
-      });
-      this.swatches.push(swatch);
-      this.colorGroup.append(swatch);
-    });
-    this.hexInput = el("input", {
-      class: "chart-hex",
-      type: "text",
-      placeholder: "#2563eb",
-      spellcheck: "false",
-      "aria-label": "Custom colour as a hex code",
-    }) as HTMLInputElement;
-    this.hexInput.value = this.primaryColor();
-    const applyHex = (): void => {
-      const value = this.hexInput.value.trim();
-      if (!HEX.test(value)) {
-        this.hexInput.value = this.primaryColor();
-        return;
-      }
-      this.config.color = value.startsWith("#") ? value.toLowerCase() : `#${value.toLowerCase()}`;
-      this.config.colorCustom = true;
-      this.hexInput.value = this.primaryColor();
-      this.syncSwatches();
-      this.render();
-    };
-    this.hexInput.addEventListener("change", applyHex);
-    this.hexInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        applyHex();
-      }
-    });
-    this.colorGroup.append(this.hexInput);
-
-    this.paletteSelect = el("select", {
-      class: "chart-picker chart-picker-small chart-palette-select",
-      "aria-label": "Colour map",
-      title: "Colour map for multi-series and multi-category charts",
-    }) as HTMLSelectElement;
-    this.fillPaletteOptions(false);
-    this.paletteSelect.value = this.config.palette ?? DEFAULT_PALETTE;
-    this.paletteSelect.addEventListener("change", () => {
-      if (this.paletteSelect.value === MORE_PALETTES) {
-        // Seven colour maps cover most charts; the whole list opens on request.
-        this.fillPaletteOptions(true);
-        this.paletteSelect.value = this.rampPaletteName();
-        try {
-          this.paletteSelect.showPicker?.();
-        } catch {
-          // Opening the list for the person is a courtesy; a click does the same.
-        }
-        return;
-      }
-      void this.applyPalette(this.paletteSelect.value);
-    });
-
-    this.palettePreview = el("div", { class: "chart-palette-preview" });
-    this.paletteReverseInput = el("input", {
-      type: "checkbox",
-      "aria-label": "Reverse the colour map",
-    }) as HTMLInputElement;
-    this.paletteReverseInput.checked = this.config.paletteReversed === true;
-    this.paletteReverseInput.addEventListener("change", () => {
-      this.config.paletteReversed = this.paletteReverseInput.checked;
-      this.hexInput.value = this.primaryColor();
-      this.syncSwatches();
-      this.syncPalette();
-      this.render();
-    });
-    const reverseLabel = el("label", { class: "control check clean-check chart-check" }, [
-      this.paletteReverseInput,
-      "Reverse",
-    ]);
-    reverseLabel.title = "Flip the colour map direction (works for ramps and series order)";
-    this.colorMinInput = el("input", {
-      class: "text-input chart-color-bound",
-      type: "number",
-      step: "any",
-      placeholder: "Auto",
-      "aria-label": "Colour scale minimum",
-    }) as HTMLInputElement;
-    this.colorMaxInput = el("input", {
-      class: "text-input chart-color-bound",
-      type: "number",
-      step: "any",
-      placeholder: "Auto",
-      "aria-label": "Colour scale maximum",
-    }) as HTMLInputElement;
-    this.colorCenterInput = el("input", {
-      class: "text-input chart-color-bound",
-      type: "number",
-      step: "any",
-      placeholder: "Auto",
-      "aria-label": "Colour scale centre",
-    }) as HTMLInputElement;
-    const applyColorDomain = (): void => {
-      const min =
-        this.colorMinInput.value.trim() === ""
-          ? null
-          : parseChartNumber(this.colorMinInput.value);
-      const max =
-        this.colorMaxInput.value.trim() === ""
-          ? null
-          : parseChartNumber(this.colorMaxInput.value);
-      const center =
-        this.colorCenterInput.value.trim() === ""
-          ? null
-          : parseChartNumber(this.colorCenterInput.value);
-      if (min !== null && max !== null && !(max > min)) {
-        this.paletteStatus.textContent = "Colour max must be greater than min";
-        return;
-      }
-      this.config.colorMin = min;
-      this.config.colorMax = max;
-      this.config.colorCenter = center;
-      this.paletteStatus.textContent = "";
-      this.render();
-    };
-    this.colorMinInput.addEventListener("change", applyColorDomain);
-    this.colorMaxInput.addEventListener("change", applyColorDomain);
-    this.colorCenterInput.addEventListener("change", applyColorDomain);
-    this.colorDomainRow = el("div", { class: "chart-color-domain" }, [
-      el("label", { class: "chart-tag" }, [
-        el("span", { class: "chart-tag-label" }, ["Min"]),
-        this.colorMinInput,
-      ]),
-      el("label", { class: "chart-tag" }, [
-        el("span", { class: "chart-tag-label" }, ["Max"]),
-        this.colorMaxInput,
-      ]),
-      el("label", { class: "chart-tag", title: "Centre for diverging scales; ignored when outside Min/Max" }, [
-        el("span", { class: "chart-tag-label" }, ["Centre"]),
-        this.colorCenterInput,
-      ]),
-    ]);
-    this.paletteStatus = el("span", { class: "chart-palette-status" });
-    this.paletteGroup = el(
-      "div",
-      { class: "chart-palette" },
-      [
-        this.paletteSelect,
-        this.palettePreview,
-        reverseLabel,
-        this.colorDomainRow,
-        this.paletteStatus,
-      ],
-    );
-    this.syncPalette();
-
-    this.titleInput = el("input", {
-      class: "text-input chart-title",
-      type: "text",
-      placeholder: "Chart title (optional)",
-      spellcheck: "false",
-      "aria-label": "Chart title",
-    }) as HTMLInputElement;
-    this.titleInput.value = this.config.title;
-    this.titleInput.addEventListener("input", () => {
-      this.config.title = this.titleInput.value;
-      this.render();
-      this.options.onTitleChange?.(this);
-    });
-    const axisTitleInput = (
-      label: string,
-      get: () => string | undefined,
-      set: (value: string) => void,
-    ): HTMLInputElement => {
-      const input = el("input", {
-        class: "text-input chart-axis-title",
-        type: "text",
-        placeholder: label,
-        spellcheck: "false",
-        "aria-label": label,
-        title: label,
-      }) as HTMLInputElement;
-      input.value = get() ?? "";
-      input.addEventListener("input", () => {
-        set(input.value.trim());
-        this.render();
-      });
-      return input;
-    };
-    this.xTitleInput = axisTitleInput(
-      "X axis title (auto)",
-      () => this.config.xTitle,
-      (value) => {
-        this.config.xTitle = value;
-      },
-    );
-    this.yTitleInput = axisTitleInput(
-      "Y axis title (auto)",
-      () => this.config.yTitle,
-      (value) => {
-        this.config.yTitle = value;
-      },
-    );
-    this.yUnitInput = axisTitleInput(
-      "Unit, e.g. kWh",
-      () => this.config.yUnit,
-      (value) => {
-        this.config.yUnit = value;
-      },
-    );
-    const lookRow = el("div", { class: "chart-card-look" }, [
-      this.colorGroup,
-      this.paletteGroup,
-      this.titleInput,
-      this.xTitleInput,
-      this.yTitleInput,
-      this.yUnitInput,
-    ]);
-
-    // Frames over time: step and loop a bar or bubble chart, export one loop.
-    this.animationTimeSelect = el("select", {
-      class: "chart-picker chart-picker-small",
-      "aria-label": "Animate over",
-      title: "Step this chart through a date column (one frame per period) or a number column (in order, one frame per value or step)",
-    }) as HTMLSelectElement;
-    this.animationTimeSelect.addEventListener("change", () => {
-      const value = Number(this.animationTimeSelect.value);
-      this.setAnimationTime(Number.isFinite(value) ? value : -1);
-    });
-    this.animationGrainSelect = el("select", {
-      class: "chart-picker chart-picker-small",
-      "aria-label": "Frame length",
-      title: "How much each frame covers",
-    }) as HTMLSelectElement;
-    this.syncFrameOptions();
-    this.animationGrainSelect.addEventListener("change", () => {
-      const value = this.animationGrainSelect.value;
-      if (value === "value") this.config.animationStep = "value";
-      else if (value.startsWith("step:")) this.config.animationStep = Number(value.slice(5));
-      else this.config.animationGrain = value as TimeGrain;
-      this.stopAnimation();
-      this.generation++;
-      this.refreshAnimation();
-      this.render();
-    });
-    // Animation setup lives in its own visible row (not in Settings): the
-    // Animate button in the toolbar expands it.
-    this.animationSetup = el("div", { class: "chart-animate-setup hidden" }, [
-      el("span", { class: "chart-animate-title" }, [movieIcon(), "Animate"]),
-      el("span", { class: "chart-field-label" }, ["over"]),
-      this.animationTimeSelect,
-      this.animationStepLabel,
-      this.animationGrainSelect,
-      el("span", { class: "chart-animate-hint" }, [
-        "Playback appears under the chart; export one loop as a GIF.",
-      ]),
-    ]);
-
-    const settingsClose = el(
-      "button",
-      {
-        class: "icon-btn chart-settings-close",
-        type: "button",
-        title: "Close settings",
-        "aria-label": "Close settings",
-      },
-      ["×"],
-    ) as HTMLButtonElement;
-    settingsClose.addEventListener("click", () => {
-      if (this.settingsDisclosure !== null) {
-        this.settingsDisclosure.open = false;
-        this.settingsDisclosure.querySelector<HTMLElement>("summary")?.focus();
-      }
-    });
-    const settingsBody = el("div", { class: "chart-settings-body" }, [
-      settingsClose,
-      this.colorWrap,
-      this.sizeWrap,
-      this.modeWrap,
-      this.densityStyleWrap,
-      this.errorBarRow,
-      this.chartFilterRow,
-      this.histogramSettings,
-      this.barSettings,
-      this.correlationSettings,
-      lookRow,
-    ]);
-    this.settingsBody = settingsBody;
-    this.sidebar.append(
-      el("div", { class: "chart-side-section chart-side-settings" }, [
-        el("div", { class: "chart-side-title" }, ["Colour, filter and format"]),
-        settingsBody,
-      ]),
-    );
-
-    const canvasWrap = el("div", { class: "chart-canvas-wrap" });
-    this.canvas = el("canvas", {
-      class: "chart-canvas",
-      role: "img",
-      "aria-label": "Chart",
-    }) as HTMLCanvasElement;
-    canvasWrap.append(this.canvas);
-    this.resetViewButton = el(
-      "button",
-      {
-        class: "chart-reset-view hidden",
-        type: "button",
-        title: "Reset the zoomed view to the full range",
-      },
-      ["Reset view"],
-    ) as HTMLButtonElement;
-    this.resetViewButton.addEventListener("click", () => this.resetMapZoom());
-    const mapControls = el("div", { class: "chart-map-controls hidden" });
-    const mapZoomIn = el(
-      "button",
-      {
-        class: "chart-map-control",
-        type: "button",
-        title: "Zoom in",
-        "aria-label": "Zoom the map in",
-      },
-      ["+"],
-    ) as HTMLButtonElement;
-    mapZoomIn.addEventListener("click", () => this.zoomMap(0.8));
-    const mapZoomOut = el(
-      "button",
-      {
-        class: "chart-map-control",
-        type: "button",
-        title: "Zoom out",
-        "aria-label": "Zoom the map out",
-      },
-      ["−"],
-    ) as HTMLButtonElement;
-    mapZoomOut.addEventListener("click", () => this.zoomMap(1.25));
-    const mapFit = el(
-      "button",
-      {
-        class: "chart-map-control chart-map-fit",
-        type: "button",
-        title: "Fit the map to what is plotted and your markers",
-        "aria-label": "Fit the map to what is plotted and your markers",
-      },
-      ["Fit all"],
-    ) as HTMLButtonElement;
-    mapFit.addEventListener("click", () => this.resetMapZoom());
-    mapControls.append(mapZoomIn, mapZoomOut, mapFit);
-    this.mapControls = mapControls;
-    canvasWrap.append(this.resetViewButton, mapControls);
-    this.canvasWrap = canvasWrap;
-    this.regions?.attachDrop(canvasWrap);
-    this.summaryEl = el("div", { class: "chart-summary" });
-    this.dataIssueEl = el("div", { class: "chart-data-issues hidden" });
-    this.scopeEl = el("div", { class: "chart-scope" });
-    this.noteEl = el("div", { class: "chart-note" });
-    this.deepDiveEl = el("div", { class: "chart-deep-dive hidden" });
-    this.legendEl = el("div", { class: "chart-legend hidden" });
-    this.exclusionBar = el("div", { class: "chart-exclusions hidden", "aria-label": "Left out of this chart" });
-    this.tooltipEl = el("div", { class: "chart-tooltip hidden", role: "tooltip" });
-    this.canvas.addEventListener("pointermove", (event) =>
-      this.queuePointer(event as PointerEvent),
-    );
-    this.canvas.addEventListener("pointerleave", () => this.hideTooltip());
-    this.canvas.addEventListener("click", (event) => this.handleCanvasClick(event));
-    this.canvas.addEventListener("contextmenu", (event) => this.handleCanvasContextMenu(event));
-    this.canvas.addEventListener("pointerdown", (event) =>
-      this.beginMapBrush(event as PointerEvent),
-    );
-    this.canvas.addEventListener("pointerup", (event) =>
-      this.endMapBrush(event as PointerEvent),
-    );
-    this.canvas.addEventListener("wheel", (event) => this.onWheel(event as WheelEvent), {
-      passive: false,
-    });
-    this.canvas.addEventListener("dblclick", () => this.resetMapZoom());
-    if (typeof ResizeObserver !== "undefined") {
-      this.resizeObserver = new ResizeObserver(() => this.scheduleRender());
-      this.resizeObserver.observe(canvasWrap);
-    }
-
-    // Playback bar: play/pause, frame scrubber, loop and video export.
-    this.animationPlayButton = el(
-      "button",
-      { class: "ghost small", type: "button", title: "Play or pause the animation" },
-      ["▶ Play"],
-    ) as HTMLButtonElement;
-    this.animationPlayButton.addEventListener("click", () => this.toggleAnimation());
-    this.animationSlider = el("input", {
-      class: "chart-animation-slider",
-      type: "range",
-      min: "0",
-      max: "0",
-      step: "1",
-      "aria-label": "Animation frame",
-    }) as HTMLInputElement;
-    this.animationSlider.addEventListener("input", () => {
-      const value = Number(this.animationSlider.value);
-      this.stopAnimation();
-      const last = this.animationResult === null ? 0 : this.animationResult.frames.length - 1;
-      this.animationFrame = Math.max(0, Math.min(Number.isFinite(value) ? value : 0, last));
-      this.render();
-    });
-    this.animationFrameLabel = el("span", { class: "chart-animation-label" });
-    this.animationSpeedSelect = el("select", {
-      class: "chart-picker chart-picker-small",
-      "aria-label": "Play speed",
-      title: "Playback speed; also sets the exported frame rate",
-    }) as HTMLSelectElement;
-    for (const speed of [0.5, 0.75, 1, 1.25, 1.5, 2]) {
-      this.animationSpeedSelect.append(
-        el("option", { value: String(speed) }, [`${speed}×`]) as HTMLOptionElement,
-      );
-    }
-    this.animationSpeedSelect.append(
-      el("option", { value: "custom" }, ["Custom…"]) as HTMLOptionElement,
-    );
-    this.animationSpeedSelect.value = String(this.config.animationSpeed ?? 1);
-    this.animationSpeedSelect.addEventListener("change", () => {
-      if (this.animationSpeedSelect.value === "custom") {
-        void this.promptAnimationSpeed();
-        return;
-      }
-      const speed = Number(this.animationSpeedSelect.value);
-      this.setAnimationSpeed(Number.isFinite(speed) && speed > 0 ? speed : 1);
-    });
-    this.animationLoopInput = el("input", { type: "checkbox" }) as HTMLInputElement;
-    this.animationLoopInput.checked = true;
-    const loopField = el("label", { class: "control check clean-check chart-check" });
-    loopField.title = "Restart from the first frame after the last";
-    loopField.append(this.animationLoopInput, "Loop");
-    this.animationExportButton = el(
-      "button",
-      { class: "ghost small", type: "button", title: "Export one loop as an animated GIF or a video" },
-      [],
-    ) as HTMLButtonElement;
-    this.animationExportButton.append(movieIcon(), el("span", {}, ["Export"]));
-    this.animationExportButton.addEventListener("click", () =>
-      this.openExportMenu(this.animationExportButton),
-    );
-    this.animationBar = el(
-      "div",
-      { class: "chart-animation hidden" },
-      [
-        this.animationPlayButton,
-        this.animationSlider,
-        this.animationFrameLabel,
-        this.animationSpeedSelect,
-        loopField,
-        this.animationExportButton,
-      ],
-    );
-
-    this.root.append(head);
-    // How the numbers are rolled up (Sum, Max, ...) and over which period stay on
-    // the card, not in the Customize drawer; each wrap hides itself when unused.
-    const quickRow = el("div", { class: "chart-quick", role: "group", "aria-label": "Aggregation" }, [
-      this.valueAggWrap,
-      this.valueGrainWrap,
-      this.valueEveryWrap,
-      this.valueFillWrap,
-      this.weekStartWrap,
-      this.fiscalWrap,
-    ]);
-    const main = el("div", { class: "chart-card-main" }, [
-      quickRow,
-      this.summaryEl,
-      this.lintEl,
-      this.dataIssueEl,
-      this.scopeEl,
-      this.animationSetup,
-      this.bubbleSettings,
-      this.dotSettings,
-      this.exclusionBar,
-      // Above the plot: naming the lines must never take a scroll.
-      this.legendEl,
-      canvasWrap,
-      this.animationBar,
-      this.deepDiveEl,
-      this.noteEl,
-    ]);
-    this.layoutEl = el("div", { class: "chart-card-layout" }, this.options.docked === true ? [main, this.sidebar] : [this.sidebar, main]);
-
-    this.root.append(this.layoutEl, this.tooltipEl);
-    if (this.options.docked === true) this.dock(head, quickRow, sideHead, canvasWrap);
-
-    this.syncSwatches();
-    this.syncOptions();
-    this.renderControls();
-    // Skip the first paint while the lens is hidden: a 1x1 canvas would flash
-    // before the ResizeObserver paints the real size.
-    if ((this.canvas.parentElement?.clientWidth ?? 0) > 1) this.render();
-    window.addEventListener("resize", this.onResize);
-    window.addEventListener("themechange", this.onThemeChange);
+    const { head } = buildPart1(this, root, preset);
+    buildPart2(this);
+    const { more } = buildPart3(this);
+    const { sideHead, field } = buildPart4(this, head, more);
+    buildPart5(this, field);
+    buildPart6(this);
+    const { canvasWrap } = buildPart7(this, field);
+    buildPart8(this, head, sideHead, canvasWrap);
   }
 
   groupSettings(): void {
@@ -2740,7 +1207,7 @@ export class ChartCard {
   /** The Refine and Format sections of this card, to bring in step with the other charts' when its tab opens. */
   readonly settingsGroups: HTMLDetailsElement[] = [];
 
-  private dock(head: HTMLElement, quickRow: HTMLElement, sideHead: HTMLElement, canvasWrap: HTMLElement): void {
+  dock(head: HTMLElement, quickRow: HTMLElement, sideHead: HTMLElement, canvasWrap: HTMLElement): void {
     return dock(this, head, quickRow, sideHead, canvasWrap);
   }
 
@@ -2863,7 +1330,7 @@ export class ChartCard {
     this.sidebarToggle.focus();
   };
 
-  private toggleSidebar(): void {
+  toggleSidebar(): void {
     return toggleSidebar(this);
   }
 
@@ -3255,7 +1722,7 @@ export class ChartCard {
     return exportPng(this, width, height);
   }
 
-  private openStats(): void {
+  openStats(): void {
     return openStats(this);
   }
 
@@ -3296,11 +1763,11 @@ export class ChartCard {
     return gridCsvRows(this, grid);
   }
 
-  private buildSelect(className: string, label: string): HTMLSelectElement {
+  buildSelect(className: string, label: string): HTMLSelectElement {
     return el("select", { class: className, "aria-label": label }) as HTMLSelectElement;
   }
 
-  private tagged(tag: string, select: HTMLSelectElement): { wrap: HTMLElement; label: HTMLElement } {
+  tagged(tag: string, select: HTMLSelectElement): { wrap: HTMLElement; label: HTMLElement } {
     const wrap = el("label", { class: "chart-tag" });
     const label = el("span", { class: "chart-tag-label" }, [tag]);
     wrap.append(label, select);
@@ -3397,7 +1864,7 @@ export class ChartCard {
     return refreshForConfig(this);
   }
 
-  private setPrimaryColumn(index: number): void {
+  setPrimaryColumn(index: number): void {
     return setPrimaryColumn(this, index);
   }
 
@@ -3515,7 +1982,7 @@ export class ChartCard {
     return colors[index % colors.length] ?? this.primaryColor();
   }
 
-  private regionOptions(requests: RegionRequests): MapRegionsOptions {
+  regionOptions(requests: RegionRequests): MapRegionsOptions {
     return regionOptions(this, requests);
   }
 
@@ -3557,7 +2024,7 @@ export class ChartCard {
     return syncPalette(this);
   }
 
-  private async applyPalette(value: string): Promise<void> {
+  async applyPalette(value: string): Promise<void> {
     return applyPalette(this, value);
   }
 
@@ -3621,7 +2088,7 @@ export class ChartCard {
     return syncDeepDive(this);
   }
 
-  private openCardMenu(anchor: HTMLElement): void {
+  openCardMenu(anchor: HTMLElement): void {
     return openCardMenu(this, anchor);
   }
 
@@ -3635,11 +2102,11 @@ export class ChartCard {
     return this.meta(this.config.column)?.name ?? this.config.kind;
   }
 
-  private resetBinRange(): void {
+  resetBinRange(): void {
     return resetBinRange(this);
   }
 
-  private commitBinOptions(): void {
+  commitBinOptions(): void {
     return commitBinOptions(this);
   }
 
@@ -3745,7 +2212,7 @@ export class ChartCard {
     return refreshAnimation(this);
   }
 
-  private toggleFocus(): void {
+  toggleFocus(): void {
     return toggleFocus(this);
   }
 
@@ -3832,11 +2299,11 @@ export class ChartCard {
     return setAnimationTime(this, column);
   }
 
-  private toggleAnimationSetup(): void {
+  toggleAnimationSetup(): void {
     return toggleAnimationSetup(this);
   }
 
-  private toggleAnimation(): void {
+  toggleAnimation(): void {
     return toggleAnimation(this);
   }
 
@@ -3851,7 +2318,7 @@ export class ChartCard {
     return setAnimationSpeed(this, speed);
   }
 
-  private async promptAnimationSpeed(): Promise<void> {
+  async promptAnimationSpeed(): Promise<void> {
     return promptAnimationSpeed(this);
   }
 
@@ -3867,7 +2334,7 @@ export class ChartCard {
     return syncAnimationBar(this);
   }
 
-  private openExportMenu(anchor: HTMLElement): void {
+  openExportMenu(anchor: HTMLElement): void {
     return openExportMenu(this, anchor);
   }
 
@@ -4053,7 +2520,7 @@ export class ChartCard {
     return canvasLabel(this);
   }
 
-  private queuePointer(event: PointerEvent): void {
+  queuePointer(event: PointerEvent): void {
     return queuePointer(this, event);
   }
 
@@ -4107,15 +2574,15 @@ export class ChartCard {
     this.canvas.classList.remove("chart-clickable");
   }
 
-  private handleCanvasClick(event: MouseEvent): void {
+  handleCanvasClick(event: MouseEvent): void {
     return handleCanvasClick(this, event);
   }
 
-  private beginMapBrush(event: PointerEvent): void {
+  beginMapBrush(event: PointerEvent): void {
     return beginMapBrush(this, event);
   }
 
-  private endMapBrush(event: PointerEvent): void {
+  endMapBrush(event: PointerEvent): void {
     return endMapBrush(this, event);
   }
 
@@ -4139,7 +2606,7 @@ export class ChartCard {
     return drawBrushOverlay(this, ctx);
   }
 
-  private onWheel(event: WheelEvent): void {
+  onWheel(event: WheelEvent): void {
     return onWheel(this, event);
   }
 
@@ -4202,7 +2669,7 @@ export class ChartCard {
     return dataViewOrNull(this);
   }
 
-  private resetMapZoom(): void {
+  resetMapZoom(): void {
     return resetMapZoom(this);
   }
 
@@ -4257,7 +2724,7 @@ export class ChartCard {
     return syncExclusions(this);
   }
 
-  private handleCanvasContextMenu(event: MouseEvent): void {
+  handleCanvasContextMenu(event: MouseEvent): void {
     return handleCanvasContextMenu(this, event);
   }
 
