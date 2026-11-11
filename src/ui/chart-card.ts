@@ -1,3 +1,4 @@
+import { mapExtract, regionOptions, setMapMode, syncRegionAxes, refreshMapGrid, placeFrame, beginMapBrush, endMapBrush, zoomMap, exportMapHtml, mapHtmlPayload, mapViewShown, mapViewOrAuto, dataViewOrNull, resetMapZoom, fitMapAll, markerBox, frameBox, drawMap, drawMapLayers, drawMapClusters, drawMapBody, syncDotControls, mapLabelColumn, mapDotLines, drawMapSizeLegend, mapRadii } from "./chart-map-draw.js";
 import { errorBarExtract, errorBarBlock, syncResearchControls, syncErrorBarControls, refreshErrorBars, cancelErrorBars, showErrorBarProgress, hideErrorBarProgress, errorBarAt, drawWhisker, appendErrorBarNote } from "./chart-error-bars.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
 import { ChartDataDrawer } from "./chart-data-drawer.js";
@@ -270,8 +271,8 @@ export type MapOverlay = (
 ) => void;
 
 /** A dot's border is a darker shade of its fill and nearly opaque, so each dot reads even where the fill is see-through. */
-const BORDER_DARKER = 0.5;
-const BORDER_ALPHA = 0.95;
+export const BORDER_DARKER = 0.5;
+export const BORDER_ALPHA = 0.95;
 
 /** The shape of a dot on a scatter or a map. Circles are the default. */
 export type MarkerShape = "circle" | "square" | "diamond" | "triangle";
@@ -816,7 +817,7 @@ export const TIME_SERIES_WARNING = "Warning: periods in a time series are relate
 /** Map joins these only in one dot per place: see animatesPlaces. */
 const ANIMATED_KINDS: ReadonlySet<ChartCardKind> = new Set<ChartCardKind>(["bar", "bubble", "histogram", "treemap", "density", "map"]);
 
-const MAP_COLOR_AGG_NAMES = { mean: "average", sum: "total", min: "lowest", max: "highest" } as const;
+export const MAP_COLOR_AGG_NAMES = { mean: "average", sum: "total", min: "lowest", max: "highest" } as const;
 
 export class ChartCard {
   readonly root: HTMLElement;
@@ -826,11 +827,11 @@ export class ChartCard {
   /** Same for the bound view or pivot request, which sibling refreshes must not discard. */
   private viewGeneration = 0;
   config = chartConfigWithDefaults();
-  private columns: ColumnMeta[] = [];
+  columns: ColumnMeta[] = [];
   private facets: Record<number, number[]> = {};
   private histograms: Record<number, number[]> = {};
   private rowCount = 0;
-  private generation = 0;
+  generation = 0;
   disposed = false;
 
   private pickerSignature = "";
@@ -839,18 +840,18 @@ export class ChartCard {
   private lineBinRange: { min: number; max: number } | null = null;
   private lineBinSignature = "";
   private binMedian: number | null = null;
-  private seriesResult: SeriesPoints | SeriesGrid | null = null;
+  seriesResult: SeriesPoints | SeriesGrid | null = null;
   /** Decoded 110m basemap for map cards (shared module cache, first paint). */
-  private basemap: Basemap | null = null;
+  basemap: Basemap | null = null;
   /** Regional 50m basemap, loaded lazily when the viewport zooms in. */
-  private detailBasemap: Basemap | null = null;
-  private detailBasemapRequested = false;
-  private detailBasemapFailed = false;
-  private detailBasemapLoading = false;
+  detailBasemap: Basemap | null = null;
+  detailBasemapRequested = false;
+  detailBasemapFailed = false;
+  detailBasemapLoading = false;
   /** Live map brush rectangle in canvas pixels while dragging. */
-  private mapBrush: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  mapBrush: { x0: number; y0: number; x1: number; y1: number } | null = null;
   /** Data-space geometry of the last paint, for Shift+drag brushing (null when not brushable). */
-  private brushSpace: BrushSpace | null = null;
+  brushSpace: BrushSpace | null = null;
   /** Slice another card's pointer is over; this card outlines the matching marks. */
   private linked: readonly HitAction[] | null = null;
   /** Caption for the linked slice ("East", "18.3 – 18.9"). */
@@ -868,10 +869,10 @@ export class ChartCard {
   /** Key of the last slice sent to the panel, so moving within one mark sends nothing. */
   private emittedKey = "";
   /** Live Shift+drag rectangle in canvas pixels. */
-  private brushDrag: { x0: number; y0: number; x1: number; y1: number } | null = null;
-  private mapBrushStart: { x: number; y: number } | null = null;
+  brushDrag: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  mapBrushStart: { x: number; y: number } | null = null;
   /** Frame of the last paint, used to map brush pixels to lon/lat. */
-  private lastFrame: Frame | null = null;
+  lastFrame: Frame | null = null;
   /** Treemap tiles: group labels, the aggregate and the raw row count. */
   private treemapResult: {
     labels: string[];
@@ -882,7 +883,7 @@ export class ChartCard {
   } | null = null;
   /** Top-terms payload: token frequencies plus shape detection. */
   private textResult: TextProfileMessage | null = null;
-  private seriesLabels: string[] | null = null;
+  seriesLabels: string[] | null = null;
   private seriesMs = 0;
   private seriesCorrelation = Number.NaN;
   private boxResult: BoxStatsResult | null = null;
@@ -894,14 +895,14 @@ export class ChartCard {
   } | null = null;
   private groupResult: GroupedBinsMessage | null = null;
   private bubbleResult: GridCountsResult | null = null;
-  private animationResult: AnimationResult | null = null;
-  private animationFrame = 0;
+  animationResult: AnimationResult | null = null;
+  animationFrame = 0;
   private animationPlaying = false;
   private animationTimer: number | null = null;
   private animationSetupOpen = false;
   private readonly bubbleBinsInput: HTMLInputElement;
-  private readonly gridField: HTMLElement;
-  private readonly gridHint: HTMLElement;
+  readonly gridField: HTMLElement;
+  readonly gridHint: HTMLElement;
   private readonly bubbleAggSelect: HTMLSelectElement;
   private bubbleAggHint!: HTMLElement;
   private readonly bubbleScaleSelect: HTMLSelectElement;
@@ -925,19 +926,19 @@ export class ChartCard {
   private readonly bubbleSettings: HTMLElement;
   private readonly bubbleTitle: HTMLElement;
   private readonly bubbleScaleField: HTMLElement;
-  private readonly mapModeSelect: HTMLSelectElement;
+  readonly mapModeSelect: HTMLSelectElement;
   private readonly mapModeWrap: HTMLElement;
   /** The Dots row under the map's settings: radius, value range, scale and opacity. */
-  private readonly dotSettings: HTMLElement;
-  private readonly dotMinInput: HTMLInputElement;
-  private readonly dotMaxInput: HTMLInputElement;
-  private readonly dotMaxWrap: HTMLElement;
-  private readonly dotMinLabel: HTMLElement;
-  private readonly dotValueMinInput: HTMLInputElement;
-  private readonly dotValueMaxInput: HTMLInputElement;
-  private readonly dotValuesWrap: HTMLElement;
-  private readonly dotScaleSelect: HTMLSelectElement;
-  private readonly dotScaleWrap: HTMLElement;
+  readonly dotSettings: HTMLElement;
+  readonly dotMinInput: HTMLInputElement;
+  readonly dotMaxInput: HTMLInputElement;
+  readonly dotMaxWrap: HTMLElement;
+  readonly dotMinLabel: HTMLElement;
+  readonly dotValueMinInput: HTMLInputElement;
+  readonly dotValueMaxInput: HTMLInputElement;
+  readonly dotValuesWrap: HTMLElement;
+  readonly dotScaleSelect: HTMLSelectElement;
+  readonly dotScaleWrap: HTMLElement;
   readonly errorBarRow: HTMLElement;
   readonly errorBarInput: HTMLInputElement;
   readonly errorBarSelect: HTMLSelectElement;
@@ -948,61 +949,61 @@ export class ChartCard {
   errorBarRun = 0;
   errorBarProgress: HTMLElement | null = null;
   errorBarProgressTimer: number | null = null;
-  private readonly mapColorAggSelect: HTMLSelectElement;
-  private readonly mapColorAggWrap: HTMLElement;
-  private readonly mapColorScaleSelect: HTMLSelectElement;
-  private readonly mapColorScaleWrap: HTMLElement;
-  private readonly mapLabelSelect: HTMLSelectElement;
-  private readonly mapLabelWrap: HTMLElement;
+  readonly mapColorAggSelect: HTMLSelectElement;
+  readonly mapColorAggWrap: HTMLElement;
+  readonly mapColorScaleSelect: HTMLSelectElement;
+  readonly mapColorScaleWrap: HTMLElement;
+  readonly mapLabelSelect: HTMLSelectElement;
+  readonly mapLabelWrap: HTMLElement;
   /** Names of the places drawn, from the worker, and which place each of the current frame's dots is. */
-  private placeLabels: string[] | null = null;
-  private framePlaces: number[] | null = null;
-  private readonly dotOpacityInput: HTMLInputElement;
-  private readonly dotShapeSelect: HTMLSelectElement;
+  placeLabels: string[] | null = null;
+  framePlaces: number[] | null = null;
+  readonly dotOpacityInput: HTMLInputElement;
+  readonly dotShapeSelect: HTMLSelectElement;
   private readonly refSection: HTMLElement;
   private readonly refRows: HTMLElement;
   private refKey = "";
   private readonly dotShapeWrap: HTMLElement;
   /** The clusters drawn last, with the box of the markers each holds, so a click can zoom to it. */
-  private mapClusters: { x: number; y: number; r: number; lonMin: number; lonMax: number; latMin: number; latMax: number }[] = [];
-  private readonly fitWrap: HTMLElement;
-  private readonly fitLineInput: HTMLInputElement;
-  private readonly fitR2Input: HTMLInputElement;
-  private readonly dotOpacityOut: HTMLElement;
+  mapClusters: { x: number; y: number; r: number; lonMin: number; lonMax: number; latMin: number; latMax: number }[] = [];
+  readonly fitWrap: HTMLElement;
+  readonly fitLineInput: HTMLInputElement;
+  readonly fitR2Input: HTMLInputElement;
+  readonly dotOpacityOut: HTMLElement;
   private readonly resetViewButton: HTMLButtonElement;
   /** Map heat grid (count or measure per cell), computed by the worker. */
-  private mapGrid: GridCountsResult | null = null;
+  mapGrid: GridCountsResult | null = null;
   /** Map viewport in degrees (null = the whole world). */
-  private mapView: MapViewport | null = null;
-  private mapMarkers: readonly MapMarkerDraw[] = [];
+  mapView: MapViewport | null = null;
+  mapMarkers: readonly MapMarkerDraw[] = [];
   private mapPicker: ((lon: number, lat: number) => void) | null = null;
-  private mapOverlay: MapOverlay | null = null;
+  mapOverlay: MapOverlay | null = null;
   /** Optional user-supplied regions (GeoJSON / zipped Shapefile). */
-  private readonly regions: MapRegions | null;
-  private mapDrag: { x: number; y: number } | null = null;
+  readonly regions: MapRegions | null;
+  mapDrag: { x: number; y: number } | null = null;
   /** True once a drag moved: the release click must not also fire a filter. */
-  private dragMoved = false;
+  dragMoved = false;
   /** Scatter/density viewport in data units (null = the full series bounds). */
-  private plotView: { xMin: number; xMax: number; yMin: number; yMax: number } | null = null;
-  private plotDrag: { x: number; y: number } | null = null;
+  plotView: { xMin: number; xMax: number; yMin: number; yMax: number } | null = null;
+  plotDrag: { x: number; y: number } | null = null;
   /** Line/histogram x-axis zoom in data units (null = the full range). */
-  private chartXZoom: { min: number; max: number } | null = null;
+  chartXZoom: { min: number; max: number } | null = null;
   /** Bar chart category window: start index and count over the sorted bars. */
-  private barWindow: { start: number; count: number } | null = null;
+  barWindow: { start: number; count: number } | null = null;
   /** Heatmap category windows on both axes. */
-  private heatWindow: {
+  heatWindow: {
     xStart: number;
     xCount: number;
     yStart: number;
     yCount: number;
   } | null = null;
   /** Box plot category window and optional numeric Y window. */
-  private boxWindow: { start: number; count: number } | null = null;
-  private boxY: { min: number; max: number } | null = null;
+  boxWindow: { start: number; count: number } | null = null;
+  boxY: { min: number; max: number } | null = null;
   /** Correlation matrix row/column window. */
-  private corrWindow: { start: number; count: number } | null = null;
+  corrWindow: { start: number; count: number } | null = null;
   /** Treemap / top-terms item window. */
-  private itemWindow: { start: number; count: number } | null = null;
+  itemWindow: { start: number; count: number } | null = null;
   private readonly animationTimeSelect: HTMLSelectElement;
   private readonly animationGrainSelect: HTMLSelectElement;
   /** "every" before a time grain, "by" before each value / steps of N. */
@@ -1019,7 +1020,7 @@ export class ChartCard {
 
   private readonly kindSelect: HTMLSelectElement;
   private readonly sourceSelect: HTMLSelectElement;
-  private readonly sourceWrap: HTMLElement;
+  readonly sourceWrap: HTMLElement;
   private sources: ChartSource[] = [];
   private readonly viewKindSelect: HTMLSelectElement;
   private readonly viewAxisSelect: HTMLSelectElement;
@@ -1073,12 +1074,12 @@ export class ChartCard {
   private readonly filterColumnSelect: HTMLSelectElement;
   private readonly filterValueSelect: HTMLSelectElement;
   private readonly filterRespectInput: HTMLInputElement;
-  private readonly chartFilterRow: HTMLElement;
+  readonly chartFilterRow: HTMLElement;
   /** Aggregate result for the card's own value-over-time line. */
   private valueResult: AggregateMessage | null = null;
   private readonly xSelect: HTMLSelectElement;
   private readonly ySelect: HTMLSelectElement;
-  private readonly colorSelect: HTMLSelectElement;
+  readonly colorSelect: HTMLSelectElement;
   private readonly sizeSelect: HTMLSelectElement;
   private readonly modeSelect: HTMLSelectElement;
   private readonly densityStyleSelect: HTMLSelectElement;
@@ -1088,11 +1089,11 @@ export class ChartCard {
   private readonly axesPanel: HTMLElement;
   private readonly xWrap: HTMLElement;
   private readonly yWrap: HTMLElement;
-  private readonly colorWrap: HTMLElement;
+  readonly colorWrap: HTMLElement;
   private readonly sizeWrap: HTMLElement;
   private readonly sizeTagLabel: HTMLElement;
   private readonly primaryTagLabel: HTMLElement;
-  private readonly bubbleAggField: HTMLElement;
+  readonly bubbleAggField: HTMLElement;
   private readonly modeWrap: HTMLElement;
   private readonly densityStyleWrap: HTMLElement;
   private readonly xTagLabel: HTMLElement;
@@ -1126,11 +1127,11 @@ export class ChartCard {
   private readonly xTitleInput: HTMLInputElement;
   private readonly yTitleInput: HTMLInputElement;
   private readonly yUnitInput: HTMLInputElement;
-  private readonly canvas: HTMLCanvasElement;
+  readonly canvas: HTMLCanvasElement;
   private readonly mapControls: HTMLElement;
   readonly canvasWrap: HTMLElement;
   private readonly scopeEl: HTMLElement;
-  private readonly summaryEl: HTMLElement;
+  readonly summaryEl: HTMLElement;
   /** One short note under the heading (see lint); dismissed notes stay dismissed. */
   private readonly lintEl = el("div", { class: "chart-lint hidden", role: "note" });
   private readonly dismissedNotes = new Set<string>();
@@ -1141,14 +1142,14 @@ export class ChartCard {
   private totalRowCount = 0;
   private readonly legendEl: HTMLElement;
   private readonly tooltipEl: HTMLElement;
-  private readonly settingsBody: HTMLElement;
+  readonly settingsBody: HTMLElement;
   private settingsDisclosure: HTMLDetailsElement | null = null;
-  private sidebar!: HTMLElement;
+  sidebar!: HTMLElement;
   private sidebarToggle!: HTMLButtonElement;
   private layoutEl!: HTMLElement;
-  private sidebarShown = false;
+  sidebarShown = false;
   private settingsDismiss: (() => void) | null = null;
-  private hitRegions: HitRegion[] = [];
+  hitRegions: HitRegion[] = [];
   private exclusionBar!: HTMLElement;
   private pointerAt: { x: number; y: number; clientX: number; clientY: number } | null = null;
   /** Last hovered/clicked region, retained while the card menu is open. */
@@ -3307,7 +3308,7 @@ export class ChartCard {
   }
 
   /** A view-bound card hides the raw-column pickers; its type comes from the view. */
-  private syncSourceControls(): void {
+  syncSourceControls(): void {
     const bound = this.config.source !== "";
     const kind = this.config.kind;
     this.kindSelect.classList.toggle("hidden", bound);
@@ -3333,7 +3334,7 @@ export class ChartCard {
    * chart type and for charts of a Pivot View (which hide the raw-column pickers). Everything
    * that changes the type, the source, the value or the columns calls this.
    */
-  private syncFieldVisibility(): void {
+  syncFieldVisibility(): void {
     const bound = this.config.source !== "";
     const kind = this.config.kind;
     const pair = isPairKind(kind);
@@ -4562,86 +4563,7 @@ export class ChartCard {
   }
 
   private mapExtract(facts: [string, string][], table: (name: string, rows: string[][]) => void): void {
-    const colorMeta = this.meta(this.config.colorColumn);
-    const agg = this.config.mapColorAgg ?? "mean";
-    const places = (this.config.mapMode ?? DEFAULT_MAP_MODE) === "places";
-    const colorName = colorMeta === undefined ? "colour" : places ? `${MAP_COLOR_AGG_NAMES[agg]}_${colorMeta.name}` : colorMeta.name;
-    const sizeName = this.config.sizeColumn >= 0 ? `${this.config.bubbleAgg ?? "count"}_${this.meta(this.config.sizeColumn)?.name ?? "size"}` : "";
-    const anim = this.animationResult?.places;
-    const frames = this.animationResult?.frames ?? [];
-    const lonName = this.meta(this.config.x)?.name ?? "longitude";
-    const latName = this.meta(this.config.y)?.name ?? "latitude";
-    if (anim !== undefined && this.placeFrame() !== null) {
-      facts.push(["Places", `${anim.shown.toLocaleString()} of ${anim.totalPlaces.toLocaleString()}${anim.shown < anim.totalPlaces ? " (the busiest)" : ""}, over ${frames.length.toLocaleString()} periods`]);
-      if (anim.colorRange !== null) facts.push(["Colour scale", `${formatChartNumber(this.config.colorMin ?? anim.colorRange.min)} to ${formatChartNumber(this.config.colorMax ?? anim.colorRange.max)}, the same in every period; the automatic range is the middle 90% of place values`]);
-      if (anim.sizeRange !== null) facts.push(["Size scale", `${num(this.config.dotValueMin ?? anim.sizeRange.min)} to ${num(this.config.dotValueMax ?? anim.sizeRange.max)}`]);
-      const perFrame: string[][] = [["period", "places", "rows", ...(anim.color === null ? [] : [`${colorName}_overall`, `lowest_place`, `highest_place`])]];
-      const nameColumn = this.meta(this.mapLabelColumn())?.name;
-      const every: string[][] = [["period", ...(anim.labels === undefined || nameColumn === undefined ? [] : [nameColumn]), lonName, latName, "rows", ...(sizeName === "" ? [] : [sizeName]), ...(anim.color === null ? [] : [colorName])]];
-      frames.forEach((frame, index) => {
-        const offset = index * anim.shown;
-        let rows = 0;
-        let active = 0;
-        let weighted = 0;
-        let weight = 0;
-        const values: number[] = [];
-        for (let place = 0; place < anim.shown; place++) {
-          const count = anim.counts[offset + place]!;
-          if (count === 0) continue;
-          rows += count;
-          active++;
-          const color = anim.color?.[offset + place] ?? Number.NaN;
-          if (Number.isFinite(color)) {
-            values.push(color);
-            weighted += color * count;
-            weight += count;
-          }
-          every.push([
-            frame.label,
-            ...(anim.labels === undefined || nameColumn === undefined ? [] : [anim.labels[place] ?? ""]),
-            num(anim.x[place]),
-            num(anim.y[place]),
-            String(count),
-            ...(sizeName === "" ? [] : [num(anim.size[offset + place])]),
-            ...(anim.color === null ? [] : [num(color)]),
-          ]);
-        }
-        const stats = summarise(values);
-        // An average of places weighted by their rows is the plain average of the rows; other roll-ups add or spread.
-        const overall = agg === "mean" ? (weight > 0 ? weighted / weight : Number.NaN) : agg === "sum" ? (stats?.sum ?? Number.NaN) : agg === "min" ? (stats?.min ?? Number.NaN) : (stats?.max ?? Number.NaN);
-        perFrame.push([
-          frame.label,
-          String(active),
-          String(rows),
-          ...(anim.color === null ? [] : [num(overall), num(stats?.min), num(stats?.max)]),
-        ]);
-      });
-      table("Each period", perFrame);
-      table("Every place in every period", every);
-      return;
-    }
-    const result = this.seriesResult;
-    if (result === null || result.mode !== "points") return;
-    facts.push([places ? "Places" : "Points", `${result.shown.toLocaleString()} from ${result.total.toLocaleString()} rows${result.sampled ? (places ? " (the busiest)" : " (a sample)") : ""}`]);
-    if (result.colorValues !== null && result.places === true) {
-      const range = robustRange(result.colorValues, result.shown);
-      if (range !== null) facts.push(["Colour scale", `${formatChartNumber(this.config.colorMin ?? range.min)} to ${formatChartNumber(this.config.colorMax ?? range.max)}; the automatic range is the middle 90% of place values`]);
-    }
-    const nameColumn = result.places === true && this.placeLabels !== null ? this.meta(this.mapLabelColumn())?.name : undefined;
-    const rows: string[][] = [[...(nameColumn === undefined ? [] : [nameColumn]), lonName, latName, ...(result.counts ? ["rows"] : []), ...(result.size === null ? [] : [sizeName || "size"]), ...(colorMeta === undefined ? [] : [colorName])]];
-    for (let index = 0; index < result.shown; index++) {
-      rows.push([
-        ...(nameColumn === undefined ? [] : [this.placeLabels?.[index] ?? ""]),
-        num(result.x[index]),
-        num(result.y[index]),
-        ...(result.counts ? [String(result.counts[index] ?? 0)] : []),
-        ...(result.size === null ? [] : [num(result.size[index])]),
-        ...(colorMeta === undefined
-          ? []
-          : [result.colorValues !== null ? num(result.colorValues[index]) : result.colorCodes !== null ? (this.seriesLabels?.[result.colorCodes[index] ?? -1] ?? "") : ""]),
-      ]);
-    }
-    table(places ? "Places" : "Points", rows);
+    return mapExtract(this, facts, table);
   }
 
   private exportCsv(): void {
@@ -4943,7 +4865,7 @@ export class ChartCard {
     return { wrap, label };
   }
 
-  private meta(index: number): ColumnMeta | undefined {
+  meta(index: number): ColumnMeta | undefined {
     return index >= 0 ? this.columns[index] : undefined;
   }
 
@@ -5575,11 +5497,11 @@ export class ChartCard {
     }
   }
 
-  private option(value: string, label: string): HTMLOptionElement {
+  option(value: string, label: string): HTMLOptionElement {
     return el("option", { value }, [label]) as HTMLOptionElement;
   }
 
-  private renderControls(): void {
+  renderControls(): void {
     const kind = this.config.kind;
     const pair = isPairKind(kind);
     this.syncFieldVisibility();
@@ -5781,7 +5703,7 @@ export class ChartCard {
   }
 
   /** Ramp stops for a palette name, flipped when Reverse is on. */
-  private rampStopsFor(name: string): string[] {
+  rampStopsFor(name: string): string[] {
     const stops = paletteStops(name, parseCustomColors(this.config.paletteCustom ?? ""));
     return this.config.paletteReversed === true ? [...stops].reverse() : stops;
   }
@@ -5790,7 +5712,7 @@ export class ChartCard {
    * The single-series colour: the palette's first colour unless the user
    * picked one, so choosing a palette applies to every chart immediately.
    */
-  private primaryColor(): string {
+  primaryColor(): string {
     if (this.config.colorCustom === true) return this.config.color;
     return this.paletteColor(0, 1) || this.config.color;
   }
@@ -5800,63 +5722,12 @@ export class ChartCard {
     return colors[index % colors.length] ?? this.primaryColor();
   }
 
-  /** The Map page's regions, told about the card through these. */
   private regionOptions(requests: RegionRequests): MapRegionsOptions {
-    return {
-      ...requests,
-      columns: () => this.columns,
-      coordinates: () => {
-        const x = this.meta(this.config.x);
-        const y = this.meta(this.config.y);
-        return x !== undefined && y !== undefined && isNumericType(x.type) && isNumericType(y.type) && this.config.x !== this.config.y ? { x: this.config.x, y: this.config.y } : null;
-      },
-      scope: () => this.chartScope(),
-      onLoaded: () => {
-        this.config.mapMode = "regions";
-        this.onMapModeChange?.("regions");
-        this.mapView = null;
-        this.stopAnimation();
-        this.animationResult = null;
-        this.renderControls();
-        this.render();
-      },
-      onCleared: () => {
-        this.mapView = null;
-        this.renderControls();
-        this.refreshSeries();
-        this.render();
-      },
-      onChange: () => {
-        this.syncRegionAxes();
-        this.render();
-      },
-      onFrames: (frames, rows) => {
-        if (!this.regionsOn()) return;
-        this.stopAnimation();
-        this.animationFrame = 0;
-        this.animationResult = frames === null ? null : { frames: frames.labels.map((label, index) => ({ label, time: frames.times[index] ?? 0 })), maxCount: 0, total: rows, missing: 0 };
-        this.syncAnimationBar();
-      },
-    };
+    return regionOptions(this, requests);
   }
 
-  /** What the map shows: markers (one dot per place or per row), a heat grid, or regions. */
   setMapMode(mode: "points" | "heat" | "places" | "regions"): void {
-    this.config.mapMode = mode;
-    if (mode === "places" || mode === "points") this.mapModeSelect.value = this.mapModeChoice();
-    this.gridField.classList.toggle("hidden", mode !== "heat");
-    // A place holds many rows: a number can be averaged across them, a category cannot.
-    const colorMeta = this.meta(this.config.colorColumn);
-    if (this.config.mapMode === "places" && colorMeta !== undefined && !isNumericType(colorMeta.type)) this.config.colorColumn = -1;
-    this.generation++;
-    this.refreshSeries();
-    this.refreshMapGrid();
-    this.refreshAnimation();
-    this.syncSourceControls();
-    this.renderControls();
-    this.render();
-    if (mode === "regions" || mode === "heat") this.setSettingsOpen(true);
-    this.onMapModeChange?.(mode);
+    return setMapMode(this, mode);
   }
 
   /** The current kind of map, and news of it changing, for the Map page's picker. */
@@ -5866,32 +5737,14 @@ export class ChartCard {
 
   onMapModeChange: ((mode: "points" | "heat" | "places" | "regions") => void) | null = null;
 
-  /** Regions matched by name need no coordinates, so their columns would only confuse. */
-  private syncRegionAxes(): void {
-    this.syncFieldVisibility();
-    // A choropleth has its own value and colours: the general chart settings would only mislead.
-    const regions = this.regionsOn();
-    this.bubbleAggField.classList.toggle("hidden", regions);
-    this.sourceWrap.classList.toggle("map-hide-for-regions", regions);
-    for (const child of this.settingsBody.children) {
-      if (child !== this.chartFilterRow) child.classList.toggle("map-hide-for-regions", regions);
-    }
-    if (regions) this.chartFilterRow.classList.remove("hidden");
-    this.settingsBody.closest(".chart-side-settings")?.querySelector(".chart-side-title")?.replaceChildren(regions ? "Which rows count" : "Colour, filter and format");
-    // Sections left with nothing showing would be only their dividing lines.
-    if (this.sidebarShown) {
-      for (const section of this.sidebar.querySelectorAll<HTMLElement>(":scope > .chart-side-section")) {
-        section.classList.remove("map-hide-for-regions");
-        if (regions && section.offsetHeight > 0 && [...section.children].every((child) => (child as HTMLElement).offsetHeight === 0)) section.classList.add("map-hide-for-regions");
-      }
-    }
-    this.onRegionsChange?.(this.regionsOn());
+  syncRegionAxes(): void {
+    return syncRegionAxes(this);
   }
 
   /** News for the Map page, whose "no coordinates" notice does not apply to regions. */
   onRegionsChange: ((showing: boolean) => void) | null = null;
 
-  private regionsOn(): boolean {
+  regionsOn(): boolean {
     return this.config.kind === "map" && this.config.mapMode === "regions";
   }
 
@@ -6305,7 +6158,7 @@ export class ChartCard {
     return clamp(Math.ceil(spanMs / (30 * day)) + 1);
   }
 
-  private refreshBins(): void {
+  refreshBins(): void {
     if (this.config.kind === "line") {
       const meta = this.meta(this.config.column);
       const fullMin = meta?.stats.min;
@@ -6432,7 +6285,7 @@ export class ChartCard {
   }
 
   /** Worker scope for the card's own category filter and table-filter toggle. */
-  private chartScope(): {
+  chartScope(): {
     chartFilter?: { column: number; code: number };
     chartExclude?: ChartExclusion[];
     respectFilters: boolean;
@@ -6456,7 +6309,7 @@ export class ChartCard {
     return list.length > 0 ? { chartExclude: list } : {};
   }
 
-  private refreshSeries(): void {
+  refreshSeries(): void {
     if (
       this.config.kind !== "scatter" &&
       this.config.kind !== "density" &&
@@ -6930,7 +6783,7 @@ export class ChartCard {
   }
 
   /** Bubble measure: rows per cell, or sum/mean/min/max of a numeric column. */
-  private bubbleMeasure(): { column: number; agg: "sum" | "mean" | "min" | "max" } | undefined {
+  bubbleMeasure(): { column: number; agg: "sum" | "mean" | "min" | "max" } | undefined {
     const agg = this.config.bubbleAgg ?? "count";
     if (agg === "count" || this.config.sizeColumn < 0) return undefined;
     const meta = this.meta(this.config.sizeColumn);
@@ -6983,55 +6836,15 @@ export class ChartCard {
       });
   }
 
-  /**
-   * Map heat grid: counts (or an aggregate of a numeric measure) per cell over
-   * the filtered coordinate rows, computed worker-side so every row counts.
-   */
-  private refreshMapGrid(): void {
-    if (
-      this.config.kind !== "map" ||
-      this.config.mapMode !== "heat" ||
-      this.options.requestGridCounts === undefined
-    ) {
-      this.mapGrid = null;
-      return;
-    }
-    const x = this.meta(this.config.x);
-    const y = this.meta(this.config.y);
-    if (
-      x === undefined ||
-      y === undefined ||
-      !isNumericType(x.type) ||
-      !isNumericType(y.type)
-    ) {
-      this.mapGrid = null;
-      return;
-    }
-    const generation = ++this.generation;
-    void this.options
-      .requestGridCounts(
-        this.config.x,
-        this.config.y,
-        this.config.bubbleBins ?? 40,
-        this.bubbleMeasure(),
-        undefined,
-        this.chartScope(),
-      )
-      .then((message) => {
-        if (generation !== this.generation || this.disposed) return;
-        this.mapGrid = message.result;
-        this.render();
-      })
-      .catch(() => {
-        // Keep the last payload as the fallback.
-      });
+  refreshMapGrid(): void {
+    return refreshMapGrid(this);
   }
 
   /**
    * Frames for animated bar and bubble charts: one aggregate per time bucket,
    * computed worker-side in a single pass over the filtered rows.
    */
-  private refreshAnimation(): void {
+  refreshAnimation(): void {
     this.stopAnimation();
     const timeColumn = this.config.animationTimeColumn ?? -1;
     if (this.regionsOn()) {
@@ -7258,45 +7071,12 @@ export class ChartCard {
   }
 
   /** A map animates its places: each dot stays put while its size and colour change. */
-  private animatesPlaces(): boolean {
+  animatesPlaces(): boolean {
     return this.config.kind === "map" && (this.config.mapMode ?? DEFAULT_MAP_MODE) === "places";
   }
 
-  /** The dots of the current frame, in the shape the map draws; null when the map is not stepping through time. */
-  private placeFrame(): SeriesPoints | null {
-    const result = this.animationResult;
-    const anim = result?.places;
-    if (result === null || anim === undefined || !this.animatesPlaces() || result.frames.length === 0) return null;
-    const frame = Math.min(Math.max(0, this.animationFrame), result.frames.length - 1);
-    const offset = frame * anim.shown;
-    const keep: number[] = [];
-    let total = 0;
-    for (let place = 0; place < anim.shown; place++) {
-      const count = anim.counts[offset + place]!;
-      if (count === 0) continue;
-      keep.push(place);
-      total += count;
-    }
-    const pick = (values: ArrayLike<number>, base: number): Float64Array => Float64Array.from(keep, (place) => values[base + place]!);
-    this.framePlaces = keep;
-    return {
-      mode: "points",
-      x: pick(anim.x, 0),
-      y: pick(anim.y, 0),
-      colorValues: anim.color === null ? null : pick(anim.color, offset),
-      colorCodes: null,
-      size: pick(anim.size, offset),
-      counts: pick(anim.counts, offset),
-      places: true,
-      shown: keep.length,
-      total,
-      outside: 0,
-      xMin: 0,
-      xMax: 1,
-      yMin: 0,
-      yMax: 1,
-      sampled: anim.shown < anim.totalPlaces,
-    };
+  placeFrame(): SeriesPoints | null {
+    return placeFrame(this);
   }
 
   /** Why this chart cannot step through time right now; null when it can. */
@@ -7417,7 +7197,7 @@ export class ChartCard {
     this.syncAnimationBar();
   }
 
-  private stopAnimation(): void {
+  stopAnimation(): void {
     if (this.animationTimer !== null) {
       window.clearInterval(this.animationTimer);
       this.animationTimer = null;
@@ -7427,7 +7207,7 @@ export class ChartCard {
   }
 
   /** Playback bar state: visible only while frames exist. */
-  private syncAnimationBar(): void {
+  syncAnimationBar(): void {
     const result = this.animationResult;
     const active = result !== null && result.frames.length > 1;
     this.animationBar.classList.toggle("hidden", !active);
@@ -8686,145 +8466,12 @@ export class ChartCard {
     for (const action of region.actions) this.applyHitAction(action);
   }
 
-  /** Map cards: the rectangle brush starts on pointerdown. */
   private beginMapBrush(event: PointerEvent): void {
-    const kind = this.config.kind;
-    if (
-      (kind !== "map" &&
-        kind !== "scatter" &&
-        kind !== "density" &&
-        kind !== "bubble" &&
-        kind !== "line" &&
-        kind !== "histogram" &&
-        kind !== "bar" &&
-        kind !== "heatmap" &&
-        kind !== "box" &&
-        kind !== "correlation" &&
-        kind !== "treemap" &&
-        kind !== "terms") ||
-      this.lastFrame === null
-    ) {
-      return;
-    }
-    const rect = this.canvas.getBoundingClientRect();
-    const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    const frame = this.lastFrame;
-    if (
-      point.x < frame.left ||
-      point.x > frame.left + frame.plotW ||
-      point.y < frame.top ||
-      point.y > frame.top + frame.plotH
-    ) {
-      return;
-    }
-    if (kind !== "map" && event.shiftKey && this.brushSpace !== null) {
-      this.dragMoved = false;
-      this.brushDrag = { x0: point.x, y0: point.y, x1: point.x, y1: point.y };
-      try {
-        this.canvas.setPointerCapture(event.pointerId);
-      } catch {
-        // Pointer capture is best-effort.
-      }
-      return;
-    }
-    if (kind !== "map") {
-      // Scatter/density: drag pans the viewport.
-      this.dragMoved = false;
-      this.plotDrag = point;
-      try {
-        this.canvas.setPointerCapture(event.pointerId);
-      } catch {
-        // Pointer capture is best-effort.
-      }
-      return;
-    }
-    if (!event.shiftKey) {
-      // Plain drag pans the viewport; Shift+drag is the rectangle filter.
-      this.dragMoved = false;
-      this.mapDrag = point;
-      try {
-        this.canvas.setPointerCapture(event.pointerId);
-      } catch {
-        // Pointer capture is best-effort.
-      }
-      return;
-    }
-    this.mapBrushStart = point;
-    this.dragMoved = false;
-    this.mapBrush = { x0: point.x, y0: point.y, x1: point.x, y1: point.y };
-    try {
-      this.canvas.setPointerCapture(event.pointerId);
-    } catch {
-      // Pointer capture is best-effort.
-    }
+    return beginMapBrush(this, event);
   }
 
-  /**
-   * Map brush release: converts the rectangle to lon/lat bounds and filters
-   * both coordinate columns. Rects smaller than 6 px are treated as clicks.
-   */
   private endMapBrush(event: PointerEvent): void {
-    if (this.brushDrag !== null) {
-      const rect = this.canvas.getBoundingClientRect();
-      const drag = { ...this.brushDrag, x1: event.clientX - rect.left, y1: event.clientY - rect.top };
-      this.brushDrag = null;
-      this.finishBrush(drag);
-      return;
-    }
-    if (this.config.kind !== "map") {
-      this.plotDrag = null;
-      return;
-    }
-    this.mapDrag = null;
-    if (this.mapBrushStart === null) return;
-    const rect = this.canvas.getBoundingClientRect();
-    const end = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    const frame = this.lastFrame;
-    this.mapBrushStart = null;
-    const brush = this.mapBrush;
-    this.mapBrush = null;
-    if (frame === null || brush === null) return;
-    const drag = {
-      x0: Math.min(brush.x0, end.x),
-      y0: Math.min(brush.y0, end.y),
-      x1: Math.max(brush.x0, end.x),
-      y1: Math.max(brush.y0, end.y),
-    };
-    const clampX = (value: number): number =>
-      Math.max(frame.left, Math.min(frame.left + frame.plotW, value));
-    const clampY = (value: number): number =>
-      Math.max(frame.top, Math.min(frame.top + frame.plotH, value));
-    if (
-      clampX(drag.x1) - clampX(drag.x0) < 6 ||
-      clampY(drag.y1) - clampY(drag.y0) < 6
-    ) {
-      this.render();
-      return;
-    }
-    const view = this.mapViewShown();
-    const bounds = mapBrushBounds(
-      {
-        left: frame.left,
-        top: frame.top,
-        plotW: frame.plotW,
-        plotH: frame.plotH,
-        lonMin: view.lonMin,
-        lonMax: view.lonMax,
-        latMin: view.latMin,
-        latMax: view.latMax,
-      },
-      drag,
-    );
-    const selection: MapBrushSelection = {
-      lonColumn: this.config.x,
-      lonMin: bounds.lonMin,
-      lonMax: bounds.lonMax,
-      latColumn: this.config.y,
-      latMin: bounds.latMin,
-      latMax: bounds.latMax,
-    };
-    this.render();
-    this.options.onMapBrush?.(selection);
+    return endMapBrush(this, event);
   }
 
   /**
@@ -8832,7 +8479,7 @@ export class ChartCard {
    * plotted columns and hands them to the table filters. Drags under 6 px are
    * ignored; one-axis charts (line, histogram) use the horizontal extent only.
    */
-  private finishBrush(drag: { x0: number; y0: number; x1: number; y1: number }): void {
+  finishBrush(drag: { x0: number; y0: number; x1: number; y1: number }): void {
     const space = this.brushSpace;
     this.render();
     if (space === null || this.options.onBrush === undefined) return;
@@ -9148,19 +8795,8 @@ export class ChartCard {
     this.render();
   }
 
-  /** Zoom the map around a normalized anchor (0.5, 0.5 = the centre). */
   private zoomMap(factor: number, tx = 0.5, ty = 0.5): void {
-    if (this.config.kind !== "map") return;
-    const view = this.mapViewShown();
-    const lon = view.lonMin + tx * (view.lonMax - view.lonMin);
-    const lat = view.latMin + ty * (view.latMax - view.latMin);
-    const scale = Math.max(factor, 0.002 / Math.min(view.lonMax - view.lonMin, view.latMax - view.latMin));
-    const lonSpan = Math.min(360, (view.lonMax - view.lonMin) * scale);
-    const latSpan = Math.min(180, (view.latMax - view.latMin) * scale);
-    const lonMin = Math.min(180 - lonSpan, Math.max(-180, lon - tx * lonSpan));
-    const latMin = Math.min(90 - latSpan, Math.max(-90, lat - ty * latSpan));
-    this.mapView = { lonMin, lonMax: lonMin + lonSpan, latMin, latMax: latMin + latSpan };
-    this.render();
+    return zoomMap(this, factor, tx, ty);
   }
 
   /** Heat grids are drawn as an image of cells, so they go out as a PNG. */
@@ -9198,187 +8834,28 @@ export class ChartCard {
     return this.regions;
   }
 
-  /** The map as one web page that needs nothing else, with zoom, pan, hover and any time slider. */
   exportMapHtml(): boolean {
-    const payload = this.mapHtmlPayload();
-    if (payload === null) {
-      this.noteEl.textContent = "This map has nothing to export yet.";
-      return false;
-    }
-    const name = `${safeFileName(this.config.title.trim() !== "" ? this.config.title.trim() : `${this.options.datasetName()}-map`)}.html`;
-    const ok = downloadHtml(name, buildMapHtml(payload));
-    if (ok) this.noteEl.textContent = `Saved ${name}: open it in any browser, no internet needed`;
-    return ok;
+    return exportMapHtml(this);
   }
 
-  private mapHtmlPayload(): MapHtmlPayload | null {
-    const view = this.mapViewShown();
-    const lonPad = view.lonMax - view.lonMin;
-    const latPad = view.latMax - view.latMin;
-    // The coast near the view, at the detail the map is showing, and the whole world's only when it is zoomed out.
-    const base = lonPad <= DETAIL_LON_SPAN && this.detailBasemap !== null ? this.detailBasemap : this.basemap;
-    const land = (base?.land ?? [])
-      .filter((ring) => {
-        let inside = false;
-        for (let i = 0; i < ring.length && !inside; i += 2) {
-          inside = ring[i]! >= view.lonMin - lonPad * 3 && ring[i]! <= view.lonMax + lonPad * 3 && ring[i + 1]! >= view.latMin - latPad * 3 && ring[i + 1]! <= view.latMax + latPad * 3;
-        }
-        return inside;
-      })
-      .map((ring) => roundRing(ring, 3));
-    const markers = this.mapMarkers.map((marker) => ({ lon: marker.lon, lat: marker.lat, label: marker.label, size: marker.size ?? 7 }));
-    const shared = {
-      title: this.config.title.trim() !== "" ? this.config.title.trim() : this.options.datasetName() === "" ? "Map" : this.options.datasetName(),
-      view,
-      land,
-      ...(markers.length === 0 ? {} : { markers }),
-      credit: `Made with TurboFuzz on ${new Date().toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`,
-    };
-    if (this.regionsOn()) {
-      const data = this.regions?.exportData();
-      if (data === null || data === undefined) return null;
-      return { ...shared, subtitle: data.legend.title, frames: data.frames, regions: data.regions, legend: data.legend };
-    }
-    const saved = this.animationFrame;
-    const stepping = this.animationResult?.places !== undefined && this.placeFrame() !== null;
-    const labels = stepping ? (this.animationResult?.frames ?? []).map((frame) => frame.label) : [""];
-    const colours: string[] = [];
-    const indexOf = new Map<string, number>();
-    const frames: NonNullable<MapHtmlPayload["dots"]>["frames"] = [];
-    let legend: MapHtmlLegend | null = null;
-    const colorMeta = this.meta(this.config.colorColumn);
-    labels.forEach((_, frameIndex) => {
-      if (stepping) this.animationFrame = frameIndex;
-      const result = this.placeFrame() ?? this.seriesResult;
-      if (result === null || result.mode !== "points") return;
-      const sizes = this.mapRadii(result, 1);
-      const buckets = this.colorBuckets(result);
-      const out = { x: [] as number[], y: [] as number[], r: [] as number[], c: [] as number[], tips: [] as string[][] };
-      for (let i = 0; i < result.shown; i++) {
-        const lon = result.x[i]!;
-        const lat = result.y[i]!;
-        if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
-        const colour = buckets === null ? this.primaryColor() : (buckets.colors[buckets.buckets[i]!] ?? this.primaryColor());
-        let at = indexOf.get(colour);
-        if (at === undefined) {
-          at = colours.length;
-          colours.push(colour);
-          indexOf.set(colour, at);
-        }
-        out.x.push(Math.round(lon * 1e5) / 1e5);
-        out.y.push(Math.round(lat * 1e5) / 1e5);
-        out.r.push(Math.round((sizes === null ? (this.config.dotMinRadius ?? 2.2) : sizes[i]!) * 10) / 10);
-        out.c.push(at);
-        out.tips.push(this.mapDotLines(result, i, lon, lat));
-      }
-      frames.push(out);
-      if (legend === null && buckets?.domain !== undefined && colorMeta !== undefined) {
-        const agg = result.places === true ? `${MAP_COLOR_AGG_NAMES[this.config.mapColorAgg ?? "mean"]} ` : "";
-        legend = { title: `Colour: ${agg}${colorMeta.name}`, ramp: { stops: buckets.colors.slice(0, 16), low: formatCompact(buckets.domain.min), high: formatCompact(buckets.domain.max) } };
-      }
-    });
-    if (stepping) this.animationFrame = saved;
-    if (frames.length === 0) return null;
-    const last = frames[frames.length - 1]!;
-    if (legend === null && last.r.length > 0 && this.dotsAreSized()) legend = { title: "Dots" };
-    const sizeRange = this.seriesResult?.mode === "points" && this.seriesResult.size !== null ? dataRange(this.seriesResult.size, this.seriesResult.shown) : null;
-    const fixed = stepping ? (this.animationResult?.places?.sizeRange ?? null) : null;
-    const span = fixed ?? sizeRange;
-    if (legend !== null && span !== null && this.dotsAreSized()) {
-      (legend as MapHtmlLegend).sizes = { title: this.meta(this.config.sizeColumn)?.name ?? "rows", low: formatCompact(span.min), high: formatCompact(span.max) };
-    }
-    const lead = this.summaryEl.textContent?.trim() ?? "";
-    return { ...shared, subtitle: colorMeta === undefined ? lead : `Coloured by ${colorMeta.name}`, frames: labels, dots: { frames, colours, opacity: this.config.dotOpacity ?? 0.6 }, legend };
+  mapHtmlPayload(): MapHtmlPayload | null {
+    return mapHtmlPayload(this);
   }
 
-  /** What the map shows: the view asked for, in the shape of the plot, so places keep their proportions. */
-  private mapViewShown(): MapViewport {
-    const view = this.mapView ?? this.mapViewOrAuto();
-    const frame = this.lastFrame;
-    return frame === null ? view : fitViewToPlot(view, frame.plotW, frame.plotH);
+  mapViewShown(): MapViewport {
+    return mapViewShown(this);
   }
 
-  /** Auto viewport: custom regions, then heat grid, then point percentiles. */
-  private mapViewOrAuto(): MapViewport {
-    const base = this.dataViewOrNull();
-    const markers = this.markerBox();
-    if (markers === null) return base ?? { lonMin: -180, lonMax: 180, latMin: -90, latMax: 90 };
-    if (base === null) return this.frameBox(markers);
-    // Markers inside what is plotted change nothing; one outside widens the view to take it in, so none is ever off screen.
-    const inside = markers.lonMin >= base.lonMin && markers.lonMax <= base.lonMax && markers.latMin >= base.latMin && markers.latMax <= base.latMax;
-    if (inside) return base;
-    return this.frameBox({
-      lonMin: Math.min(base.lonMin, markers.lonMin), lonMax: Math.max(base.lonMax, markers.lonMax),
-      latMin: Math.min(base.latMin, markers.latMin), latMax: Math.max(base.latMax, markers.latMax),
-    });
+  mapViewOrAuto(): MapViewport {
+    return mapViewOrAuto(this);
   }
 
-  /** The view for what is plotted alone (regions, heat grid, or the middle 98% of the points). */
-  private dataViewOrNull(): MapViewport | null {
-    if (this.regionsOn() && this.regions?.bounds != null) return { ...this.regions.bounds };
-    if (this.mapGrid !== null) {
-      return {
-        lonMin: this.mapGrid.xMin,
-        lonMax: this.mapGrid.xMax,
-        latMin: this.mapGrid.yMin,
-        latMax: this.mapGrid.yMax,
-      };
-    }
-    if (this.seriesResult !== null && this.seriesResult.mode === "points") {
-      const fitted = fitMapView(this.seriesResult.x, this.seriesResult.y);
-      if (fitted !== null) return fitted;
-    }
-    return null;
+  dataViewOrNull(): MapViewport | null {
+    return dataViewOrNull(this);
   }
+
   private resetMapZoom(): void {
-    let changed = false;
-    let binsChanged = false;
-    if (this.config.kind === "map" && this.mapView !== null) {
-      this.mapView = null;
-      changed = true;
-    }
-    if (
-      (this.config.kind === "scatter" ||
-        this.config.kind === "density" ||
-        this.config.kind === "bubble") &&
-      this.plotView !== null
-    ) {
-      this.plotView = null;
-      changed = true;
-    }
-    if (
-      (this.config.kind === "line" || this.config.kind === "histogram") &&
-      this.chartXZoom !== null
-    ) {
-      this.chartXZoom = null;
-      binsChanged = true;
-    }
-    if (this.config.kind === "bar" && this.barWindow !== null) {
-      this.barWindow = null;
-      changed = true;
-    }
-    if (this.config.kind === "heatmap" && this.heatWindow !== null) {
-      this.heatWindow = null;
-      changed = true;
-    }
-    if (this.config.kind === "box" && (this.boxWindow !== null || this.boxY !== null)) {
-      this.boxWindow = null;
-      this.boxY = null;
-      changed = true;
-    }
-    if (this.config.kind === "correlation" && this.corrWindow !== null) {
-      this.corrWindow = null;
-      changed = true;
-    }
-    if (
-      (this.config.kind === "treemap" || this.config.kind === "terms") &&
-      this.itemWindow !== null
-    ) {
-      this.itemWindow = null;
-      changed = true;
-    }
-    if (binsChanged) this.refreshBins();
-    if (changed || binsChanged) this.render();
+    return resetMapZoom(this);
   }
 
   /** Toggles a category value or sets a range/text filter through the app hook. */
@@ -9733,7 +9210,7 @@ export class ChartCard {
   }
 
   /** Wrapped message drawn inside the empty plot area. */
-  private drawPlotMessage(
+  drawPlotMessage(
     ctx: CanvasRenderingContext2D,
     frame: Frame,
     message: string,
@@ -9986,11 +9463,11 @@ export class ChartCard {
     }
   }
 
-  private font(ctx: CanvasRenderingContext2D, ui: number, size: number, weight = ""): void {
+  font(ctx: CanvasRenderingContext2D, ui: number, size: number, weight = ""): void {
     ctx.font = weight === "" ? `${size * ui}px system-ui, sans-serif` : `${weight} ${size * ui}px system-ui, sans-serif`;
   }
 
-  private fit(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  fit(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
     if (ctx.measureText(text).width <= maxWidth) return text;
     let cut = text;
     while (cut.length > 2 && ctx.measureText(`${cut}…`).width > maxWidth) cut = cut.slice(0, -1);
@@ -10526,36 +10003,16 @@ export class ChartCard {
     this.render();
   }
 
-  /** Back to the automatic view, which covers what is plotted and the page's own markers. */
   fitMapAll(): void {
-    if (this.config.kind !== "map") return;
-    this.mapView = null;
-    this.render();
+    return fitMapAll(this);
   }
 
-  /** A box around the page's own markers: room each side, a few degrees at least, in the plot's own shape. */
-  private markerBox(): MapViewport | null {
-    if (this.mapMarkers.length === 0) return null;
-    let lonMin = Infinity, lonMax = -Infinity, latMin = Infinity, latMax = -Infinity;
-    for (const m of this.mapMarkers) {
-      lonMin = Math.min(lonMin, m.lon); lonMax = Math.max(lonMax, m.lon);
-      latMin = Math.min(latMin, m.lat); latMax = Math.max(latMax, m.lat);
-    }
-    return { lonMin, lonMax, latMin, latMax };
+  markerBox(): MapViewport | null {
+    return markerBox(this);
   }
 
-  /** The viewport that frames `box` with 25% room each side, at least a few degrees across, undistorted. */
-  private frameBox(box: MapViewport): MapViewport {
-    const aspect = this.lastFrame !== null && this.lastFrame.plotH > 0 ? this.lastFrame.plotW / this.lastFrame.plotH : 2;
-    let lonSpan = Math.max(6, (box.lonMax - box.lonMin) * 1.5);
-    let latSpan = Math.max(3, (box.latMax - box.latMin) * 1.5);
-    if (lonSpan / latSpan < aspect) lonSpan = latSpan * aspect;
-    else latSpan = lonSpan / aspect;
-    lonSpan = Math.min(360, lonSpan);
-    latSpan = Math.min(170, latSpan);
-    const left = Math.min(180 - lonSpan, Math.max(-180, (box.lonMin + box.lonMax) / 2 - lonSpan / 2));
-    const bottom = Math.min(85 - latSpan, Math.max(-85, (box.latMin + box.latMax) / 2 - latSpan / 2));
-    return { lonMin: left, lonMax: left + lonSpan, latMin: bottom, latMax: bottom + latSpan };
+  frameBox(box: MapViewport): MapViewport {
+    return frameBox(this, box);
   }
 
   /** While set, a click on the map calls it with the lon/lat under the pointer instead of filtering. */
@@ -10571,523 +10028,28 @@ export class ChartCard {
   }
 
   private drawMap(ctx: CanvasRenderingContext2D, frame: Frame): void {
-    this.mapLegend = null;
-    this.drawMapLayers(ctx, frame);
-    (this.mapLegend as (() => void) | null)?.();
-    this.mapLegend = null;
+    return drawMap(this, ctx, frame);
   }
 
   /** The key is drawn last: names and markers on top of the map must not write over it. */
-  private mapLegend: (() => void) | null = null;
+  mapLegend: (() => void) | null = null;
 
-  private drawMapLayers(ctx: CanvasRenderingContext2D, frame: Frame): void {
-    this.drawMapBody(ctx, frame);
-    if (this.basemap === null) return;
-    const view = this.mapViewShown();
-    const x0 = frame.left, y0 = frame.top, w = frame.plotW, h = frame.plotH;
-    if (this.mapOverlay !== null) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(x0, y0, w, h);
-      ctx.clip();
-      this.mapOverlay(ctx, view, { x: x0, y: y0, w, h, ui: frame.ui });
-      ctx.restore();
-    }
-    if (this.mapMarkers.length === 0) return;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(x0, y0, w, h);
-    ctx.clip();
-    ctx.font = `600 ${11 * frame.ui}px system-ui, sans-serif`;
-    ctx.textBaseline = "middle";
-    ctx.textAlign = "left";
-    for (const marker of this.mapMarkers) {
-      const r = (marker.size ?? 7) * frame.ui;
-      const x = x0 + ((marker.lon - view.lonMin) / (view.lonMax - view.lonMin)) * w;
-      const y = y0 + ((view.latMax - marker.lat) / (view.latMax - view.latMin)) * h;
-      if (x < x0 - r || x > x0 + w + r || y < y0 - r || y > y0 + h + r) continue;
-      ctx.save();
-      marker.draw(ctx, x, y, r);
-      ctx.restore();
-      if (marker.label !== "") {
-        // A halo in the panel colour keeps the label readable over any picture, in either theme.
-        ctx.lineWidth = 3;
-        ctx.lineJoin = "round";
-        ctx.strokeStyle = cssVar("--panel", "#ffffff");
-        ctx.strokeText(marker.label, x + r + 3, y);
-        ctx.fillStyle = cssVar("--text", "#1c2430");
-        ctx.fillText(marker.label, x + r + 3, y);
-      }
-      this.hitRegions.push({
-        x: x - r,
-        y: y - r,
-        w: 2 * r,
-        h: 2 * r,
-        lines: [marker.label || "Marker", `${marker.lat.toFixed(4)}, ${marker.lon.toFixed(4)}`],
-        actions: [],
-      });
-    }
-    ctx.restore();
+  drawMapLayers(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    return drawMapLayers(this, ctx, frame);
   }
 
-  /**
-   * Many markers, few pixels: the markers that fall in the same patch of screen become one numbered circle, sized by how many it
-   * holds, and a lone marker stays a marker. Zooming in, or clicking a circle, splits them. Done in screen space, so it follows the
-   * zoom with no setting to tune.
-   */
-  private drawMapClusters(
-    ctx: CanvasRenderingContext2D,
-    result: SeriesPoints,
-    view: MapViewport,
-    px: (lon: number) => number,
-    py: (lat: number) => number,
-    ui: number,
-    drawAt: (index: number) => void,
-    dotAlpha: number,
-  ): void {
-    const cell = 46 * ui;
-    const cells = new Map<number, { n: number; sx: number; sy: number; first: number; lonMin: number; lonMax: number; latMin: number; latMax: number }>();
-    for (let i = 0; i < result.shown; i++) {
-      const lon = result.x[i] ?? Number.NaN, lat = result.y[i] ?? Number.NaN;
-      if (!Number.isFinite(lon) || !Number.isFinite(lat) || lon < view.lonMin || lon > view.lonMax || lat < view.latMin || lat > view.latMax) continue;
-      const x = px(lon), y = py(lat), key = Math.floor(y / cell) * 100_000 + Math.floor(x / cell);
-      const c = cells.get(key);
-      if (c === undefined) cells.set(key, { n: 1, sx: x, sy: y, first: i, lonMin: lon, lonMax: lon, latMin: lat, latMax: lat });
-      else {
-        c.n++; c.sx += x; c.sy += y;
-        if (lon < c.lonMin) c.lonMin = lon; if (lon > c.lonMax) c.lonMax = lon;
-        if (lat < c.latMin) c.latMin = lat; if (lat > c.latMax) c.latMax = lat;
-      }
-    }
-    const colour = this.primaryColor();
-    ctx.lineWidth = Math.max(0.75, 0.8 * ui);
-    let clusters = 0, loose = 0;
-    for (const c of cells.values()) {
-      if (c.n === 1) {
-        // A marker on its own is drawn as it always is.
-        ctx.fillStyle = colour;
-        ctx.strokeStyle = darkerColor(colour, BORDER_DARKER);
-        drawAt(c.first);
-        loose++;
-        continue;
-      }
-      const x = c.sx / c.n, y = c.sy / c.n;
-      const r = Math.min(30 * ui, (10 + 4.2 * Math.log2(c.n)) * ui);
-      ctx.beginPath();
-      ctx.arc(x, y, r + 3 * ui, 0, Math.PI * 2);
-      ctx.fillStyle = colour;
-      ctx.globalAlpha = 0.28;
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.globalAlpha = Math.max(0.8, dotAlpha);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = 1.5 * ui;
-      ctx.strokeStyle = "#ffffff";
-      ctx.stroke();
-      ctx.fillStyle = "#ffffff";
-      ctx.font = `600 ${Math.max(10, Math.min(15, r * 0.8)) * ui}px ${getComputedStyle(this.canvas).fontFamily || "sans-serif"}`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(c.n >= 10_000 ? `${Math.round(c.n / 1000)}k` : c.n >= 1000 ? `${(c.n / 1000).toFixed(1)}k` : String(c.n), x, y + 0.5);
-      ctx.textAlign = "start";
-      ctx.textBaseline = "alphabetic";
-      ctx.lineWidth = Math.max(0.75, 0.8 * ui);
-      this.mapClusters.push({ x, y, r: r + 3 * ui, lonMin: c.lonMin, lonMax: c.lonMax, latMin: c.latMin, latMax: c.latMax });
-      this.hitRegions.push({ x: x - r, y: y - r, w: r * 2, h: r * 2, contains: (hx, hy) => (hx - x) ** 2 + (hy - y) ** 2 <= r * r, lines: [`${c.n.toLocaleString()} markers here`, "Click to zoom in"], actions: [] });
-      clusters++;
-    }
-    ctx.globalAlpha = 1;
-    this.clusterNote = `${clusters.toLocaleString()} cluster${clusters === 1 ? "" : "s"} and ${loose.toLocaleString()} single marker${loose === 1 ? "" : "s"} in view · click a cluster to zoom in`;
+  drawMapClusters(ctx: CanvasRenderingContext2D, result: SeriesPoints, view: MapViewport, px: (lon: number) => number, py: (lat: number) => number, ui: number, drawAt: (index: number) => void, dotAlpha: number): void {
+    return drawMapClusters(this, ctx, result, view, px, py, ui, drawAt, dotAlpha);
   }
-  private clusterNote = "";
+  clusterNote = "";
   /** The "Show" choice that matches the config: places, rows, or rows clustered. */
-  private mapModeChoice(): "places" | "points" | "cluster" {
+  mapModeChoice(): "places" | "points" | "cluster" {
     const mode = this.config.mapMode ?? DEFAULT_MAP_MODE;
     return mode === "places" ? "places" : this.config.mapCluster === true ? "cluster" : "points";
   }
 
-  private drawMapBody(ctx: CanvasRenderingContext2D, frame: Frame): void {
-    if (this.basemap === null) {
-      const cached = basemapCaches.get("110m");
-      if (cached !== undefined) this.basemap = cached;
-    }
-    if (this.basemap === null) {
-      const message = "Loading the offline basemap…";
-      this.noteEl.textContent = message;
-      this.drawPlotMessage(ctx, frame, message);
-      void loadBasemap().then((map) => {
-        this.basemap = map;
-        if (!this.disposed) this.render();
-      });
-      return;
-    }
-    const x0 = frame.left;
-    const y0 = frame.top;
-    const w = frame.plotW;
-    const h = frame.plotH;
-    const view =
-      this.mapViewShown();
-    const lonSpan = view.lonMax - view.lonMin;
-    const latSpan = view.latMax - view.latMin;
-
-    // Regional views get the 50m basemap; the 110m version keeps painting
-    // until the detail module is decoded, so zooming never blocks the map.
-    let map = this.basemap;
-    let detailNote = "";
-    if (lonSpan <= DETAIL_LON_SPAN) {
-      if (this.detailBasemap !== null) {
-        map = this.detailBasemap;
-        detailNote = "50m detail";
-      } else if (!this.detailBasemapRequested && !this.detailBasemapFailed) {
-        this.detailBasemapRequested = true;
-        this.detailBasemapLoading = true;
-        detailNote = "loading map detail…";
-        void loadBasemap("50m")
-          .then((detail) => {
-            this.detailBasemap = detail;
-            this.detailBasemapLoading = false;
-            if (!this.disposed) this.render();
-          })
-          .catch(() => {
-            this.detailBasemapFailed = true;
-            this.detailBasemapLoading = false;
-          });
-      } else if (this.detailBasemapLoading) {
-        detailNote = "loading map detail…";
-      }
-    }
-    const px = (lon: number): number => x0 + ((lon - view.lonMin) / lonSpan) * w;
-    const py = (lat: number): number => y0 + ((view.latMax - lat) / latSpan) * h;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(x0, y0, w, h);
-    ctx.clip();
-
-    // Water is a light blue (a deep blue-grey in the dark theme); over a loaded picture it stays a faint tint.
-    const rootStyle = getComputedStyle(document.documentElement);
-    const [pr, pg, pb] = hexToRgb(rootStyle.getPropertyValue("--panel").trim() || "#ffffff");
-    const darkTheme = pr + pg + pb < 384;
-    const waterColor = darkTheme ? "#16222e" : "#cfe5f4";
-    const landColor = darkTheme ? "#3a3626" : "#f0e2b6";
-    const coastColor = darkTheme ? "#6f6747" : "#b3a36e";
-    ctx.fillStyle = waterColor;
-    ctx.fillRect(x0, y0, w, h);
-
-    // Graticule: 30° at world scale, finer as the viewport zooms in.
-    const gridStep = lonSpan > 180 ? 30 : lonSpan > 60 ? 10 : lonSpan > 20 ? 5 : 1;
-    ctx.strokeStyle = frame.border;
-    ctx.lineWidth = 1;
-    ctx.globalAlpha = 0.4;
-    ctx.beginPath();
-    for (
-      let lon = Math.ceil(view.lonMin / gridStep) * gridStep;
-      lon <= view.lonMax;
-      lon += gridStep
-    ) {
-      ctx.moveTo(px(lon), y0);
-      ctx.lineTo(px(lon), y0 + h);
-    }
-    for (
-      let lat = Math.ceil(view.latMin / gridStep) * gridStep;
-      lat <= view.latMax;
-      lat += gridStep
-    ) {
-      ctx.moveTo(x0, py(lat));
-      ctx.lineTo(x0 + w, py(lat));
-    }
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-
-    {
-      // Land polygons: one fill path, then one stroke path for the coast.
-      const trace = (rings: readonly ArrayLike<number>[]): void => {
-        ctx.beginPath();
-        for (const ring of rings) {
-          let wrap = 0;
-          for (let i = 0; i < ring.length; i += 2) {
-            const lon = ring[i] ?? 0;
-            if (i > 0) {
-              const step = lon - (ring[i - 2] ?? 0);
-              if (step > 180) wrap -= 360;
-              else if (step < -180) wrap += 360;
-            }
-            const x = px(lon + wrap);
-            const y = py(ring[i + 1] ?? 0);
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-          }
-          ctx.closePath();
-        }
-      };
-      trace(map.land);
-      ctx.fillStyle = landColor;
-      ctx.globalAlpha = 1;
-      ctx.fill();
-      ctx.globalAlpha = 0.9;
-      ctx.strokeStyle = coastColor;
-      ctx.lineWidth = 0.75;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-
-      // Country borders add detail without turning the map into a wireframe.
-      trace(map.countries.flatMap((country) => country.rings));
-      ctx.strokeStyle = coastColor;
-      ctx.globalAlpha = 0.55;
-      ctx.lineWidth = 0.6;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-
-    const ui = frame.ui;
-    const regions = this.regions;
-    if (regions !== null && regions.ready) {
-      const period = this.regionsOn() && this.animationResult !== null ? Math.min(this.animationFrame, this.animationResult.frames.length - 1) : 0;
-      const hits = regions.draw(ctx, frame, view, { outline: !this.regionsOn(), frame: period });
-      if (this.regionsOn()) this.hitRegions.push(...hits);
-    }
-    if (this.regionsOn()) {
-      ctx.restore();
-      const label = this.animationResult?.frames[Math.min(this.animationFrame, this.animationResult.frames.length - 1)]?.label;
-      if (label !== undefined) {
-        this.font(ctx, ui, 13, "600");
-        const width = ctx.measureText(label).width;
-        ctx.fillStyle = this.plateColor();
-        ctx.globalAlpha = 0.9;
-        ctx.fillRect(frame.left + 8 * ui, frame.top + 8 * ui, width + 12 * ui, 22 * ui);
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = frame.text;
-        ctx.fillText(label, frame.left + 14 * ui, frame.top + 24 * ui);
-      }
-      if (regions?.ready === true) this.mapLegend = () => regions.drawLegend(ctx, frame, this.plateColor(), (size, weight) => this.font(ctx, ui, size, weight));
-      this.noteEl.textContent = `${regions?.note(this.animationResult === null ? 0 : this.animationFrame) ?? "Regions need a boundary file."}${detailNote === "" ? "" : ` · ${detailNote}`} · scroll to zoom · drag to pan · double-click resets`;
-      return;
-    }
-    if (this.config.mapMode === "heat") {
-      const grid = this.mapGrid;
-      if (grid === null) {
-        this.noteEl.textContent = "Computing the heat grid…";
-        return;
-      }
-      const values = grid.values;
-      const dataMax = Math.max(1, values === null ? grid.maxCount : grid.valueMax);
-      const domain = resolveColorDomain({
-        autoMin: 0,
-        autoMax: dataMax,
-        min: this.config.colorMin,
-        max: this.config.colorMax,
-        center: this.config.colorCenter,
-      });
-      const rampName = this.config.palette ?? DEFAULT_PALETTE;
-      const ramp = isRampPalette(rampName) ? this.rampStopsFor(rampName) : null;
-      const colors = colorRamp(ramp, 32, rampColor);
-      const cellLon = (grid.xMax - grid.xMin) / grid.bins;
-      const cellLat = (grid.yMax - grid.yMin) / grid.bins;
-      const degrees = (d: number): string => (d >= 10 ? d.toFixed(0) : d >= 1 ? d.toFixed(1) : d.toFixed(2));
-      this.gridHint.textContent = `each cell ≈ ${degrees(cellLon)}° × ${degrees(cellLat)}°`;
-      for (let cy = 0; cy < grid.bins; cy++) {
-        for (let cx = 0; cx < grid.bins; cx++) {
-          const index = cy * grid.bins + cx;
-          const value =
-            values === null ? (grid.counts[index] ?? 0) : (values[index] ?? Number.NaN);
-          if (!Number.isFinite(value) || value <= 0) continue;
-          const lon0 = grid.xMin + cx * cellLon;
-          const latTop = grid.yMax - cy * cellLat;
-          const lat0 = latTop - cellLat;
-          if (lon0 + cellLon < view.lonMin || lon0 > view.lonMax) continue;
-          if (lat0 + cellLat < view.latMin || lat0 > view.latMax) continue;
-          const t = colorFraction(value, domain);
-          ctx.fillStyle =
-            colors[Math.min(colors.length - 1, Math.floor(t * colors.length))] ??
-            this.primaryColor();
-          ctx.globalAlpha = 0.82;
-          ctx.fillRect(
-            px(lon0),
-            py(latTop),
-            Math.max(1, (cellLon / lonSpan) * w) + 0.5,
-            Math.max(1, (cellLat / latSpan) * h) + 0.5,
-          );
-        }
-      }
-      ctx.globalAlpha = 1;
-      this.mapLegend = () => this.drawColorBar(ctx, frame, colors, domain, 6 * ui);
-      const measureMeta = this.meta(this.config.sizeColumn);
-      const agg = this.config.bubbleAgg ?? "count";
-      const measure =
-        values === null || this.config.sizeColumn < 0 || measureMeta === undefined
-          ? "rows per cell"
-          : `${agg}(${measureMeta.name}) per cell`;
-      this.noteEl.textContent = `heat: ${measure} · ${grid.bins}×${grid.bins} grid · ${grid.total.toLocaleString()} rows${
-        detailNote === "" ? "" : ` · ${detailNote}`
-      } · scroll to zoom · drag to pan · double-click resets`;
-      return;
-    }
-    const result = this.placeFrame() ?? this.seriesResult;
-    if (result === null) {
-      this.noteEl.textContent = "Pick numeric longitude and latitude columns.";
-      return;
-    }
-    if (result.mode === "density") {
-      // Density never applies (map requests points), but keep a sane fallback.
-      const spanX = result.xMax - result.xMin;
-      const spanY = result.yMax - result.yMin;
-      ctx.fillStyle = this.primaryColor();
-      for (let cy = 0; cy < result.rows; cy++) {
-        for (let cx = 0; cx < result.cols; cx++) {
-          const count = result.counts[cy * result.cols + cx] ?? 0;
-          if (count === 0) continue;
-          const lon = result.xMin + ((cx + 0.5) / result.cols) * spanX;
-          const lat = result.yMin + ((cy + 0.5) / result.rows) * spanY;
-          if (lon < -180 || lon > 180 || lat < -90 || lat > 90) continue;
-          ctx.globalAlpha = 0.25 + 0.6 * (count / Math.max(1, result.max));
-          ctx.fillRect(px(lon) - 2 * ui, py(lat) - 2 * ui, 4 * ui, 4 * ui);
-        }
-      }
-      ctx.globalAlpha = 1;
-      this.noteEl.textContent = `${result.total.toLocaleString()} points · ${result.outside.toLocaleString()} outside the world bounds${
-        detailNote === "" ? "" : ` · ${detailNote}`
-      } · drag a rectangle to filter to an area`;
-      return;
-    }
-    // Points: sized and coloured by the chosen columns, batched by colour.
-    const sizes = this.mapRadii(result, ui);
-    const buckets = this.colorBuckets(result);
-    const baseRadius = (this.config.dotMinRadius ?? 2.2) * ui;
-    const dotAlpha = this.config.dotOpacity ?? 0.6;
-    const markerShape = this.config.markerShape ?? "circle";
-    const drawAt = (index: number): void => {
-      const lon = result.x[index] ?? Number.NaN;
-      const lat = result.y[index] ?? Number.NaN;
-      if (
-        !Number.isFinite(lon) ||
-        !Number.isFinite(lat) ||
-        lon < view.lonMin ||
-        lon > view.lonMax ||
-        lat < view.latMin ||
-        lat > view.latMax
-      ) {
-        return;
-      }
-      const r = sizes === null ? baseRadius : (sizes[index] ?? baseRadius);
-      if (result.shown <= 5000) {
-        const reach = Math.max(r, 5 * ui);
-        this.hitRegions.push({ x: px(lon) - reach, y: py(lat) - reach, w: reach * 2, h: reach * 2, lines: this.mapDotLines(result, index, lon, lat), actions: [] });
-        ctx.beginPath();
-        addMarkerPath(ctx, markerShape, px(lon), py(lat), Math.max(0.5, r));
-        ctx.globalAlpha = dotAlpha;
-        ctx.fill();
-        ctx.globalAlpha = BORDER_ALPHA;
-        ctx.stroke();
-      } else {
-        addMarkerPath(ctx, markerShape, px(lon), py(lat), Math.max(0.5, r));
-      }
-    };
-    this.mapClusters = [];
-    const clustered = this.config.mapCluster === true && result.places !== true && result.shown >= 30;
-    if (clustered) {
-      this.drawMapClusters(ctx, result, view, px, py, ui, drawAt, dotAlpha);
-    } else {
-    const batched = result.shown > 5000;
-    ctx.lineWidth = Math.max(0.75, 0.8 * ui);
-    if (buckets === null) {
-      ctx.fillStyle = this.primaryColor();
-      ctx.strokeStyle = darkerColor(this.primaryColor(), BORDER_DARKER);
-      ctx.globalAlpha = dotAlpha;
-      if (batched) ctx.beginPath();
-      for (let i = 0; i < result.shown; i++) drawAt(i);
-      if (batched) {
-        ctx.fill();
-        ctx.globalAlpha = BORDER_ALPHA;
-        ctx.stroke();
-      }
-    } else {
-      for (let bucket = 0; bucket < buckets.colors.length; bucket++) {
-        ctx.fillStyle = buckets.colors[bucket] ?? this.primaryColor();
-        ctx.strokeStyle = darkerColor(buckets.colors[bucket] ?? this.primaryColor(), BORDER_DARKER);
-        ctx.globalAlpha = dotAlpha;
-        if (batched) ctx.beginPath();
-        for (let i = 0; i < result.shown; i++) {
-          if (buckets.buckets[i] === bucket) drawAt(i);
-        }
-        if (batched) {
-          ctx.fill();
-          ctx.globalAlpha = BORDER_ALPHA;
-          ctx.stroke();
-        }
-      }
-    }
-    }
-    ctx.globalAlpha = 1;
-
-    // Live brush rectangle.
-    if (this.mapBrush !== null) {
-      const rx = Math.min(this.mapBrush.x0, this.mapBrush.x1);
-      const ry = Math.min(this.mapBrush.y0, this.mapBrush.y1);
-      const rw = Math.abs(this.mapBrush.x1 - this.mapBrush.x0);
-      const rh = Math.abs(this.mapBrush.y1 - this.mapBrush.y0);
-      ctx.fillStyle = this.primaryColor();
-      ctx.globalAlpha = 0.15;
-      ctx.fillRect(rx, ry, rw, rh);
-      ctx.globalAlpha = 0.9;
-      ctx.strokeStyle = this.primaryColor();
-      ctx.lineWidth = 1;
-      ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
-      ctx.globalAlpha = 1;
-    }
-    ctx.restore();
-    this.mapLegend = () => {
-      const legendHeight = this.drawMapSizeLegend(ctx, frame, result);
-      if (buckets?.domain !== undefined) this.drawColorBar(ctx, frame, buckets.colors, buckets.domain, legendHeight + 6 * ui);
-    };
-
-    const sampled = result.sampled ? " (sampled)" : "";
-    const colorText = this.colorNote(result);
-    const sizeMeta = this.meta(this.config.sizeColumn);
-    const extras = [
-      colorText === null ? "" : `${colorText}`,
-      sizeMeta === undefined || sizes === null ? "" : `size: ${sizeMeta.name}`,
-    ]
-      .filter((part) => part !== "")
-      .join(" · ");
-    this.noteEl.textContent = `${result.shown.toLocaleString()} of ${result.total.toLocaleString()} points${sampled}${
-      extras === "" ? "" : ` · ${extras}`
-    }${detailNote === "" ? "" : ` · ${detailNote}`} — scroll to zoom · drag to pan · shift-drag to filter · double-click resets`;
-    if (clustered) this.noteEl.textContent += ` · ${this.clusterNote}`;
-    // Many rows on few spots (trips between stations): one dot per place says more than a stack of dots.
-    if (result.places !== true && result.shown >= 50) {
-      const spots = new Set<string>();
-      for (let i = 0; i < result.shown; i++) spots.add(`${Math.round((result.x[i] ?? 0) * 1e5)}|${Math.round((result.y[i] ?? 0) * 1e5)}`);
-      if (spots.size * 2 <= result.shown) {
-        const nudge = el("button", { class: "link small chart-density-nudge", type: "button", title: "Group the rows that sit at the same place into one dot, sized by how many rows it holds" }, [`${result.shown.toLocaleString()} rows sit on ${spots.size.toLocaleString()} places: show one dot per place`]);
-        nudge.addEventListener("click", () => {
-          this.config.mapMode = "places";
-          this.mapModeSelect.value = "places";
-          this.generation++;
-          this.refreshSeries();
-          this.render();
-        });
-        this.noteEl.append(" ", nudge);
-      }
-    }
-    if (result.places === true) {
-      const top = result.counts ? Math.max(...Array.from(result.counts.subarray(0, Math.min(result.shown, 2000)))) : 0;
-      const colorMeta = this.meta(this.config.colorColumn);
-      const colorPart = result.colorValues === null || colorMeta === undefined ? "" : ` · colour = ${MAP_COLOR_AGG_NAMES[this.config.mapColorAgg ?? "mean"]} ${colorMeta.name}${this.config.colorMin == null || this.config.colorMax == null ? " (the scale spans the middle 90% of values)" : ""}${this.config.mapColorScale === "log" ? ", logarithmic" : ""}`;
-      const stepping = this.animationResult?.places !== undefined && this.placeFrame() !== null;
-      const time = stepping ? (this.animationResult?.frames[Math.min(this.animationFrame, this.animationResult.frames.length - 1)]?.label ?? "") : "";
-      this.noteEl.textContent = `${time === "" ? "" : `${time} · `}${result.shown.toLocaleString()} places from ${result.total.toLocaleString()} rows${result.sampled ? " (the busiest shown)" : ""}${top > 0 ? ` · the busiest holds ${top.toLocaleString()}` : ""} · dot size = ${this.config.sizeColumn >= 0 ? `${this.config.bubbleAgg ?? "count"} of ${this.meta(this.config.sizeColumn)?.name ?? "the size column"}` : "rows"}${colorPart} · scroll to zoom · drag to pan · double-click resets`;
-      if (time !== "") {
-        this.font(ctx, ui, 13, "600");
-        const width = ctx.measureText(time).width;
-        ctx.fillStyle = frame.text;
-        ctx.globalAlpha = 0.1;
-        ctx.fillRect(frame.left + 8 * ui, frame.top + 8 * ui, width + 12 * ui, 22 * ui);
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = frame.text;
-        ctx.fillText(time, frame.left + 14 * ui, frame.top + 24 * ui);
-      }
-    }
+  drawMapBody(ctx: CanvasRenderingContext2D, frame: Frame): void {
+    return drawMapBody(this, ctx, frame);
   }
 
   /**
@@ -12621,12 +11583,12 @@ export class ChartCard {
 
   /** Human description of what the bubble sizes represent. */
   /** What sizes the map's dots: a Size column, or the rows at each place. Null when every dot is alike. */
-  private dotsAreSized(): boolean {
+  dotsAreSized(): boolean {
     return (this.config.mapMode ?? DEFAULT_MAP_MODE) === "places" || this.config.sizeColumn >= 0;
   }
 
   /** The radii the Dots row currently stands for; a lone radius when nothing sizes the dots. */
-  private dotDefaults(): { min: number; max: number } {
+  dotDefaults(): { min: number; max: number } {
     if (!this.dotsAreSized()) return { min: 2.2, max: 2.2 };
     return (this.config.mapMode ?? DEFAULT_MAP_MODE) === "places" ? { min: 3, max: 14 } : { min: 2, max: 9 };
   }
@@ -12803,198 +11765,31 @@ export class ChartCard {
   }
 
   private syncDotControls(mapKind: boolean, scatterKind = false): void {
-    const heat = this.config.mapMode === "heat" || this.config.mapMode === "regions";
-    this.dotSettings.classList.toggle("hidden", (!mapKind && !scatterKind) || (mapKind && heat));
-    this.fitWrap.classList.toggle("hidden", !scatterKind);
-    this.dotShapeSelect.value = this.config.markerShape ?? "circle";
-    if (scatterKind) {
-      // A scatter: one shape, size and opacity for every dot. The size is only the person's to set when no column sizes the dots.
-      const sized = this.config.sizeColumn >= 0;
-      this.dotMaxWrap.classList.add("hidden");
-      this.dotValuesWrap.classList.add("hidden");
-      this.dotScaleWrap.classList.add("hidden");
-      this.mapColorAggWrap.classList.add("hidden");
-      this.mapColorScaleWrap.classList.add("hidden");
-      this.mapLabelWrap.classList.add("hidden");
-      this.dotMinLabel.textContent = "Dot radius";
-      this.dotMinInput.disabled = sized;
-      this.dotMinInput.title = sized ? "The dots are sized by the Size column" : "Radius in pixels of every dot";
-      if (document.activeElement !== this.dotMinInput) this.dotMinInput.value = String(this.config.dotMinRadius ?? 2.2);
-      const opacity = Math.round((this.config.dotOpacity ?? 0.55) * 100);
-      this.dotOpacityInput.value = String(opacity);
-      this.dotOpacityOut.textContent = `${opacity}%`;
-      this.fitLineInput.checked = this.config.fitLine ?? true;
-      this.fitR2Input.checked = this.config.fitR2 ?? true;
-      this.fitR2Input.disabled = !this.fitLineInput.checked;
-      return;
-    }
-    this.dotMinInput.disabled = false;
-    if (!mapKind || heat) return;
-    const sized = this.dotsAreSized();
-    const defaults = this.dotDefaults();
-    this.dotMaxWrap.classList.toggle("hidden", !sized);
-    this.dotValuesWrap.classList.toggle("hidden", !sized);
-    this.dotScaleWrap.classList.toggle("hidden", !sized);
-    this.dotMinLabel.textContent = sized ? "Radius" : "Dot radius";
-    const set = (input: HTMLInputElement, value: number | null | undefined): void => {
-      if (document.activeElement !== input) input.value = value === null || value === undefined ? "" : String(value);
-    };
-    set(this.dotMinInput, this.config.dotMinRadius ?? defaults.min);
-    set(this.dotMaxInput, this.config.dotMaxRadius ?? defaults.max);
-    set(this.dotValueMinInput, this.config.dotValueMin);
-    set(this.dotValueMaxInput, this.config.dotValueMax);
-    this.dotScaleSelect.value = this.config.dotScale ?? "linear";
-    const opacity = Math.round((this.config.dotOpacity ?? 0.6) * 100);
-    this.dotOpacityInput.value = String(opacity);
-    this.dotOpacityOut.textContent = `${opacity}%`;
-    // A place holds many rows: a number combines into one colour, a category does not.
-    const places = (this.config.mapMode ?? DEFAULT_MAP_MODE) === "places";
-    for (const option of this.colorSelect.options) {
-      const meta = this.meta(Number(option.value));
-      option.disabled = places && meta !== undefined && !isNumericType(meta.type);
-    }
-    this.colorWrap.title = places ? "A number combines into one colour for each place; a category needs One dot per row" : "";
-    this.mapColorAggSelect.value = this.config.mapColorAgg ?? "mean";
-    this.mapColorAggWrap.classList.toggle("hidden", !places || this.config.colorColumn < 0);
-    const numericColour = isNumericType(this.meta(this.config.colorColumn)?.type ?? "string");
-    this.mapColorScaleWrap.classList.toggle("hidden", !numericColour);
-    this.mapColorScaleSelect.value = this.config.mapColorScale ?? "linear";
-    this.mapLabelWrap.classList.toggle("hidden", !places);
-    const named = this.mapLabelColumn();
-    this.mapLabelSelect.replaceChildren(this.option("-1", "None"));
-    this.columns.forEach((meta, index) => {
-      if (!isNumericType(meta.type)) this.mapLabelSelect.append(this.option(String(index), meta.name));
-    });
-    this.mapLabelSelect.value = String(named);
+    return syncDotControls(this, mapKind, scatterKind);
   }
 
-  /**
-   * The column naming a place: the one chosen, else a name-like text column, preferring one that shares a word with the
-   * coordinates, so "start station latitude" is named by "start station name" and not "end station name".
-   */
-  private mapLabelColumn(): number {
-    const chosen = this.config.mapLabelColumn;
-    if (chosen !== undefined) return chosen >= 0 && chosen < this.columns.length ? chosen : -1;
-    const words = new Set((this.meta(this.config.y)?.name ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 2 && !/^lat/.test(word)));
-    let best = -1;
-    let bestScore = 0;
-    this.columns.forEach((meta, index) => {
-      if (isNumericType(meta.type) || !/name|station|city|place|site|location|address|store|branch|suburb|town|venue/i.test(meta.name)) return;
-      const shared = meta.name.toLowerCase().split(/[^a-z0-9]+/).filter((word) => words.has(word)).length;
-      const score = 1 + shared * 2 + (/name/i.test(meta.name) ? 1 : 0);
-      if (score > bestScore) {
-        best = index;
-        bestScore = score;
-      }
-    });
-    return best;
+  mapLabelColumn(): number {
+    return mapLabelColumn(this);
   }
 
-  /** One hoverable dot: what it is called and what it holds. */
-  private mapDotLines(result: SeriesPoints, index: number, lon: number, lat: number): string[] {
-    const stepping = this.animationResult?.places !== undefined && result.places === true && this.framePlaces !== null && this.animationResult.places.shown >= result.shown && this.placeFrameActive();
-    const placeIndex = stepping ? (this.framePlaces?.[index] ?? index) : index;
-    const name = stepping ? this.animationResult?.places?.labels?.[placeIndex] : this.placeLabels?.[placeIndex];
-    const lines = [name !== undefined && name !== "" ? name : `${lat.toFixed(5)}, ${lon.toFixed(5)}`];
-    if (stepping) lines.push(this.animationResult?.frames[Math.min(this.animationFrame, this.animationResult.frames.length - 1)]?.label ?? "");
-    const rows = result.counts?.[index];
-    if (rows !== undefined) lines.push(`Rows: ${rows.toLocaleString()}`);
-    const sizeMeta = this.meta(this.config.sizeColumn);
-    if (sizeMeta !== undefined && result.size !== null) lines.push(`${sizeMeta.name}: ${formatChartNumber(result.size[index]!)}`);
-    const colorMeta = this.meta(this.config.colorColumn);
-    if (colorMeta !== undefined) {
-      const colorValue = result.colorValues?.[index];
-      const code = result.colorCodes?.[index];
-      const agg = result.places === true ? `${MAP_COLOR_AGG_NAMES[this.config.mapColorAgg ?? "mean"]} ` : "";
-      if (colorValue !== undefined) lines.push(`${agg}${colorMeta.name}: ${formatChartNumber(colorValue)}`);
-      else if (code !== undefined) lines.push(`${colorMeta.name}: ${this.seriesLabels?.[code] ?? ""}`);
-    }
-    return lines;
+  mapDotLines(result: SeriesPoints, index: number, lon: number, lat: number): string[] {
+    return mapDotLines(this, result, index, lon, lat);
   }
 
-  private placeFrameActive(): boolean {
+  placeFrameActive(): boolean {
     return this.animatesPlaces() && (this.animationResult?.frames.length ?? 0) > 0;
   }
 
-  private plateColor(): string {
+  plateColor(): string {
     return getComputedStyle(document.documentElement).getPropertyValue("--panel").trim() || "#ffffff";
   }
 
-  /** What the two sizes of dot mean, in the corner of the map. Returns how much height it took. */
-  private drawMapSizeLegend(ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesPoints): number {
-    if (result.size === null || !this.dotsAreSized()) return 0;
-    const fixed = this.placeFrameActive() ? (this.animationResult?.places?.sizeRange ?? null) : null;
-    const range = fixed ?? dataRange(result.size, result.shown);
-    if (range === null) return 0;
-    const ui = frame.ui;
-    const defaults = this.dotDefaults();
-    const small = Math.max(0.5, this.config.dotMinRadius ?? defaults.min) * ui;
-    const large = Math.max(small / ui, this.config.dotMaxRadius ?? defaults.max) * ui;
-    const low = formatCompact(this.config.dotValueMin ?? range.min);
-    const high = formatCompact(this.config.dotValueMax ?? range.max);
-    const sizeMeta = this.meta(this.config.sizeColumn);
-    const title = sizeMeta === undefined ? "Rows" : sizeMeta.name;
-    this.font(ctx, ui, 9);
-    const inner = Math.max(ctx.measureText(title).width, small * 2 + large * 2 + ctx.measureText(low).width + ctx.measureText(high).width + 22 * ui);
-    const boxW = inner + 12 * ui;
-    const boxH = Math.max(large * 2, 12 * ui) + 26 * ui;
-    const x = frame.left + frame.plotW - boxW - 6 * ui;
-    const y = frame.top + frame.plotH - boxH - 6 * ui;
-    ctx.fillStyle = this.plateColor();
-    ctx.globalAlpha = 0.9;
-    ctx.fillRect(x, y, boxW, boxH);
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = frame.dim;
-    ctx.fillText(this.fit(ctx, title, inner), x + 6 * ui, y + 12 * ui);
-    const cy = y + 18 * ui + Math.max(large, 6 * ui);
-    const color = this.primaryColor();
-    const dot = (cx: number, r: number): void => {
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.6;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = darkerColor(color);
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    };
-    let at = x + 6 * ui;
-    dot(at + small, small);
-    at += small * 2 + 3 * ui;
-    ctx.fillStyle = frame.dim;
-    ctx.fillText(low, at, cy + 3 * ui);
-    at += ctx.measureText(low).width + 8 * ui;
-    dot(at + large, large);
-    at += large * 2 + 3 * ui;
-    ctx.fillStyle = frame.dim;
-    ctx.fillText(high, at, cy + 3 * ui);
-    return boxH + 6 * ui;
+  drawMapSizeLegend(ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesPoints): number {
+    return drawMapSizeLegend(this, ctx, frame, result);
   }
 
-  /** Radii for the map's dots from the Dots row; null when every dot is one size. */
-  private mapRadii(result: SeriesPoints, ui: number): Float64Array | null {
-    if (result.size === null || !this.dotsAreSized()) return null;
-    const defaults = this.dotDefaults();
-    // While stepping through time one size means one value in every frame.
-    const fixed = this.placeFrame() === null ? null : (this.animationResult?.places?.sizeRange ?? null);
-    const range = fixed ?? dataRange(result.size, result.shown);
-    if (range !== null) {
-      this.dotValueMinInput.placeholder = `auto: ${formatChartNumber(range.min)}`;
-      this.dotValueMaxInput.placeholder = `auto: ${formatChartNumber(range.max)}`;
-    }
-    return dotRadii(
-      result.size,
-      result.shown,
-      {
-        minRadius: this.config.dotMinRadius ?? defaults.min,
-        maxRadius: this.config.dotMaxRadius ?? defaults.max,
-        valueMin: this.config.dotValueMin ?? fixed?.min ?? null,
-        valueMax: this.config.dotValueMax ?? fixed?.max ?? null,
-        scale: this.config.dotScale ?? "linear",
-      },
-      ui,
-    );
+  mapRadii(result: SeriesPoints, ui: number): Float64Array | null {
+    return mapRadii(this, result, ui);
   }
 
   private bubbleSizeLabel(): string {
@@ -13503,7 +12298,7 @@ export class ChartCard {
     return sizes;
   }
 
-  private colorBuckets(result: SeriesPoints): {
+  colorBuckets(result: SeriesPoints): {
     buckets: Uint8Array;
     colors: string[];
     domain?: ReturnType<typeof resolveColorDomain>;
@@ -13555,7 +12350,7 @@ export class ChartCard {
   }
 
   /** One compact gradient legend used by every numeric colour path. */
-  private drawColorBar(
+  drawColorBar(
     ctx: CanvasRenderingContext2D,
     frame: Frame,
     colors: readonly string[],
@@ -13597,7 +12392,7 @@ export class ChartCard {
       );
     }
   }
-  private colorNote(result: SeriesPoints): string | null {
+  colorNote(result: SeriesPoints): string | null {
     const meta = this.meta(this.config.colorColumn);
     if (meta === undefined || this.config.colorColumn < 0) return null;
     if (result.colorCodes !== null) {
