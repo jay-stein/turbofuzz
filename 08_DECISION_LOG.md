@@ -246,3 +246,12 @@ Add decisions here. Do not treat AI-generated suggestions as accepted decisions 
 - **Status:** Accepted
 - **Decision:** Bundled lists (countries, currencies, AU and US states, weekdays, months) load by dynamic import only when a column's name and values point at one. A column needs 60% of its distinct values on the list before it is checked. Accuracy weight stays 0, so it is applicable but does not move the score unless the owner changes the weights.
 - **Date / owner:** 2026-10-29 / owner
+
+### DEC-2026-11-11-01 — The chart card is split by job, and the split is guarded
+
+- **Status:** Accepted
+- **Context:** chart-card.ts had grown to 15,254 lines, so every chart change risked an unrelated break and was hard to review.
+- **Decision:** ChartCard stays the one class other code uses, as a coordinator. Drawing, interaction, export, settings, data and error bars live in chart-*.ts modules as functions that take the card. Types and constants live in chart-card-types.ts and are imported from there directly, never through chart-card.js. Error bars and Extract stats are Research-mode controls.
+- **Trade-offs:** Many members lost `private` so the modules can reach them; the card keeps one-line delegators. Restoring `private` where only the card uses a member is left as follow-up.
+- **Acceptance criteria:** test/architecture.test.ts (no file over its size limit, no import loop among chart modules); npm run check:unused (no new unused code); the public exports of chart-card.js are unchanged and tsc enforces every importer.
+- **Date / owner:** 2026-11-11 / owner

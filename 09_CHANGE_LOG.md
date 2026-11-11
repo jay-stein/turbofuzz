@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-11-01 — Charts: field rail, pivot-source charts, plain aggregate words, data drawer, and chart-card split into modules
+
+- **Status:** Verified (1,497 unit tests; full e2e run, 242 passed before the last stale-spec fixes; bench:chart at 200k rows)
+- **Related issue / decision:** owner: charting audit backlog (items 1–17), a squished pages list, pivot-chart context, and the 15,000-line chart-card.ts.
+- **What changed:** Chart field rail with a Fields / Pivot fields title and role chips; charts built from a pivot keep its hand-set order; one set of aggregate words everywhere (Average (mean), Count of values, ...); "Data behind this chart" drawer; Reshape data menu and an Actions menu below 1120 px so the page list is no longer crowded; "Chart with other columns…" in column actions; Error bars and Extract stats shown in Research mode only (a chart that already has bars keeps them). chart-card.ts went from 15,254 to about 2,500 lines: its code now lives in chart-*.ts modules, with the same public exports. Unused imports were removed and the chart modules import types directly, which ended the import loops.
+- **Guards added:** test/architecture.test.ts (size limits per file, no import loop among chart modules); npm run check:unused (no new unused code; 19 older items listed in scripts/unused-baseline.txt); bench:chart in the gate.
+- **Files / components changed:** src/ui/chart-*.ts, src/ui/app.ts, src/ui/agg-words.ts, src/data/pivot-chart.ts, src/data/aggregate.ts; bench/chart.ts; scripts/check-unused.ts; several e2e specs brought up to the current pages.
+- **Decision:** Ship
+- **Date:** 2026-11-11
+
 ### CHG-2026-11-09-02 — Compare: Deep dive on one dataset; the fifth sheet is Big Picture
 
 - **Status:** Verified (e2e)
