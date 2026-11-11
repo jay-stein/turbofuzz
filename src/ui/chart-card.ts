@@ -1,4 +1,5 @@
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
+import { basemapCaches, DETAIL_LON_SPAN, loadBasemap, type Basemap, type BasemapDetail } from "./chart-basemap.js";
 import { type GroupedSeriesHitInput, type HeatmapHitInput, type CorrelationHitInput, type HitAction, type HitRegion, type PlotGeometry, type SeriesHitInput, actionsOverlap, barHitRegions, boxHitRegions, correlationHitRegions, groupedSeriesHitRegions, heatmapHitRegions, hitTest, seriesHitRegions, tableFiltersForHitActions } from "./chart-hit-regions.js";
 export * from "./chart-hit-regions.js";
 import { extractTsv } from "../data/chart-extract.js";
@@ -133,11 +134,6 @@ import { openConfirm, openPrompt } from "./dialog.js";
 import { describeScope } from "./scope.js";
 import { openMenu, type MenuItem } from "./menu.js";
 import {
-  decodeArcs,
-  decodeCountries,
-  decodeLand,
-  type GeoCountry,
-  type TopoWorld,
   projectLat,
   projectLon,
 } from "../data/topo.js";
@@ -355,51 +351,8 @@ export interface MapMarkerDraw {
   draw(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void;
 }
 
-interface Basemap {
-  land: Float64Array[];
-  countries: GeoCountry[];
-}
-
-type BasemapDetail = "110m" | "50m";
-
-/** A regional viewport (<= 60° of longitude) earns the 50m detail basemap. */
-const DETAIL_LON_SPAN = 60;
-
-// Both basemaps are decoded once per session and shared by every map card;
-// the world modules are code-split and import lazily.
-const basemapCaches = new Map<BasemapDetail, Basemap>();
-const basemapLoads = new Map<BasemapDetail, Promise<Basemap>>();
-
 // Only one card's Settings popover may stay open at a time.
 let openSettingsDisclosure: HTMLDetailsElement | null = null;
-
-function decodeWorld(world: TopoWorld): Basemap {
-  const arcs = decodeArcs(world);
-  return {
-    land: decodeLand(world, arcs),
-    countries: decodeCountries(world, arcs),
-  };
-}
-
-function loadBasemap(detail: BasemapDetail = "110m"): Promise<Basemap> {
-  const cached = basemapCaches.get(detail);
-  if (cached !== undefined) return Promise.resolve(cached);
-  let loading = basemapLoads.get(detail);
-  if (loading === undefined) {
-    loading =
-      detail === "50m"
-        ? import("../data/world-50m.js").then(({ WORLD_50M }) => decodeWorld(WORLD_50M))
-        : import("../data/world-110m.js").then(({ WORLD_110M }) => decodeWorld(WORLD_110M));
-    basemapLoads.set(
-      detail,
-      loading.then((map) => {
-        basemapCaches.set(detail, map);
-        return map;
-      }),
-    );
-  }
-  return basemapLoads.get(detail) ?? loading;
-}
 
 export type DensityStyle = "heat" | "contours" | "both";
 
