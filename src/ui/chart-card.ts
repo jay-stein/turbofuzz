@@ -1,3 +1,4 @@
+import { importChartSpecFile, exportPng, openStats, chartExtract, drawnBins, histogramExtract, exportCsv, chartCsvRows, gridCsvRows, syncDeepDive, openCardMenu, toggleFocus, closeFocus, openExportMenu, downloadChartSpec, downloadChartCode, downloadBlob } from "./chart-card-export.js";
 import { openKindPicker, selectRegion, drawSelection, queuePointer, showTooltipAtPointer, emitHighlight, setLinkedHighlight, cancelSliceFetch, sliceRegions, sliceEntries, scheduleSliceFetch, scheduleSlicePoints, drawSlicePoints, drawLinkedOverlay, drawSliceShare, handleCanvasClick, finishBrush, timeSlotBrush, drawBrushOverlay, onWheel, withoutExcludedBins, syncExclusions, handleCanvasContextMenu, dataPointAt, openExclusionMenu, excludeFromTable, applyHitAction } from "./chart-interaction.js";
 import { allCategoryBars, refreshSeries, refreshTreemap, drawTreemap, refreshText, drawTerms, refreshBox, refreshGroupedBins, widestYLabel, fillTopRounded, drawKpi, drawExtraKind, syncRefLines, drawReferenceLines, axisLabels, drawAxisTitles, drawBars, drawAxes, drawBox } from "./chart-draw-bars.js";
 import { refreshCrosstab, refreshBubble, refreshCorrelation, drawBubble, bubbleFraction, drawBubbleGrid, drawScatterLike, pointSizes, colorBuckets, drawColorBar, colorNote, drawPoints, drawDensity, paintDensityHeat, paintDensityBands, paintContourLines, drawCorrelationNote, pivotHeatmapData, drawPivotHeatmap, drawHeatmap, drawCorrelation } from "./chart-draw-points.js";
@@ -912,7 +913,7 @@ export class ChartCard {
   private bubbleAggHint!: HTMLElement;
   private readonly bubbleScaleSelect: HTMLSelectElement;
   private readonly animateButton: HTMLButtonElement;
-  private readonly focusButton: HTMLButtonElement;
+  readonly focusButton: HTMLButtonElement;
   readonly pngButton: HTMLButtonElement;
   readonly statsButton: HTMLButtonElement;
   kindButton: HTMLButtonElement | null = null;
@@ -925,8 +926,8 @@ export class ChartCard {
   selectedRegion: HitRegion | null = null;
   selectionBar: HTMLElement | null = null;
   /** Plot top the docked height was last worked out from: a legend appearing moves it. */
-  private dockedTop = -1;  private focusOverlay: HTMLElement | null = null;
-  private readonly focusPlaceholder = document.createComment("chart-focus");
+  private dockedTop = -1;  focusOverlay: HTMLElement | null = null;
+  readonly focusPlaceholder = document.createComment("chart-focus");
   private readonly animationSetup: HTMLElement;
   private readonly bubbleSettings: HTMLElement;
   private readonly bubbleTitle: HTMLElement;
@@ -1141,7 +1142,7 @@ export class ChartCard {
   private readonly lintEl = el("div", { class: "chart-lint hidden", role: "note" });
   private readonly dismissedNotes = new Set<string>();
   private readonly dataIssueEl: HTMLElement;
-  private readonly deepDiveEl: HTMLElement;
+  readonly deepDiveEl: HTMLElement;
   private issueSignature = "";
   readonly noteEl: HTMLElement;
   private totalRowCount = 0;
@@ -4242,37 +4243,8 @@ export class ChartCard {
     return [];
   }
 
-  /** Hidden file picker for importing a previously downloaded ChartSpec. */
-  private importChartSpecFile(): void {
-    const input = el("input", {
-      type: "file",
-      accept: ".json,application/json",
-      class: "hidden",
-    }) as HTMLInputElement;
-    input.addEventListener("change", () => {
-      const file = input.files?.[0];
-      if (file === undefined) return;
-      void file
-        .text()
-        .then((text) => {
-          const issues = this.applySpecText(text);
-          if (issues.length === 0) {
-            this.noteEl.textContent = "Applied chart spec.";
-            return;
-          }
-          this.noteEl.textContent = issues[0] ?? "The chart spec could not be applied.";
-          void openConfirm({
-            title: "Cannot apply chart spec",
-            body: issues.join("\n"),
-            confirmLabel: "Close",
-          });
-        })
-        .catch((error: unknown) => {
-          this.noteEl.textContent =
-            error instanceof Error ? error.message : "Could not read the chart spec.";
-        });
-    });
-    input.click();
+  importChartSpecFile(): void {
+    return importChartSpecFile(this);
   }
   /** Column indexes this card currently charts, used to pick fresh defaults. */
   usedColumns(): number[] {
@@ -4286,473 +4258,48 @@ export class ChartCard {
   }
 
   exportPng(width: number, height: number): void {
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (ctx === null) return;
-    this.drawChart(ctx, width, height, true);
-    if (typeof canvas.toBlob !== "function") return;
-    const name = `${safeFileName(this.options.datasetName())}-${safeFileName(
-      this.chartName(),
-    )}-${width}x${height}.png`;
-    canvas.toBlob((blob) => {
-      if (blob === null) return;
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = name;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    }, "image/png");
+    return exportPng(this, width, height);
   }
 
-  /** Download the data already behind this chart, not a re-query of the table. */
   private openStats(): void {
-    const extract = this.chartExtract();
-    if (extract.sections.length === 0) {
-      this.noteEl.textContent = "No chart numbers are ready yet: finish choosing the fields, or wait for the chart to draw.";
-      return;
-    }
-    openChartStats(extract, `${safeFileName(this.options.datasetName())}-${safeFileName(this.chartName())}-stats.csv`);
+    return openStats(this);
   }
 
-  /** What Extract stats shows: how the chart was drawn, then the numbers it was drawn from. */
   chartExtract(): ChartExtract {
-    const kind = this.config.kind;
-    const facts: [string, string][] = [];
-    const scope = this.scopeEl.textContent?.trim() ?? "";
-    if (scope !== "") facts.push(["Data", scope]);
-    const sections: ExtractSection[] = [];
-    const title = this.summaryEl.textContent?.trim() || this.chartName();
-    const done = (): ChartExtract => ({ title, facts, sections });
-    const table = (name: string, rows: string[][]): void => {
-      if (rows.length >= 2) sections.push({ title: name, rows });
-    };
-
-    if (this.animationResult !== null && this.animationResult.places === undefined) {
-      facts.push(["Animation", "These numbers cover all periods together, not the frame showing"]);
-    }
-    if (kind === "histogram" && this.groupResult === null) {
-      this.histogramExtract(facts, table);
-      return done();
-    }
-    if (this.regionsOn()) {
-      this.regions?.extract(facts, table);
-      return done();
-    }
-    if (kind === "map" && this.config.mapMode !== "heat") {
-      this.mapExtract(facts, table);
-      return done();
-    }
-    if (kind === "scatter" && this.seriesResult?.mode === "points") {
-      const points = this.seriesResult;
-      if (Number.isFinite(this.seriesCorrelation)) facts.push(["Pearson r, every row", this.seriesCorrelation.toFixed(4)]);
-      const fit = linearFit(points.x, points.y, points.shown);
-      if (fit !== null) {
-        const where = points.sampled ? `the ${points.shown.toLocaleString()} points sampled from ${points.total.toLocaleString()}` : `all ${points.shown.toLocaleString()} points`;
-        facts.push(["Straight line y = a + b·x, on " + where, `a = ${fit.intercept}, b = ${fit.slope}, R² = ${fit.r2.toFixed(4)}`]);
-      }
-      table("Points", this.chartCsvRows());
-      return done();
-    }
-    if (kind === "box") {
-      facts.push(["Box rule", "Tukey: the box is Q1 to Q3; whiskers reach the furthest values within 1.5 × IQR; beyond them are outliers. Every row counts; only the outliers drawn are thinned when there are many"]);
-      const result = this.boxResult;
-      if (result !== null) {
-        const rows = this.chartCsvRows();
-        const iqrAt = rows[0]!.indexOf("q3") + 1;
-        rows[0]!.splice(iqrAt, 0, "iqr");
-        result.groups.forEach((group, index) => rows[index + 1]?.splice(iqrAt, 0, num(group.q3 - group.q1)));
-        table("Ranges by group", rows);
-      }
-      return done();
-    }
-    const aggregate = this.aggregateResult();
-    if (aggregate !== null && aggregate.groupCount > 0 && new Set<ChartCardKind>(VALUE_AGGREGATE_KINDS).has(kind)) {
-      const labels = aggregate.dimensions[0] ?? [];
-      const summary: string[][] = [["measure", "groups", "total", "mean", "sd", "lowest", "lowest_at", "highest", "highest_at"]];
-      aggregate.measures.forEach((values, index) => {
-        const stats = summarise(values);
-        if (stats === null) return;
-        summary.push([
-          plainMeasureName(aggregate.measureNames[index] ?? "value"),
-          String(stats.n),
-          num(stats.sum),
-          num(stats.mean),
-          num(stats.sd),
-          num(stats.min),
-          labels[stats.minAt] ?? "",
-          num(stats.max),
-          labels[stats.maxAt] ?? "",
-        ]);
-      });
-      table("Summary", summary);
-      this.errorBarExtract(aggregate, facts, table);
-      const series = aggregate.dimensions[1];
-      if (series !== undefined && aggregate.measures[0] !== undefined) {
-        table(`Each ${aggregate.dimensionNames[1] ?? "series"}`, seriesRows([aggregate.dimensionNames[1] ?? "series"], series, labels, aggregate.measures[0]));
-      }
-      table("Values", this.chartCsvRows());
-      return done();
-    }
-    table("Values", this.chartCsvRows());
-    return done();
+    return chartExtract(this);
   }
 
-  private errorBarExtract(aggregate: AggregateMessage, facts: [string, string][], table: (name: string, rows: string[][]) => void): void {
+  errorBarExtract(aggregate: AggregateMessage, facts: [string, string][], table: (name: string, rows: string[][]) => void): void {
     return errorBarExtract(this, aggregate, facts, table);
   }
 
-  /** The bins a histogram draws, with their edges: the automatic ones (on a log-like scale when skewed) or the chosen. */
-  private drawnBins(): { bins: readonly number[]; edges: number[]; overflow: number; symlog: boolean; below: number; above: number } | null {
-    const meta = this.meta(this.config.column);
-    const automatic = meta?.histogram;
-    if (meta === undefined || automatic === null || automatic === undefined) return null;
-    const custom = this.binResult;
-    const live = this.histograms[this.config.column] ?? automatic.bins;
-    const bins: readonly number[] = custom !== null ? custom.bins : this.withoutExcludedBins(live, automatic.min, automatic.max);
-    if (bins.length === 0) return null;
-    const min = this.chartXZoom?.min ?? this.config.binOptions?.min ?? automatic.min;
-    const max = this.chartXZoom?.max ?? this.config.binOptions?.max ?? automatic.max;
-    const symlog = custom === null && automatic.symlog;
-    const edges = Array.from({ length: bins.length + 1 }, (_, index) => {
-      const share = index / bins.length;
-      if (index === 0) return min;
-      if (index === bins.length) return max;
-      if (symlog) return symlogInverse(symlogValue(min) + share * (symlogValue(max) - symlogValue(min)));
-      return min + share * (max - min);
-    });
-    return {
-      bins,
-      edges,
-      overflow: custom?.overflow ?? 0,
-      symlog,
-      below: custom === null ? automatic.below : 0,
-      above: custom === null ? automatic.above : 0,
-    };
+  drawnBins(): { bins: readonly number[]; edges: number[]; overflow: number; symlog: boolean; below: number; above: number } | null {
+    return drawnBins(this);
   }
 
-  private histogramExtract(facts: [string, string][], table: (name: string, rows: string[][]) => void): void {
-    const drawn = this.drawnBins();
-    const meta = this.meta(this.config.column);
-    if (drawn === null || meta === undefined) return;
-    const { bins, edges, overflow, symlog, below, above } = drawn;
-    const dated = meta.type === "date" || meta.type === "datetime";
-    const format = dated ? (value: number): string => (Number.isFinite(value) ? new Date(value).toISOString() : "") : num;
-    const fact = dated ? format : formatChartNumber;
-    facts.push(["Bins", `${bins.length}, from ${fact(edges[0]!)} to ${fact(edges[bins.length]!)}`]);
-    facts.push(["Bin width", symlog ? "even on a log-like scale, so the edges below are not evenly spaced" : dated ? `${num((edges[1]! - edges[0]!) / 86_400_000)} days` : num(edges[1]! - edges[0]!)]);
-    if (overflow > 0) facts.push(["Above the last bin", overflow.toLocaleString()]);
-    if (below + above > 0) {
-      facts.push(["Left out of the bins", `${below.toLocaleString()} below the first, ${above.toLocaleString()} above the last: the automatic range is the 1st to 99th percentile, so a few extremes cannot flatten the rest. Set a range in the settings to include them`]);
-    }
-    const summary = binnedSummary(bins, edges);
-    if (summary !== null) {
-      facts.push(["Rows in the bins", summary.n.toLocaleString()]);
-      if (!dated) {
-        facts.push(["Mean, estimated from the bins", formatChartNumber(summary.mean)]);
-        facts.push(["Standard deviation, estimated from the bins", formatChartNumber(summary.sd)]);
-      }
-    }
-    if (this.binMedian !== null && !dated) facts.push(["Median", num(this.binMedian)]);
-    const kde = this.config.kde && bins.length >= 4;
-    if (kde) {
-      facts.push(["KDE curve", `Gaussian kernel, width ${KDE_SIGMA_BINS} bins${symlog ? "" : ` = ${num(KDE_SIGMA_BINS * (edges[1]! - edges[0]!))} in the column's units`}. It smooths the bin counts rather than being fitted to each row, and is on the count scale`]);
-    }
-    table("Bins", binRows(bins, edges, kde ? smoothSeries(bins, KDE_SIGMA_BINS) : null, format, overflow));
+  histogramExtract(facts: [string, string][], table: (name: string, rows: string[][]) => void): void {
+    return histogramExtract(this, facts, table);
   }
 
-  private mapExtract(facts: [string, string][], table: (name: string, rows: string[][]) => void): void {
+  mapExtract(facts: [string, string][], table: (name: string, rows: string[][]) => void): void {
     return mapExtract(this, facts, table);
   }
 
-  private exportCsv(): void {
-    const rows = this.chartCsvRows();
-    if (rows.length < 2) {
-      this.noteEl.textContent = "No chart data is available to export yet.";
-      return;
-    }
-    const name = `${safeFileName(this.options.datasetName())}-${safeFileName(
-      this.chartName(),
-    )}.csv`;
-    if (!downloadCsv(name, rows)) {
-      this.noteEl.textContent = "This browser cannot download the chart data.";
-      return;
-    }
-    this.noteEl.textContent = `Exported ${(rows.length - 1).toLocaleString()} chart data rows to ${name}`;
+  exportCsv(): void {
+    return exportCsv(this);
   }
 
-  private chartCsvRows(): string[][] {
-    if (this.config.kind === "pivotHeatmap") {
-      const data = this.pivotHeatmapData();
-      if (data === null) return [];
-      const rows: string[][] = [[data.rowName, ...data.colLabels]];
-      data.rowLabels.forEach((label, row) => {
-        rows.push([
-          label,
-          ...data.colLabels.map((_, col) => {
-            const value = data.values[row * data.colLabels.length + col];
-            return Number.isFinite(value) ? String(value) : "";
-          }),
-        ]);
-      });
-      return rows;
-    }    const number = (value: number): string =>
-      Number.isFinite(value) ? String(value) : "";
-    const aggregate = this.aggregateResult();
-    const aggregateKinds = new Set<ChartCardKind>(VALUE_AGGREGATE_KINDS);
-    if (
-      aggregate !== null &&
-      aggregate.groupCount > 0 &&
-      aggregateKinds.has(this.config.kind) &&
-      (this.config.source !== "" || (this.config.valueColumn ?? -1) >= 0)
-    ) {
-      const names = [
-        ...aggregate.dimensionNames,
-        ...aggregate.measureNames,
-      ];
-      const rows: string[][] = [names];
-      for (let index = 0; index < aggregate.groupCount; index++) {
-        rows.push([
-          ...aggregate.dimensions.map((dimension) => dimension[index] ?? ""),
-          ...aggregate.measures.map((measure) => number(measure[index] ?? Number.NaN)),
-        ]);
-      }
-      return rows;
-    }
-
-    if (this.config.kind === "bar") {
-      const bars = this.allCategoryBars();
-      if (bars.length === 0) return [];
-      return [
-        ["category", "count", "percent", "is_other"],
-        ...bars.map((bar) => [
-          bar.label,
-          String(bar.count),
-          bar.pct.toFixed(4),
-          bar.other === true ? "true" : "false",
-        ]),
-      ];
-    }
-
-    if (this.config.kind === "line" || this.config.kind === "histogram") {
-      const grouped = this.groupResult;
-      if (grouped !== null && grouped.groups.length > 0) {
-        const range = this.binRangeFor(this.config.kind);
-        const step = range === null ? 0 : (range.max - range.min) / Math.max(1, grouped.bins);
-        const rows: string[][] = [["group", "bin_start", "bin_end", "count"]];
-        for (let series = 0; series < grouped.groups.length; series++) {
-          const counts = grouped.groups[series] ?? [];
-          for (let bin = 0; bin < grouped.bins; bin++) {
-            rows.push([
-              grouped.labels[series] ?? "",
-              number(range === null ? bin : range.min + bin * step),
-              number(range === null ? bin + 1 : range.min + (bin + 1) * step),
-              String(counts[bin] ?? 0),
-            ]);
-          }
-        }
-        return rows;
-      }
-      const bins = this.config.kind === "line" ? this.lineBinResult : this.binResult;
-      const range = this.binRangeFor(this.config.kind);
-      if (bins === null || range === null) {
-        const drawn = this.config.kind === "histogram" ? this.drawnBins() : null;
-        return drawn === null ? [] : binRows(drawn.bins, drawn.edges, null).map((row) => row.slice(0, 3));
-      }
-      const step = (range.max - range.min) / Math.max(1, bins.bins.length);
-      const rows: string[][] = [["bin_start", "bin_end", "count"]];
-      for (let bin = 0; bin < bins.bins.length; bin++) {
-        rows.push([
-          number(range.min + bin * step),
-          number(range.min + (bin + 1) * step),
-          String(bins.bins[bin] ?? 0),
-        ]);
-      }
-      if (bins.overflow > 0) {
-        rows.push([`> ${number(range.max)}`, "", String(bins.overflow)]);
-      }
-      return rows;
-    }
-
-    if (this.config.kind === "scatter" || this.config.kind === "density" || this.config.kind === "map") {
-      const grid = this.config.kind === "map" && this.config.mapMode === "heat"
-        ? this.mapGrid
-        : null;
-      if (grid !== null) return this.gridCsvRows(grid);
-      const result = this.seriesResult;
-      if (result === null) return [];
-      if (result.mode === "points") {
-        const rows: string[][] = [["x", "y", "color", "size"]];
-        for (let index = 0; index < result.x.length; index++) {
-          const color =
-            result.colorValues !== null
-              ? number(result.colorValues[index] ?? Number.NaN)
-              : result.colorCodes !== null
-                ? this.seriesLabels?.[result.colorCodes[index] ?? -1] ?? ""
-                : "";
-          rows.push([
-            number(result.x[index] ?? Number.NaN),
-            number(result.y[index] ?? Number.NaN),
-            color,
-            result.size === null ? "" : number(result.size[index] ?? Number.NaN),
-          ]);
-        }
-        return rows;
-      }
-      const stepX = (result.xMax - result.xMin) / Math.max(1, result.cols);
-      const stepY = (result.yMax - result.yMin) / Math.max(1, result.rows);
-      const rows: string[][] = [["x_center", "y_center", "count"]];
-      for (let y = 0; y < result.rows; y++) {
-        for (let x = 0; x < result.cols; x++) {
-          const count = result.counts[y * result.cols + x] ?? 0;
-          if (count === 0) continue;
-          rows.push([
-            String(result.xMin + (x + 0.5) * stepX),
-            String(result.yMin + (y + 0.5) * stepY),
-            String(count),
-          ]);
-        }
-      }
-      return rows;
-    }
-
-    if (this.config.kind === "bubble") {
-      return this.bubbleResult === null ? [] : this.gridCsvRows(this.bubbleResult);
-    }
-
-    if (this.config.kind === "box") {
-      const result = this.boxResult;
-      if (result === null) return [];
-      return [
-        [
-          "group",
-          "count",
-          "min",
-          "q1",
-          "median",
-          "q3",
-          "max",
-          "whisker_low",
-          "whisker_high",
-          "outlier_count",
-        ],
-        ...result.groups.map((group) => [
-          group.label,
-          String(group.count),
-          number(group.min),
-          number(group.q1),
-          number(group.median),
-          number(group.q3),
-          number(group.max),
-          number(group.whiskerLow),
-          number(group.whiskerHigh),
-          String(group.outlierCount),
-        ]),
-      ];
-    }
-
-    if (this.config.kind === "heatmap") {
-      const result = this.crossResult;
-      if (result === null) return [];
-      const rows: string[][] = [["x", "y", "count", "percent"]];
-      for (let y = 0; y < result.yLabels.length; y++) {
-        for (let x = 0; x < result.xLabels.length; x++) {
-          const count = result.counts[y * result.xLabels.length + x] ?? 0;
-          rows.push([
-            result.xLabels[x] ?? "",
-            result.yLabels[y] ?? "",
-            String(count),
-            result.total === 0 ? "" : ((count / result.total) * 100).toFixed(4),
-          ]);
-        }
-      }
-      return rows;
-    }
-
-    if (this.config.kind === "correlation") {
-      const result = this.correlationResult;
-      if (result === null) return [];
-      const rows: string[][] = [["column_a", "column_b", "r", "n"]];
-      for (let a = 0; a < result.labels.length; a++) {
-        for (let b = a + 1; b < result.labels.length; b++) {
-          rows.push([
-            result.labels[a] ?? "",
-            result.labels[b] ?? "",
-            number(result.values[a * result.labels.length + b] ?? Number.NaN),
-            String(result.counts[a * result.labels.length + b] ?? 0),
-          ]);
-        }
-      }
-      return rows;
-    }
-
-    if (this.config.kind === "treemap") {
-      const result = this.treemapResult;
-      if (result === null) return [];
-      return [
-        ["label", "value", "rows"],
-        ...result.labels.map((label, index) => [
-          label,
-          number(result.values[index] ?? Number.NaN),
-          String(result.rows[index] ?? 0),
-        ]),
-      ];
-    }
-
-    if (this.config.kind === "terms") {
-      const terms = this.textResult?.profile.topTerms ?? [];
-      return terms.length === 0
-        ? []
-        : [["term", "count"], ...terms.map((term) => [term.term, String(term.count)])];
-    }
-
-    const bars = this.allCategoryBars();
-    return bars.length === 0
-      ? []
-      : [
-          ["category", "count", "percent"],
-          ...bars.map((bar) => [bar.label, String(bar.count), bar.pct.toFixed(4)]),
-        ];
+  chartCsvRows(): string[][] {
+    return chartCsvRows(this);
   }
 
-  private binRangeFor(kind: ChartCardKind): { min: number; max: number } | null {
+  binRangeFor(kind: ChartCardKind): { min: number; max: number } | null {
     if (kind === "histogram") return this.config.binOptions;
     return this.lineBinRange;
   }
 
-  private gridCsvRows(grid: GridCountsResult): string[][] {
-    const stepX = (grid.xMax - grid.xMin) / Math.max(1, grid.bins);
-    const stepY = (grid.yMax - grid.yMin) / Math.max(1, grid.bins);
-    const rows: string[][] = [["x_center", "y_center", "group", "count", "value"]];
-    const append = (
-      counts: Uint32Array,
-      values: Float64Array | null,
-      label: string,
-    ): void => {
-      for (let y = 0; y < grid.bins; y++) {
-        for (let x = 0; x < grid.bins; x++) {
-          const index = y * grid.bins + x;
-          const count = counts[index] ?? 0;
-          const value = values?.[index];
-          if (count === 0 && (value === undefined || value === 0)) continue;
-          rows.push([
-            String(grid.xMin + (x + 0.5) * stepX),
-            String(grid.yMin + (y + 0.5) * stepY),
-            label,
-            String(count),
-            value === undefined || !Number.isFinite(value) ? "" : String(value),
-          ]);
-        }
-      }
-    };
-    if (grid.groups !== null) {
-      for (const group of grid.groups) append(group.counts, group.values, group.label);
-    } else {
-      append(grid.counts, grid.values, "");
-    }
-    return rows;
+  gridCsvRows(grid: GridCountsResult): string[][] {
+    return gridCsvRows(this, grid);
   }
 
   private buildSelect(className: string, label: string): HTMLSelectElement {
@@ -5766,7 +5313,7 @@ export class ChartCard {
   }
 
   /** The series a line card plots, when the Time Series page can read it. */
-  private seriesTarget(): ChartSeriesTarget | null {
+  seriesTarget(): ChartSeriesTarget | null {
     if (this.config.kind !== "line" || this.config.source !== "" || this.options.onDeepDive === undefined) return null;
     if (this.options.research?.() === false) return null;
     if (!this.isDateLike(this.meta(this.config.column))) return null;
@@ -5782,167 +5329,15 @@ export class ChartCard {
     };
   }
 
-  /** Line cards point to the Time Series page for trend, seasons and a forecast; map cards to the Map page. */
   private syncDeepDive(): void {
-    if (this.config.kind === "map") {
-      const on = this.options.onOpenMap !== undefined && this.options.research?.() !== false;
-      const key = on ? "map" : "";
-      if (this.deepDiveEl.dataset.key === key) return;
-      this.deepDiveEl.dataset.key = key;
-      clear(this.deepDiveEl);
-      this.deepDiveEl.classList.toggle("hidden", !on);
-      if (!on) return;
-      const button = el(
-        "button",
-        { class: "chart-deep-dive-link", type: "button", title: "Open this map on the Map page" },
-        ["Open in Map →"],
-      ) as HTMLButtonElement;
-      button.addEventListener("click", () => this.options.onOpenMap?.(this.getConfig()));
-      this.deepDiveEl.append(el("span", {}, ["Full width, with your own offline map picture underneath."]), button);
-      return;
-    }
-    const target = this.seriesTarget();
-    const key = target === null ? "" : JSON.stringify(target);
-    if (this.deepDiveEl.dataset.key === key) return;
-    this.deepDiveEl.dataset.key = key;
-    clear(this.deepDiveEl);
-    this.deepDiveEl.classList.toggle("hidden", target === null);
-    if (target === null) return;
-    const group = this.meta(target.groupColumn)?.name;
-    const button = el(
-      "button",
-      { class: "chart-deep-dive-link", type: "button", title: "Open this series on the Time Series page" },
-      ["Open in Time Series →"],
-    ) as HTMLButtonElement;
-    button.addEventListener("click", () => {
-      const current = this.seriesTarget();
-      if (current !== null) this.options.onDeepDive?.(current);
-    });
-    this.deepDiveEl.append(
-      el("span", {}, [
-        group === undefined
-          ? "Deep dive on this series: trend, seasons, typical day and a forecast."
-          : `Deep dive on one ${group} at a time: trend, seasons, typical day and a forecast.`,
-      ]),
-      button,
-    );
+    return syncDeepDive(this);
   }
 
-  /** Duplicate, PNG and remove live behind one ⋯ menu, plus the red ×. */
   private openCardMenu(anchor: HTMLElement): void {
-    const pivotHeatmap = this.config.kind === "pivotHeatmap";
-    const region = this.lastActionRegion;
-    const filters = region === null ? [] : tableFiltersForHitActions(region.actions);
-    const selectionLabel = region?.lines[0] ?? "the current selection";
-    openMenu(
-      anchor,
-      [
-        {
-          label: "Put back everything left out",
-          title: "Right-click a bar, box, bin or legend entry to leave it out of this chart",
-          disabled: this.excludes().length === 0,
-          action: () => this.setExcludes([]),
-        },
-        {
-          label: "Edit chart",
-          title: "Edit this chart in the shared setup dialog",
-          disabled: this.options.onEdit === undefined,
-          action: () => this.options.onEdit?.(this),
-        },
-        {
-          label: "Reset to suggested",
-          title: "Rebuild this card from the suggested fields for its chart type",
-          disabled: this.options.onResetSuggested === undefined || pivotHeatmap,
-          action: () => this.options.onResetSuggested?.(this),
-        },
-        {
-          label: "Filter table to selection",
-          title: `Add visible table filters for ${selectionLabel}`,
-          disabled: filters.length === 0 || this.options.onFilterTable === undefined,
-          action: () => this.options.onFilterTable?.(filters, selectionLabel),
-        },
-        {
-          label: "Show underlying rows",
-          title: `Switch to the table with rows filtered to ${selectionLabel}`,
-          disabled: filters.length === 0 || this.options.onShowRows === undefined,
-          action: () => this.options.onShowRows?.(filters, selectionLabel),
-        },
-        {
-          label: "Drill to finer grain",
-          title: "Add a finer-grained or broken-down version of this selection",
-          disabled: region === null || this.options.onDrill === undefined,
-          action: () => this.options.onDrill?.(this, filters, selectionLabel),
-        },
-        {
-          label: "Break down by another field",
-          title: "Open the chart builder for a new breakdown",
-          disabled: this.options.onBreakDown === undefined,
-          action: () => this.options.onBreakDown?.(this),
-        },
-        // The Time Series page is a Research view: General mode leaves the item out.
-        ...(this.options.research?.() === false
-          ? []
-          : [
-              {
-                label: "Open in Time Series",
-                title: "Trend, seasons, typical day and a forecast for this series",
-                disabled: this.seriesTarget() === null,
-                action: () => {
-                  const target = this.seriesTarget();
-                  if (target !== null) this.options.onDeepDive?.(target);
-                },
-              },
-            ]),
-        {
-          label: "Duplicate",
-          title: "Duplicate this chart",
-          action: () => this.options.onDuplicate(this),
-        },
-        {
-          label: "Download PNG",
-          title: "Download this chart as a PNG",
-          action: () => this.options.onExport(this),
-        },
-        {
-          label: "Download data (CSV)",
-          title: "Download the data behind this chart as a CSV",
-          action: () => this.exportCsv(),
-        },
-        {
-          label: "Download chart spec (JSON)",
-          title: "Download a versioned, portable description of this chart",
-          disabled: pivotHeatmap,
-          action: () => this.downloadChartSpec(),
-        },
-        {
-          label: "Apply chart spec (JSON)",
-          title: "Validate and apply a previously downloaded chart spec",
-          disabled: pivotHeatmap,
-          action: () => this.importChartSpecFile(),
-        },
-        {
-          label: "Download pandas code",
-          title: "Download Python that rebuilds the supported chart aggregation",
-          disabled: pivotHeatmap,
-          action: () => this.downloadChartCode(true),
-        },
-        {
-          label: "Download Polars code",
-          title: "Download Polars code that rebuilds the supported chart aggregation",
-          disabled: pivotHeatmap,
-          action: () => this.downloadChartCode(false),
-        },
-        {
-          label: "Remove chart",
-          title: "Remove this chart…",
-          action: () => this.confirmRemove(),
-        },
-      ],
-      "context-menu chart-card-menu",
-    );
+    return openCardMenu(this, anchor);
   }
 
-  private chartName(): string {
+  chartName(): string {
     if (isPairKind(this.config.kind)) {
       const x = this.meta(this.config.x)?.name ?? "x";
       const y = this.meta(this.config.y)?.name ?? "y";
@@ -6192,59 +5587,12 @@ export class ChartCard {
     return refreshAnimation(this);
   }
 
-  /**
-   * Expand/focus mode: the same card element moves into a full-viewport
-   * overlay, so every setting, the loaded data and the scroll-independent
-   * canvas size are retained. Closing (button or Escape) restores the card
-   * to its grid slot.
-   */
   private toggleFocus(): void {
-    if (this.focusOverlay !== null) {
-      this.closeFocus();
-      return;
-    }
-    const overlay = el("div", {
-      class: "chart-focus-overlay",
-      role: "dialog",
-      "aria-label": "Expanded chart",
-      tabindex: "-1",
-    }) as HTMLElement;
-    const close = el(
-      "button",
-      { class: "icon-btn chart-focus-close", type: "button", title: "Close (Esc)" },
-      ["×"],
-    ) as HTMLButtonElement;
-    close.addEventListener("click", () => this.closeFocus());
-    const stage = el("div", { class: "chart-focus-stage" });
-    overlay.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        this.closeFocus();
-      }
-    });
-    this.root.parentNode?.insertBefore(this.focusPlaceholder, this.root);
-    stage.append(this.root);
-    overlay.append(close, stage);
-    document.body.append(overlay);
-    this.focusOverlay = overlay;
-    this.root.classList.add("focused");
-    this.focusButton.classList.add("active");
-    this.focusButton.title = "Back to the grid (Esc)";
-    overlay.focus();
-    this.render();
+    return toggleFocus(this);
   }
 
-  private closeFocus(): void {
-    const overlay = this.focusOverlay;
-    if (overlay === null) return;
-    this.focusOverlay = null;
-    this.focusPlaceholder.parentNode?.insertBefore(this.root, this.focusPlaceholder);
-    this.focusPlaceholder.remove();
-    overlay.remove();
-    this.root.classList.remove("focused");
-    this.focusButton.classList.remove("active");
-    this.focusButton.title = "Expand this chart for a closer look (Esc to close)";
-    this.render();
+  closeFocus(): void {
+    return closeFocus(this);
   }
 
   errorBarBlock(): string | null {
@@ -6362,18 +5710,7 @@ export class ChartCard {
   }
 
   private openExportMenu(anchor: HTMLElement): void {
-    openMenu(anchor, [
-      {
-        label: "Animated GIF (.gif)",
-        title: "Loops anywhere, but some desktop viewers (e.g. Windows Photos) show only the first frame",
-        action: () => void this.exportAnimationGif(),
-      },
-      {
-        label: "Video (.mp4)",
-        title: "H.264 video that plays in every desktop player and presentation tool",
-        action: () => void this.exportAnimationVideo(),
-      },
-    ]);
+    return openExportMenu(this, anchor);
   }
 
   async renderAnimationFrames(): Promise<
@@ -6382,72 +5719,23 @@ export class ChartCard {
     return renderAnimationFrames(this);
   }
 
-  /** Versioned ChartSpec JSON: portable across config changes and code export. */
-  private downloadChartSpec(): void {
-    if (typeof URL.createObjectURL !== "function") return;
-    const spec = this.getSpec();
-    const url = URL.createObjectURL(
-      new Blob([chartSpecJson(spec)], { type: "application/json" }),
-    );
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${safeFileName(this.options.datasetName())}-${safeFileName(
-      this.chartName(),
-    )}-chart-spec.json`;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+  downloadChartSpec(): void {
+    return downloadChartSpec(this);
   }
 
-  /** Python code for the supported subset of the current ChartSpec. */
-  private downloadChartCode(pandas: boolean): void {
-    if (typeof URL.createObjectURL !== "function") return;
-    const spec = this.getSpec();
-    const generated = pandas ? chartSpecToPandas(spec) : chartSpecToPolars(spec);
-    if (generated.code === "") {
-      this.noteEl.textContent =
-        generated.warnings[0] ?? "No code can be generated for this chart yet.";
-      return;
-    }
-    if (generated.warnings.length > 0) {
-      this.noteEl.textContent = `${generated.warnings.length} support note${generated.warnings.length === 1 ? "" : "s"} included in the file.`;
-    }
-    const header = generated.warnings
-      .map((warning) => `# Note: ${warning}`)
-      .join("\n");
-    const content = header === "" ? generated.code : `${header}\n${generated.code}`;
-    const url = URL.createObjectURL(new Blob([content], { type: "text/x-python" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${safeFileName(this.options.datasetName())}-${safeFileName(
-      this.chartName(),
-    )}-${pandas ? "pandas" : "polars"}.py`;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+  downloadChartCode(pandas: boolean): void {
+    return downloadChartCode(this, pandas);
   }
 
   downloadBlob(blob: Blob, extension: string): void {
-    if (typeof URL.createObjectURL !== "function") return;
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${safeFileName(this.options.datasetName())}-${safeFileName(
-      this.chartName(),
-    )}-animation.${extension}`;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    return downloadBlob(this, blob, extension);
   }
 
-  private async exportAnimationGif(): Promise<void> {
+  async exportAnimationGif(): Promise<void> {
     return exportAnimationGif(this);
   }
 
-  private async exportAnimationVideo(): Promise<void> {
+  async exportAnimationVideo(): Promise<void> {
     return exportAnimationVideo(this);
   }
 
