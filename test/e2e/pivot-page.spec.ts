@@ -27,7 +27,7 @@ test("opening the Pivot View minimises the Filters pane, and leaving puts it bac
   await pivotTab(page).click();
   await expect(sidebar).toHaveClass(/collapsed/);
   // Opened by hand, it stays open on the way out.
-  await page.locator(".sidebar-toggle").click();
+  await page.locator(".filters-show").click();
   await expect(sidebar).not.toHaveClass(/collapsed/);
   await page.getByRole("tab", { name: "Table" }).click();
   await expect(sidebar).not.toHaveClass(/collapsed/);

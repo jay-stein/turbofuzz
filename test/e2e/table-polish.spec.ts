@@ -102,3 +102,20 @@ test("the toolbar folds its issues into one Issues menu: the rows first, then th
   await page.locator(".context-item", { hasText: "Fill missing cells…" }).click();
   await expect(page.locator(".context-menu")).toBeVisible();
 });
+
+test("a collapsed Filters pane gives its width to the grid, and the toolbar brings it back", async ({ page }) => {
+  await openListings(page);
+  const sidebar = page.locator("aside.sidebar");
+  const show = page.locator(".filters-show");
+  // A narrow window opens with the pane collapsed: the toolbar button is how it comes back.
+  if (await show.isVisible()) await show.click();
+  await expect(sidebar).toBeVisible();
+  await expect(show).toBeHidden();
+  await page.locator(".sidebar-toggle").click();
+  await expect(sidebar).toBeHidden();
+  await expect(show).toBeFocused();
+  expect((await page.locator(".table-scroller").boundingBox())!.x).toBeLessThan(2);
+  await show.click();
+  await expect(sidebar).toBeVisible();
+  await expect(show).toBeHidden();
+});

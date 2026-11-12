@@ -1389,8 +1389,17 @@ textarea:focus {
   transition: width 0.15s ease;
 }
 
+/* Collapsed, the Filters pane gives all its width back to the grid; "» Filters" in the toolbar reopens it. */
 .sidebar.collapsed {
-  width: 48px;
+  display: none !important;
+}
+
+.filters-show {
+  display: none;
+}
+
+.workspace:has(.sidebar.collapsed:not(.hidden)):not(.overview-mode) .filters-show {
+  display: inline-flex;
 }
 
 .sidebar.collapsed .sidebar-title,

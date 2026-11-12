@@ -805,6 +805,7 @@ export class App {
   /** The sample button was pressed: the text about to load is the built-in sample. */
   private sampleRequested = false;
   private sidebarEl!: HTMLElement;
+  private filtersShowButton!: HTMLButtonElement;
   private sidebarToggle!: HTMLButtonElement;
   private sidebarCollapsed = false;
   private pivotPageOpen = false;
@@ -1427,9 +1428,21 @@ export class App {
       { class: "icon-btn sidebar-toggle", type: "button", title: "Collapse filters" },
       ["«"],
     ) as HTMLButtonElement;
-    this.sidebarToggle.addEventListener("click", () =>
-      this.setSidebarCollapsed(!this.sidebarCollapsed),
-    );
+    this.sidebarToggle.addEventListener("click", () => {
+      this.setSidebarCollapsed(!this.sidebarCollapsed);
+      // The pane's own toggle goes with it; the toolbar's Filters button takes over.
+      if (this.sidebarCollapsed) this.filtersShowButton.focus();
+    });
+    // With the Filters pane collapsed, it is gone altogether and this toolbar button brings it back.
+    this.filtersShowButton = el(
+      "button",
+      { class: "ghost small filters-show", type: "button", title: "Show the Filters pane" },
+      ["» Filters"],
+    ) as HTMLButtonElement;
+    this.filtersShowButton.addEventListener("click", () => {
+      this.setSidebarCollapsed(false);
+      this.sidebarToggle.focus();
+    });
     sidebarHead.append(
       this.sidebarToggle,
       el("span", { class: "sidebar-title" }, ["Filters"]),
@@ -1557,6 +1570,7 @@ export class App {
 
     resultsRow.append(
       this.countEl,
+      this.filtersShowButton,
       this.filterChipsEl,
       this.addFilterButton,
       this.healthHost,
