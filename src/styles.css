@@ -11318,7 +11318,9 @@ summary:focus-visible,
 
 /* Toasts and tips never sit on top of an open dialog or drawer. */
 body:has(.modal-overlay) .toast,
-body:has(.modal-overlay) .hint-callout {
+body:has(.modal-overlay) .hint-callout,
+body:has([role="menu"]) .hint-callout,
+body:has(.th-filter-popover) .hint-callout {
   display: none;
 }
 
