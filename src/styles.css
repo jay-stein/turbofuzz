@@ -7009,31 +7009,26 @@ tr.views-drop-after > td {
   }
 }
 
-/* The research tabs sit in their own lane: a green border around the group, a
-   green wash rising from the baseline, and a green underline on the active tab. */
+/* The research tabs are set apart by a thin green divider and their green names, not a box: a heavy frame
+   pulled the eye away from the active tab's underline, which is where you are. */
 .view-tabs-research {
   position: relative;
   display: flex;
   flex: none;
   align-items: stretch;
   margin-left: 13px;
-  margin-top: 3px;
   padding: 0 2px;
-  border: 1.5px solid color-mix(in srgb, var(--research) 75%, transparent);
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  background: linear-gradient(to bottom, transparent 15%, var(--research-lane));
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--research) 40%, transparent);
 }
 
 .view-tabs-research::before {
   content: "";
   position: absolute;
   left: -7px;
-  top: 10px;
-  bottom: 10px;
-  width: 1px;
-  background: var(--border);
+  top: 9px;
+  bottom: 9px;
+  width: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--research) 55%, transparent);
 }
 
 .view-tabs-research.hidden {
