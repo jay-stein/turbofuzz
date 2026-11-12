@@ -6914,8 +6914,8 @@ export class App {
   /** A setting changed in the panel: what already loaded says what it will take to apply it. */
   /**
    * The Settings number format reaches the table: number columns are written in it, and columns with big values (10,000 and up, so
-   * years and small codes stay as they are) get thousands separators unless the person turned them off. With no format chosen the
-   * table is left as it was, separators off unless asked for.
+   * years and small codes stay as they are; ID-like columns stay plain) get thousands separators unless the person turned them off.
+   * With no format chosen the separators follow the browser's locale.
    */
   private applyNumberFormatToTable(repaint: boolean): void {
     // Which columns get separators is worked out by the table from each column as it is now (Table.isGrouped).
@@ -6925,10 +6925,10 @@ export class App {
     }
   }
 
-  /** Whether a column shows thousands separators: the person's choice, else the Settings number format's rule. */
+  /** Whether a column shows thousands separators: the person's choice, else the default rule (big values, not an ID). */
   private groupedNow(column: number): boolean {
     if (this.displayGrouping.has(column)) return true;
-    if (this.groupingOff.has(column) || readSettings().numberFormat === "") return false;
+    if (this.groupingOff.has(column)) return false;
     return autoGroups(this.metas[column]);
   }
 

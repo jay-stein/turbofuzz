@@ -55,3 +55,15 @@ test("the header filter popover uses the grid's type size, is narrow, and opens 
     await page.keyboard.press("Escape");
   }
 });
+
+test("big numbers get thousands separators by default, and ID-like columns stay plain", async ({ page }) => {
+  await openListings(page);
+  const firstRow = page.locator('.tr[data-pos="3"]');
+  const cell = async (name: string): Promise<string> => {
+    const col = await th(page, name).getAttribute("data-col");
+    return (await firstRow.locator(`.td[data-col="${col}"]`).textContent()) ?? "";
+  };
+  expect(await cell("price")).toBe("98,000,000");
+  expect(await cell("listing_id")).toBe("100039");
+  expect(await cell("bedrooms")).toBe("4");
+});

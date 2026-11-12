@@ -13,6 +13,7 @@ import { isNullToken, isNullWithWire } from "../parse/null-tokens.js";
 import { parseDate, toDateInputValue, toTimeInputValue } from "../parse/dates.js";
 import { parseNumber } from "../parse/numbers.js";
 import { valueLength } from "../parse/value-length.js";
+import { looksLikeIdName } from "../data/identifier.js";
 import { COLUMN_TYPES, TYPE_LABELS, type ColumnType } from "../types.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import type { ColumnFilter } from "../search/query-engine.js";
@@ -135,8 +136,10 @@ export interface ResultTableOptions {
 }
 
 /** With a number format chosen, a number column whose values reach 10,000 gets thousands separators; years and small codes don't. */
-export function autoGroups(meta: Pick<ColumnMeta, "type" | "role" | "stats"> | undefined): boolean {
+export function autoGroups(meta: Pick<ColumnMeta, "name" | "type" | "role" | "stats"> | undefined): boolean {
   if (meta === undefined || (meta.type !== "integer" && meta.type !== "number") || meta.role === "provenance") return false;
+  // IDs, codes, postcodes and phone numbers stay plain: 100,013 reads as a quantity, not a listing.
+  if (looksLikeIdName(meta.name)) return false;
   const big = Math.max(Math.abs(meta.stats.min ?? 0), Math.abs(meta.stats.max ?? 0));
   return big >= 10_000;
 }
@@ -465,13 +468,13 @@ export class ResultTable {
 
   /**
    * Whether a column's numbers are written with thousands separators: the person's choice when they made one;
-   * otherwise, with a number format chosen in Settings, every number column with big values (10,000 and up, so
-   * years and small codes stay as they are). Read from the column as it is now, so a column that becomes a number
+   * otherwise every number column with big values (10,000 and up, so years and small codes stay as they are), except
+   * ID-like columns. Display only; the separator follows the Settings number format, or the browser's own. Read from the column as it is now, so a column that becomes a number
    * later (a type change, a clean, an undo) is grouped too, without anyone having to remember to ask.
    */
   isGrouped(column: number): boolean {
     if (this.grouping.has(column)) return true;
-    if (this.groupingOff.has(column) || !this.localeNumbers) return false;
+    if (this.groupingOff.has(column)) return false;
     return autoGroups(this.columns[column]);
   }
 
@@ -604,6 +607,7 @@ export class ResultTable {
       if (this.hidden.has(index)) return;
       const name = column.name;
       const cell = el("div", { class: "th" });
+      cell.dataset.col = String(index);
       const frozenAt = this.frozenLeft(index);
       if (frozenAt !== null) { cell.classList.add("frozen"); cell.style.left = `${frozenAt}px`; }
       if (this.flashIndex === index) cell.classList.add("flash-column");
