@@ -144,6 +144,24 @@ export function autoGroups(meta: Pick<ColumnMeta, "name" | "type" | "role" | "st
   return big >= 10_000;
 }
 
+/**
+ * Whether a column reads as numbers in the grid: a number type, or a category whose labels are all plain numbers
+ * (bedrooms 1-5), which then lines up on the right like the numbers beside it. Display only.
+ */
+export function alignsAsNumber(meta: Pick<ColumnMeta, "type" | "categories"> | undefined): boolean {
+  if (meta === undefined) return false;
+  if (meta.type === "integer" || meta.type === "number") return true;
+  const labels = meta.categories?.labels;
+  if (labels === undefined || labels.length === 0) return false;
+  let seen = 0;
+  for (const label of labels) {
+    if (label === "") continue;
+    if (!/^[-+]?\d+(\.\d+)?$/.test(label.trim())) return false;
+    seen++;
+  }
+  return seen > 0;
+}
+
 export class ResultTable {
   private readonly scroller: HTMLDivElement;
   private readonly header: HTMLDivElement;
@@ -620,7 +638,7 @@ export class ResultTable {
       const frozenAt = this.frozenLeft(index);
       if (frozenAt !== null) { cell.classList.add("frozen"); cell.style.left = `${frozenAt}px`; }
       if (this.flashIndex === index) cell.classList.add("flash-column");
-      if (column.type === "integer" || column.type === "number") {
+      if (alignsAsNumber(column)) {
         cell.classList.add("num-head");
       }
       const qa = this.buildQaRow(column, index);
@@ -1177,6 +1195,15 @@ export class ResultTable {
     });
   }
 
+  /** Per column, whether its cells line up as numbers; worked out once per set of columns, not per row. */
+  private numberLikeCache: { columns: ColumnMeta[]; flags: boolean[] } | null = null;
+  private numberLike(): boolean[] {
+    if (this.numberLikeCache?.columns !== this.columns) {
+      this.numberLikeCache = { columns: this.columns, flags: this.columns.map((column) => alignsAsNumber(column)) };
+    }
+    return this.numberLikeCache.flags;
+  }
+
   /** Shows the right-edge fade while columns lie past the right edge, sized to sit inside the scrollbars. */
   private syncEdgeFade(): void {
     const s = this.scroller;
@@ -1458,6 +1485,7 @@ export class ResultTable {
     }
 
     const changedRow = this.changedRows.get(index);
+    const numberLike = this.numberLike();
     for (let c = 0; c < this.columns.length; c++) {
       if (this.hidden.has(c)) continue;
       const type = this.columns[c]?.type;
@@ -1467,7 +1495,7 @@ export class ResultTable {
       cell.dataset.col = String(c);
       if (this.cursor !== null && this.cursor.row === index && this.cursor.col === c) cell.classList.add("cursor-cell");
       if (this.flashIndex === c) cell.classList.add("flash-column");
-      if (type === "integer" || type === "number") cell.classList.add("num-cell", "mono-cell");
+      if (type === "integer" || type === "number" || numberLike[c] === true) cell.classList.add("num-cell", "mono-cell");
       else if (type === "boolean") cell.classList.add("bool-cell");
       else if (type === "date" || type === "datetime" || type === "time" || type === "duration" || type === "identifier") cell.classList.add("mono-cell");
       if (row !== undefined) this.fillCell(cell, row[c] ?? "", c);
