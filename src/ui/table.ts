@@ -1645,6 +1645,8 @@ function openHeaderFilterPanel(
   onApply: (filter: ColumnFilter | null) => void,
   requestSuggestions?: (query: string) => Promise<{ label: string; count: number }[]>,
 ): void {
+  // Measured first: building a numeric panel can re-render the header, which detaches the anchor and zeroes its rect.
+  const rect = anchor.getBoundingClientRect();
   const popover = el("div", {
     class: "th-filter-popover th-filter-panel-popover",
     role: "dialog",
@@ -1688,7 +1690,6 @@ function openHeaderFilterPanel(
   document.addEventListener("pointerdown", onPointerDown, true);
   document.addEventListener("keydown", onKey);
   document.body.append(popover);
-  const rect = anchor.getBoundingClientRect();
   const left = Math.max(8, Math.min(rect.left, window.innerWidth - popover.offsetWidth - 8));
   popover.style.left = `${left}px`;
   const below = rect.bottom + 6;
