@@ -103,7 +103,6 @@ import {
 } from "./theme.js";
 import { ResultTable, autoGroups, type ColumnQaKind, type HighlightRule } from "./table.js";
 import { openStatsModal } from "./stats.js";
-import { chipText } from "./chips.js";
 import {
   buildMultiFilePreflight,
   openMultiFilePreflight,
@@ -904,7 +903,7 @@ export class App {
       },
       {
         id: "placeholder-action",
-        text: "Placeholder text like “N/A” is counted as missing — “Convert to nulls” blanks those cells for real.",
+        text: "Placeholder text like “N/A” is counted as missing — Issues → “Blank placeholders” turns those cells empty for real.",
         target: () =>
           this.healthHost.querySelector<HTMLElement>(".placeholder-action"),
       },
@@ -6264,7 +6263,11 @@ export class App {
     return ok;
   }
 
-  /** Compact Table/Chart replacement for the old summary band. */
+  /**
+   * The toolbar's one "Issues · N ▾" control, as the column headers have: its menu shows the rows for each issue
+   * (duplicates, missing cells, outliers), then the fixes. A fix with choices of its own opens them from the same
+   * button. N counts issues, not fixes, so placeholders and their blank-them fix count once.
+   */
   private renderHealthGroup(): void {
     clear(this.healthHost);
     const stats = this.latestStats;
@@ -6272,38 +6275,8 @@ export class App {
       this.healthChipCount = 0;
       return;
     }
-    let count = 0;
-    // One split chip per issue: label = issue and count (click = view), the
-    // small "Fix ▾" segment opens the fix. Keeps the strip to a single row.
-    const addChip = (
-      kind: SpecialKind,
-      label: string,
-      title: string,
-      fix?: HTMLButtonElement,
-    ): void => {
-      const chip = el(
-        "button",
-        {
-          class: "ghost small health-chip",
-          type: "button",
-          title,
-          "aria-pressed": this.specials.has(kind) ? "true" : "false",
-        },
-        [label],
-      ) as HTMLButtonElement;
-      chip.dataset.kind = kind;
-      chip.addEventListener("click", () => this.viewSpecial(kind));
-      if (fix === undefined) {
-        this.healthHost.append(chip);
-      } else {
-        fix.classList.add("health-fix");
-        const fixLabel = fix.textContent ?? "Fix";
-        fix.setAttribute("aria-label", fixLabel);
-        fix.textContent = "Fix ▾";
-        this.healthHost.append(el("span", { class: "split-chip" }, [chip, fix]));
-      }
-      count++;
-    };
+    const views: { kind: SpecialKind; label: string; title: string }[] = [];
+    const fixes: { label: string; title: string; run: (anchor: HTMLElement) => void }[] = [];
     const tokenTotals = new Map<string, number>();
     for (const meta of this.metas) {
       for (const token of meta.nullTokens) {
@@ -6312,140 +6285,111 @@ export class App {
         }
       }
     }
-    const placeholderTotal = [...tokenTotals.values()].reduce(
-      (sum, value) => sum + value,
-      0,
-    );
+    const placeholderTotal = [...tokenTotals.values()].reduce((sum, value) => sum + value, 0);
     if (stats.duplicateRows > 0) {
-      const remove = el(
-        "button",
-        {
-          class: "ghost small",
-          type: "button",
-          title: `Remove duplicate rows — ${stats.duplicateRows.toLocaleString()} redundant rows`,
-        },
-        [chipText("fix", "Remove duplicates…")],
-      ) as HTMLButtonElement;
-      remove.addEventListener("click", () =>
-        openDedupeMenu(remove, stats, (keep) => this.dropDuplicates(keep)),
-      );
-      addChip(
-        "duplicates",
-        `View duplicates · ${stats.duplicateRows.toLocaleString()}`,
-        "Show rows that belong to a duplicate group",
-        remove,
-      );
+      views.push({
+        kind: "duplicates",
+        label: `View duplicates · ${stats.duplicateRows.toLocaleString()}`,
+        title: "Show rows that belong to a duplicate group",
+      });
+      fixes.push({
+        label: "Remove duplicates…",
+        title: `Remove duplicate rows — ${stats.duplicateRows.toLocaleString()} redundant rows`,
+        run: (anchor) => openDedupeMenu(anchor, stats, (keep) => this.dropDuplicates(keep)),
+      });
     }
     const columnsWithNulls = this.metas
       .map((meta, index) => ({ meta, index, count: meta.stats.nulls }))
       .filter((entry) => entry.count > 0);
     if (columnsWithNulls.length > 0) {
-      const label =
-        placeholderTotal > 0
-          ? `View placeholders · ${placeholderTotal.toLocaleString()}`
-          : `View empty cells · ${columnsWithNulls.length.toLocaleString()} ${
-              columnsWithNulls.length === 1 ? "col" : "cols"
-            }`;
-      const fix = el(
-        "button",
-        {
-          class: "ghost small",
-          type: "button",
-          title:
-            "Fill the empty cells in one click: median or mean for numbers, the most common value for text",
-        },
-        [chipText("fix", placeholderTotal > 0 ? "placeholder cells…" : "empty cells…")],
-      ) as HTMLButtonElement;
-      fix.addEventListener("click", () =>
-        openMenu(fix, this.fillMenuItems(columnsWithNulls.map((entry) => entry.index))),
-      );
-      addChip(
-        "nulls",
-        label,
-        placeholderTotal > 0
-          ? "Show rows with missing cells, including placeholder text like “NA”"
-          : "Show rows with at least one empty cell",
-        fix,
-      );
+      views.push({
+        kind: "nulls",
+        label:
+          placeholderTotal > 0
+            ? `View placeholders · ${placeholderTotal.toLocaleString()}`
+            : `View empty cells · ${columnsWithNulls.length.toLocaleString()} ${columnsWithNulls.length === 1 ? "col" : "cols"}`,
+        title:
+          placeholderTotal > 0
+            ? "Show rows with missing cells, including placeholder text like “NA”"
+            : "Show rows with at least one empty cell",
+      });
+    }
+    // Placeholders first: blanking them is the one-click fix, and filling comes after.
+    if (placeholderTotal > 0) {
+      const ranked = [...tokenTotals.entries()].sort((a, b) => b[1] - a[1]).map(([label]) => label);
+      const examples = ranked.slice(0, 3).map((label) => `“${label}”`).join(", ");
+      fixes.push({
+        label: `Blank ${placeholderTotal.toLocaleString()} placeholders`,
+        title: `Blank ${placeholderTotal.toLocaleString()} placeholder cells (${examples}) across all columns. Filters and charts then treat them as missing instead of real categories. Undo is in the Recipe.`,
+        run: () =>
+          this.confirmFix(
+            `Convert ${placeholderTotal.toLocaleString()} placeholders to missing?`,
+            `Values such as ${examples} will become empty cells in every affected column. This is recorded in the Recipe and can be undone.`,
+            "Convert to missing",
+            () => this.applyNullPolicyAll(ranked, []),
+          ),
+      });
+    }
+    if (columnsWithNulls.length > 0) {
+      fixes.push({
+        label: placeholderTotal > 0 ? "Fill missing cells…" : "Fill empty cells…",
+        title: "Fill the empty cells in one click: median or mean for numbers, the most common value for text",
+        run: (anchor) => openMenu(anchor, this.fillMenuItems(columnsWithNulls.map((entry) => entry.index))),
+      });
     }
     if (stats.valueAnomalyRows > 0) {
+      views.push({
+        kind: "valueAnomalies",
+        label: `View outliers · ${stats.valueAnomalyRows.toLocaleString()}`,
+        title: "Show rows with a value outside the column fence",
+      });
       const outlierColumns = this.metas
-        .map((meta, index) => ({
-          meta,
-          index,
-          count: meta.anomalyCounts.values,
-        }))
+        .map((meta, index) => ({ meta, index, count: meta.anomalyCounts.values }))
         .filter((entry) => entry.count > 0)
         .sort((a, b) => b.count - a.count)
         .slice(0, 3);
       if (outlierColumns.length > 0) {
-        const fix = el(
-          "button",
-          {
-            class: "ghost small",
-            type: "button",
-            title: "Quick fixes for the columns with the most value outliers",
-          },
-          [chipText("fix", "outliers…")],
-        ) as HTMLButtonElement;
-        fix.addEventListener("click", () =>
-          openMenu(
-            fix,
-            this.outlierMenuItems(outlierColumns.map((entry) => entry.index)),
-          ),
-        );
-        addChip(
-          "valueAnomalies",
-          `View outliers · ${stats.valueAnomalyRows.toLocaleString()}`,
-          "Show rows with a value outside the column fence",
-          fix,
-        );
-      } else {
-        addChip(
-          "valueAnomalies",
-          `View outliers · ${stats.valueAnomalyRows.toLocaleString()}`,
-          "Show rows with a value outside the column fence",
-        );
+        fixes.push({
+          label: "Fix outliers…",
+          title: "Quick fixes for the columns with the most value outliers",
+          run: (anchor) => openMenu(anchor, this.outlierMenuItems(outlierColumns.map((entry) => entry.index))),
+        });
       }
     }
-    // Dataset-level placeholder action, always visible even when the affected
-    // column is scrolled off screen. Per-column chips live in the headers.
-    if (placeholderTotal > 0) {
-      const ranked = [...tokenTotals.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([label]) => label);
-      const examples = ranked.slice(0, 3).map((label) => `“${label}”`).join(", ");
-      const convert = el(
+    const count = views.length;
+    if (count > 0) {
+      const button = el(
         "button",
         {
-          class: "ghost small placeholder-action",
+          class: "ghost small health-issues",
           type: "button",
-          title: `Fix: blank ${placeholderTotal.toLocaleString()} placeholder cells (${examples}) across all columns. Filters and charts then treat them as missing instead of real categories. Undo is in the Recipe.`,
+          "aria-haspopup": "menu",
+          title: `${views.map((view) => view.label).join(", ")} — click to show the rows or fix them`,
         },
-        [`Fix: blank ${placeholderTotal.toLocaleString()} placeholders`],
+        [`Issues · ${count.toLocaleString()} ▾`],
       ) as HTMLButtonElement;
-      convert.addEventListener("click", () =>
-        this.confirmFix(
-          `Convert ${placeholderTotal.toLocaleString()} placeholders to missing?`,
-          `Values such as ${examples} will become empty cells in every affected column. This is recorded in the Recipe and can be undone.`,
-          "Convert to missing",
-          () => this.applyNullPolicyAll(ranked, []),
-        ),
-      );
-      this.healthHost.append(convert);
-      count++;
+      if (placeholderTotal > 0) button.classList.add("placeholder-action");
+      button.addEventListener("click", () => {
+        const items: MenuItem[] = [{ label: "Show rows", heading: true, action: () => undefined }];
+        for (const view of views) {
+          items.push({ label: view.label, title: view.title, checked: this.specials.has(view.kind) || undefined, action: () => this.viewSpecial(view.kind) });
+        }
+        if (fixes.length > 0) items.push({ label: "Fix", heading: true, action: () => undefined });
+        for (const fix of fixes) items.push({ label: fix.label, title: fix.title, action: () => fix.run(button) });
+        openMenu(button, items);
+      });
+      this.healthHost.append(button);
     }
     this.healthChipCount = count;
     this.healthHost.classList.toggle("hidden", this.view === "overview" || count === 0);
+    this.syncHealthChips();
   }
 
   private syncHealthChips(): void {
-    for (const chip of this.healthHost.querySelectorAll<HTMLElement>(".health-chip")) {
-      const kind = chip.dataset.kind as SpecialKind | undefined;
-      const on = kind !== undefined && this.specials.has(kind);
-      chip.classList.toggle("active", on);
-      chip.setAttribute("aria-pressed", on ? "true" : "false");
-    }
+    const button = this.healthHost.querySelector<HTMLElement>(".health-issues");
+    if (button === null) return;
+    const on = [...this.specials].some((kind) => kind === "duplicates" || kind === "nulls" || kind === "valueAnomalies");
+    button.classList.toggle("active", on);
   }
 
   /** `⋯` menu on the Table and Chart lenses: Stats Report and friends. */

@@ -167,9 +167,10 @@ test("a view chip ignores other filters", async ({ page }) => {
   await expect(rows).toHaveCount(27);
   await expect(page.locator(".filter-chip")).toHaveCount(1);
 
-  await page.locator(".health-chip", { hasText: "View outliers" }).click();
+  await page.locator(".health-issues").click();
+  await page.locator(".context-item", { hasText: /^View outliers/ }).click();
   await expect(rows).toHaveCount(1);
-  await expect(rows.first()).toContainText("18000");
+  await expect(rows.first()).toContainText("18,000");
   await expect(page.locator(".filter-chip")).toHaveCount(0);
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);

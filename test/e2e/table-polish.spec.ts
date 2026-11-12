@@ -87,3 +87,18 @@ test("header chips use one word for missing cells and one colour", async ({ page
   const colours = await page.locator(".th-qa-summary:visible").evaluateAll((chips) => [...new Set(chips.map((c) => getComputedStyle(c).color))]);
   expect(colours).toHaveLength(1);
 });
+
+test("the toolbar folds its issues into one Issues menu: the rows first, then the fixes", async ({ page }) => {
+  await openListings(page);
+  const issues = page.locator(".health-issues");
+  await expect(issues).toHaveText(/^Issues · 2 ▾$/);
+  await expect(page.locator(".health-host button")).toHaveCount(1);
+  await issues.click();
+  await page.locator(".context-item", { hasText: /^View outliers · 1/ }).click();
+  await expect(page.locator(".table-rows .tr")).toHaveCount(1);
+  await expect(issues).toHaveClass(/\bactive\b/);
+  await issues.click();
+  await expect(page.locator(".context-item", { hasText: /^Blank \d+ placeholders/ })).toBeVisible();
+  await page.locator(".context-item", { hasText: "Fill missing cells…" }).click();
+  await expect(page.locator(".context-menu")).toBeVisible();
+});
