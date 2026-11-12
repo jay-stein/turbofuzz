@@ -1506,7 +1506,7 @@ export function commandSuggestions(
  * A suggestion's text with each bracketed column set apart from the action words: the brackets dimmed and the
  * name in the column colour, so “trim [city]” reads as an action and the column it acts on.
  */
-function usageParts(usage: string, columns: readonly ColumnMeta[]): (Node | string)[] {
+export function usageParts(usage: string, columns: readonly ColumnMeta[]): (Node | string)[] {
   const names = new Set(columns.map((column) => column.name.trim().toLowerCase()));
   const parts: (Node | string)[] = [];
   let at = 0;
@@ -1539,6 +1539,11 @@ export function ghostRest(value: string, usage: string): string {
   const plain = usage.replace(/[[\]]/g, "");
   if (!value.includes("[") && plain.toLowerCase().startsWith(typed)) return plain.slice(value.length);
   return "";
+}
+
+/** The command the bar would suggest first for this table (a real column, something to act on when there is one). */
+export function commandExample(columns: readonly ColumnMeta[]): string | null {
+  return columns.length === 0 ? null : (commandSuggestions("", columns, 1)[0]?.usage ?? null);
 }
 
 export interface CommandBarOptions {

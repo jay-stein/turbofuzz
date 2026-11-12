@@ -193,3 +193,11 @@ test("typing a column name lists its actions; an unfinished one is taken into th
   await expect(page.locator(".command-input")).toHaveValue("filter [neighbourhood] ");
   await expect(page.locator(".command-item").first()).toContainText(/filter \[neighbourhood\] \S/);
 });
+
+test("the top bar's command button gives an example with a real column", async ({ page }) => {
+  await openListings(page);
+  const label = page.locator(".palette-button-label");
+  await expect(label).toHaveText(/^Enter a command, e\.g\. \w+ \[[a-z_]+\]/);
+  const column = (await label.locator(".command-col").textContent())!.replace(/[[\]]/g, "");
+  await expect(page.locator(".th-label", { hasText: new RegExp(`^${column}$`) })).toHaveCount(1);
+});

@@ -17873,3 +17873,6 @@ button.cmp-change-name:hover {
   color: var(--text-dim);
   opacity: 0.75;
 }
+/* The top bar's example command: its column in the chrome accent. */
+.topbar .palette-button .command-col { color: var(--chrome-accent); font-weight: 600; }
+.topbar .palette-button .command-bracket { color: color-mix(in srgb, var(--chrome-accent) 45%, transparent); }

@@ -191,7 +191,7 @@ import { openNewColumn } from "./new-column-dialog.js";
 import { confirmCellEdit } from "./cell-edit-confirm.js";
 import { parseGoTo, type GoTo } from "./table-goto.js";
 import { remapViewDef, ViewsPanel, type ViewSource } from "./views-panel.js";
-import { openCommandBar, type ParsedCommand } from "./command-bar.js";
+import { commandExample, openCommandBar, usageParts, type ParsedCommand } from "./command-bar.js";
 import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
 import { openColumnInspector } from "./column-inspector.js";
 import { CompareMode } from "./compare/compare-mode.js";
@@ -816,6 +816,8 @@ export class App {
   /** The sample button was pressed: the text about to load is the built-in sample. */
   private sampleRequested = false;
   private sidebarEl!: HTMLElement;
+  private paletteLabel!: HTMLElement;
+  private paletteExample = "";
   private filtersShowButton!: HTMLButtonElement;
   private sidebarToggle!: HTMLButtonElement;
   private sidebarCollapsed = false;
@@ -970,6 +972,7 @@ export class App {
     ) as HTMLButtonElement;
     this.scoreTile.addEventListener("click", () => this.openQuality());
 
+    this.paletteLabel = el("span", { class: "palette-button-label" }, ["Enter a command"]);
     const paletteButton = el(
       "button",
       {
@@ -977,7 +980,7 @@ export class App {
         type: "button",
         title: "Type a command — e.g. “convert date_time to datetime”, “upper amount”, “group region sum sales”",
       },
-      [el("span", { class: "palette-button-label" }, ["Enter a command"]), el("span", { class: "kbd" }, ["Ctrl/⌘ K"])],
+      [this.paletteLabel, el("span", { class: "kbd" }, ["Ctrl/⌘ K"])],
     ) as HTMLButtonElement;
     paletteButton.addEventListener("click", () => this.openPalette());
     helpButton.classList.add("topbar-wide");
@@ -6305,6 +6308,7 @@ export class App {
     const stats = this.latestStats;
     if (stats === null) {
       this.healthChipCount = 0;
+      this.syncPaletteExample();
       return;
     }
     const views: { kind: SpecialKind; label: string; title: string }[] = [];
@@ -6415,6 +6419,20 @@ export class App {
     this.healthChipCount = count;
     this.healthHost.classList.toggle("hidden", this.view === "overview" || count === 0);
     this.syncHealthChips();
+    this.syncPaletteExample();
+  }
+
+  /**
+   * The top bar's command button names a real command for this table ("Enter a command, e.g. fill
+   * [neighbourhood]"), the one the bar would suggest first. Redrawn with the issues, which is when it can change.
+   */
+  private syncPaletteExample(): void {
+    const example = commandExample(this.metas) ?? "";
+    if (example === this.paletteExample) return;
+    this.paletteExample = example;
+    this.paletteLabel.replaceChildren(
+      ...(example === "" ? ["Enter a command"] : ["Enter a command, e.g. ", ...usageParts(example, this.metas)]),
+    );
   }
 
   private syncHealthChips(): void {
