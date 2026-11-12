@@ -14097,8 +14097,12 @@ button.qp-tile:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--mono);
-  font-size: var(--fs-xs);
+  /* The facts sit under the name in its own face, tight and dim, with even-width figures so ranges line up;
+     a wide mono here made a third typeface and cut "7 distinct" short. */
+  font-family: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
   color: var(--text-dim);
 }
 .th.num-head .th-facts { text-align: right; padding-right: 6px; }
