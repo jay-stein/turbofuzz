@@ -1358,8 +1358,9 @@ export class ResultTable {
       return;
     }
     if (this.cursor === null) return;
-    // Keys the grid uses never reach the page's shortcuts (1-9 switch tabs).
-    if (event.key === "Escape" || event.key === "Enter" || event.key === "F2" || (event.key.length === 1 && !event.altKey)) event.stopPropagation();
+    // Keys the grid uses never reach the page's shortcuts (1-9 switch tabs). Ctrl/⌘ shortcuts do (Ctrl+K opens
+    // the command bar, Ctrl+G Go to, Ctrl+Z undo); the grid keeps only Ctrl+C, below.
+    if (event.key === "Escape" || event.key === "Enter" || event.key === "F2" || (event.key.length === 1 && !event.altKey && !ctrl)) event.stopPropagation();
     if (event.key === "Escape") {
       this.cursor = null;
       this.markCursor();
