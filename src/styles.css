@@ -17831,3 +17831,16 @@ button.cmp-change-name:hover {
   color: var(--text-dim);
   font-size: var(--fs-xs);
 }
+
+/* Command bar: a column in a suggestion is set apart from the action words, in square brackets as in formulas. */
+.command-col {
+  color: var(--accent);
+  font-weight: 600;
+}
+.command-bracket {
+  color: color-mix(in srgb, var(--accent) 45%, transparent);
+  font-weight: 400;
+}
+.command-item.active .command-col {
+  color: var(--accent);
+}

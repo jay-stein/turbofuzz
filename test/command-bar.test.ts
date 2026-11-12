@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { commandState, commandSuggestions, parseCommand } from "../src/ui/command-bar.js";
+import { commandState, commandSuggestions, parseCommand, unbracketColumns } from "../src/ui/command-bar.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
 
 function meta(overrides: Partial<ColumnMeta> = {}): ColumnMeta {
@@ -191,7 +191,7 @@ test("suggestions rank prefix matches first", () => {
   const suggestions = commandSuggestions("upp", columns);
   // The example picks a column the verb applies to (a text column), not the
   // first column in the file.
-  assert.equal(suggestions[0].usage, "upper region");
+  assert.equal(suggestions[0].usage, "upper [region]");
   assert.match(suggestions[0].hint, /UPPERCASE/);
   const empty = commandSuggestions("", columns);
   assert.ok(empty.length >= 8);
@@ -199,14 +199,14 @@ test("suggestions rank prefix matches first", () => {
 
 test("column completions finish any column name for a verb", () => {
   const round = commandSuggestions("round a", columns);
-  assert.equal(round[0]?.usage, "round amount");
+  assert.equal(round[0]?.usage, "round [amount]");
   assert.equal(round[0]?.command.kind, "transform");
 
   const upper = commandSuggestions("upper n", columns);
-  assert.equal(upper[0]?.usage, "upper notes", "prefix matches outrank contains");
+  assert.equal(upper[0]?.usage, "upper [notes]", "prefix matches outrank contains");
 
   const datetime = commandSuggestions("convert datetime not", columns);
-  assert.equal(datetime[0]?.usage, "datetime notes");
+  assert.equal(datetime[0]?.usage, "datetime [notes]");
   assert.equal(datetime[0]?.command.kind, "clean");
 
   const drop = commandSuggestions("drop", columns);
@@ -396,7 +396,7 @@ test("sort, filter, view and output commands parse", () => {
 
 test("suggestions expose the new commands", () => {
   const melt = commandSuggestions("mel", columns);
-  assert.equal(melt[0]?.usage, "melt keep amount");
+  assert.equal(melt[0]?.usage, "melt keep [amount]");
   assert.equal(melt[0]?.command.kind, "transform");
   const all = commandSuggestions("", columns, 50);
   assert.ok(all.some((entry) => entry.usage.startsWith("melt")));
@@ -410,4 +410,26 @@ test("palette input state tracks verb and full-command recognition", () => {
   assert.equal(commandState("round amount", columns), "ready");
   assert.equal(commandState("trim notes", columns), "ready");
   assert.equal(commandState("convert datetime notes", columns), "ready");
+});
+
+test("columns can be written in square brackets, as in formulas", () => {
+  const trim = parseCommand("trim [notes]", columns);
+  assert.equal(trim.kind, "clean");
+  if (trim.kind === "clean") assert.equal(trim.column, 3);
+  const sort = parseCommand("sort [start station id] desc", columns);
+  assert.equal(sort.kind, "sort");
+  if (sort.kind === "sort") {
+    assert.equal(sort.column, 2);
+    assert.equal(sort.dir, -1);
+  }
+  const keys = parseCommand("keydup [amount], [Region]", columns);
+  assert.equal(keys.kind, "keyDuplicates");
+  // Brackets that are not a column (a regex class) are left as typed.
+  assert.equal(unbracketColumns("splitregex [notes] on [a-z]+", columns), "splitregex notes on [a-z]+");
+  // A half-typed bracket still completes to the column, written back in brackets.
+  assert.equal(commandSuggestions("trim [no", columns)[0]?.usage, "trim [notes]");
+  // A formula's own [column] references are not unwrapped.
+  const formula = parseCommand("add column total = [amount] * 2", columns);
+  assert.equal(formula.kind, "addColumn");
+  if (formula.kind === "addColumn") assert.equal(formula.formula, "[amount] * 2");
 });

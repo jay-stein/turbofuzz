@@ -210,6 +210,22 @@ function normalise(value: string): string {
   return value.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Columns are written in square brackets, as in formulas: “trim [city]”, “sort [start station id] desc”. A
+ * bracketed real column name is unwrapped before parsing, so brackets are optional and names with spaces are
+ * unambiguous. Brackets around anything else (a regex such as [a-z]+) are left alone.
+ */
+export function unbracketColumns(text: string, columns: readonly ColumnMeta[]): string {
+  if (!text.includes("[")) return text;
+  const names = new Set(columns.map((column) => column.name.trim().toLowerCase()));
+  return text.replace(/\[([^\]]+)\]/g, (whole, name: string) => (names.has(name.trim().toLowerCase()) ? name.trim() : whole));
+}
+
+/** A column as the palette writes it: in square brackets. */
+export function bracket(name: string): string {
+  return `[${name}]`;
+}
+
 /** Best column match for the remaining query, by name prefix/contains. */
 function findColumn(text: string, columns: readonly ColumnMeta[]): number {
   const needle = normalise(text);
@@ -397,7 +413,9 @@ function splitVerb(input: string): { verb: string; rest: string } | null {
  * "drop notes", "clean", "views".
  */
 export function parseCommand(input: string, columns: readonly ColumnMeta[]): ParsedCommand {
-  const text = input.trim();
+  // A formula keeps its [column] references as written: they are the formula's own syntax.
+  const raw = input.trim();
+  const text = splitVerb(raw)?.verb === "addcolumn" ? raw : unbracketColumns(raw, columns).trim();
   if (text === "") return { kind: "error", message: "Type a command, e.g. “upper amount”." };
   const split = splitVerb(text);
   if (split === null) {
@@ -1224,39 +1242,39 @@ export function commandSuggestions(
   const specialExample = (name: string): string | null => {
     switch (name) {
       case "keydup":
-        return `keydup ${columns[0]?.name ?? "order_id"}, ${columns[1]?.name ?? "customer_id"}`;
+        return `keydup ${bracket(columns[0]?.name ?? "order_id")}, ${bracket(columns[1]?.name ?? "customer_id")}`;
       case "melt":
-        return `melt keep ${columns[0]?.name ?? "region"}`;
+        return `melt keep ${bracket(columns[0]?.name ?? "region")}`;
       case "combine":
         return "combine dates";
       case "knn":
-        return `knn ${pickColumn("knn")} 5`;
+        return `knn ${bracket(pickColumn("knn"))} 5`;
       case "splitregex":
-        return `splitregex ${pickColumn("splitregex")} on \\d+`;
+        return `splitregex ${bracket(pickColumn("splitregex"))} on \\d+`;
       case "replace":
-        return `replace ${pickColumn("replace")} "old" with "new"`;
+        return `replace ${bracket(pickColumn("replace"))} "old" with "new"`;
       case "type":
-        return `type ${pickTextColumn()} number`;
+        return `type ${bracket(pickTextColumn())} number`;
       case "rename":
-        return `rename ${pickColumn("rename")} renamed`;
+        return `rename ${bracket(pickColumn("rename"))} renamed`;
       case "sort":
-        return `sort ${pickColumn("sort")} desc`;
+        return `sort ${bracket(pickColumn("sort"))} desc`;
       case "filter":
-        return `filter ${pickTextColumn()} active`;
+        return `filter ${bracket(pickTextColumn())} active`;
       case "clear":
         return "clear filters";
       case "merge":
-        return `merge ${pickColumn("merge")}`;
+        return `merge ${bracket(pickColumn("merge"))}`;
       case "chart":
-        return `chart ${pickTextColumn()}`;
+        return `chart ${bracket(pickTextColumn())}`;
       case "headercase":
         return "headercase snake";
       case "dropempty":
         return "dropempty";
       case "winsorize":
-        return `winsorize ${pickColumn("winsorize")} 1`;
+        return `winsorize ${bracket(pickColumn("winsorize"))} 1`;
       case "flag":
-        return `flag ${pickColumn("flag")}`;
+        return `flag ${bracket(pickColumn("flag"))}`;
       case "theme":
         return "theme dark";
       case "mode":
@@ -1268,7 +1286,7 @@ export function commandSuggestions(
     }
   };
   const example = (name: string): string =>
-    specialExample(name) ?? (COLUMN_VERBS.has(name) ? `${name} ${pickColumn(name)}` : name);
+    specialExample(name) ?? (COLUMN_VERBS.has(name) ? `${name} ${bracket(pickColumn(name))}` : name);
   const base: CommandSuggestion[] = VERBS.map((verb) => ({
     usage: example(verb.name),
     hint: verb.hint,
@@ -1281,7 +1299,7 @@ export function commandSuggestions(
   // right type, so any column name can be finished from the palette.
   const prefix = longestVerbPrefix(text);
   if (prefix !== null && COLUMN_VERBS.has(prefix.verb)) {
-    const rest = text2.slice(prefix.length).trim();
+    const rest = text2.slice(prefix.length).replace(/[[\]]/g, "").trim();
     const hint = VERBS.find((verb) => verb.name === prefix.verb)?.hint ?? "";
     // "<verb> all" applies a value clean to every column at once.
     if (rest === "all" && ALL_VERBS.has(prefix.verb)) {
@@ -1304,7 +1322,7 @@ export function commandSuggestions(
       .sort((a, b) => b.score - a.score || a.index - b.index)
       .slice(0, limit)
       .map(({ meta }) => {
-        const usage = `${prefix.verb} ${meta.name}`;
+        const usage = `${prefix.verb} ${bracket(meta.name)}`;
         return {
           usage,
           hint: hint === "" ? meta.name : `${hint} · ${meta.name}`,
@@ -1331,6 +1349,31 @@ export function commandSuggestions(
   if (scored.length > 0) return scored;
   const parsed = parseCommand(text, columns);
   return [{ usage: text, hint: parsed.kind === "error" ? parsed.message : "Run this command", command: parsed }];
+}
+
+/**
+ * A suggestion's text with each bracketed column set apart from the action words: the brackets dimmed and the
+ * name in the column colour, so “trim [city]” reads as an action and the column it acts on.
+ */
+function usageParts(usage: string, columns: readonly ColumnMeta[]): (Node | string)[] {
+  const names = new Set(columns.map((column) => column.name.trim().toLowerCase()));
+  const parts: (Node | string)[] = [];
+  let at = 0;
+  for (const match of usage.matchAll(/\[([^\]]+)\]/g)) {
+    const start = match.index ?? 0;
+    if (!names.has((match[1] ?? "").trim().toLowerCase())) continue;
+    if (start > at) parts.push(usage.slice(at, start));
+    parts.push(
+      el("span", { class: "command-col" }, [
+        el("span", { class: "command-bracket", "aria-hidden": "true" }, ["["]),
+        match[1] ?? "",
+        el("span", { class: "command-bracket", "aria-hidden": "true" }, ["]"]),
+      ]),
+    );
+    at = start + match[0].length;
+  }
+  if (at < usage.length) parts.push(usage.slice(at));
+  return parts;
 }
 
 export interface CommandBarOptions {
@@ -1393,7 +1436,7 @@ export function openCommandBar(options: CommandBarOptions): void {
         [],
       ) as HTMLButtonElement;
       row.append(
-        el("span", { class: "command-usage" }, [suggestion.usage]),
+        el("span", { class: "command-usage" }, usageParts(suggestion.usage, options.columns())),
         el("span", { class: "command-hint" }, [suggestion.hint]),
       );
       row.addEventListener("click", () => runConfirmed(suggestion.command));
