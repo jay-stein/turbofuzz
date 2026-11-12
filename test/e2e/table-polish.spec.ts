@@ -67,3 +67,13 @@ test("big numbers get thousands separators by default, and ID-like columns stay 
   expect(await cell("listing_id")).toBe("100039");
   expect(await cell("bedrooms")).toBe("4");
 });
+
+test("a fade on the right edge says more columns lie off to the side, and goes at the last column", async ({ page }) => {
+  await openListings(page);
+  const fade = page.locator(".table-edge-fade");
+  await expect(fade).toHaveClass(/\bon\b/);
+  await page.locator(".table-scroller").evaluate((node) => (node.scrollLeft = node.scrollWidth));
+  await expect(fade).not.toHaveClass(/\bon\b/);
+  await page.locator(".table-scroller").evaluate((node) => (node.scrollLeft = 0));
+  await expect(fade).toHaveClass(/\bon\b/);
+});

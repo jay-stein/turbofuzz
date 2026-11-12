@@ -149,7 +149,11 @@ export class ResultTable {
   private readonly header: HTMLDivElement;
   private readonly spacer: HTMLDivElement;
   private readonly rowsHost: HTMLDivElement;
-  private readonly onResize = (): void => this.render();
+  private readonly edgeFade: HTMLDivElement;
+  private readonly onResize = (): void => {
+    this.syncEdgeFade();
+    this.render();
+  };
   private quickFilterTimer: number | null = null;
 
   private columns: ColumnMeta[] = [];
@@ -211,9 +215,14 @@ export class ResultTable {
     this.rowsHost = el("div", { class: "table-rows" });
     this.spacer = el("div", { class: "table-spacer" }, [this.rowsHost]);
     this.scroller = el("div", { class: "table-scroller" }, [this.header, this.spacer]);
-    root.append(this.scroller);
+    // A soft fade on the right edge says more columns are off to the side; it goes once the last column is in view.
+    this.edgeFade = el("div", { class: "table-edge-fade", "aria-hidden": "true" });
+    root.append(el("div", { class: "table-scroll-wrap" }, [this.scroller, this.edgeFade]));
 
-    this.scroller.addEventListener("scroll", () => this.render());
+    this.scroller.addEventListener("scroll", () => {
+      this.syncEdgeFade();
+      this.render();
+    });
     // The grid takes the keyboard: a cell cursor, and typing edits the cell under it.
     this.scroller.tabIndex = 0;
     this.scroller.setAttribute("aria-label", "Table rows. Arrow keys move between cells; Enter or typing edits a cell.");
@@ -1167,7 +1176,19 @@ export class ResultTable {
     });
   }
 
+  /** Shows the right-edge fade while columns lie past the right edge, sized to sit inside the scrollbars. */
+  private syncEdgeFade(): void {
+    const s = this.scroller;
+    const more = s.scrollLeft + s.clientWidth < s.scrollWidth - 1;
+    this.edgeFade.classList.toggle("on", more);
+    if (more) {
+      this.edgeFade.style.right = `${s.offsetWidth - s.clientWidth}px`;
+      this.edgeFade.style.bottom = `${s.offsetHeight - s.clientHeight}px`;
+    }
+  }
+
   private render(): void {
+    this.syncEdgeFade();
     const height = this.scroller.clientHeight || 600;
     this.reportViewport(height);
     const start = Math.max(0, Math.floor(this.scroller.scrollTop / ROW_HEIGHT) - OVERSCAN);
