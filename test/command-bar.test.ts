@@ -460,3 +460,18 @@ test("after the column, the bar suggests what comes next from the column itself"
   // Without the trailing space the column itself is still being chosen.
   assert.equal(commandSuggestions("sort [price]", cols)[0]!.usage, "sort [price]");
 });
+
+test("a column name on its own lists what can be done to it, the useful things first", () => {
+  const cols: ColumnMeta[] = [
+    meta({ name: "price", type: "number", anomalyCounts: { values: 2, lengths: 0 } }),
+    meta({ name: "city", type: "category", stats: { ...meta().stats, nulls: 4 } }),
+  ];
+  const price = commandSuggestions("pri", cols).map((s) => s.usage);
+  assert.equal(price[0], "flag [price]", "outliers to act on come first");
+  assert.ok(price.includes("sort [price]"));
+  assert.ok(!price.includes("fill [price]"), "nothing missing, so no fill");
+  assert.equal(new Set(price).size, price.length, "no duplicates");
+  const city = commandSuggestions("city", cols);
+  assert.equal(city[0]?.usage, "fill [city]");
+  assert.match(city[0]?.hint ?? "", /4 missing/);
+});

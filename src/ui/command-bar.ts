@@ -12,7 +12,7 @@ import type { ThemePreference } from "./theme.js";
 import type { ViewId } from "./view-tabs.js";
 import { openConfirm } from "./dialog.js";
 import { el } from "./dom.js";
-import { fitNote, rankColumns } from "./command-columns.js";
+import { columnBenefit, fitNote, rankColumns } from "./command-columns.js";
 import { isNullToken } from "../parse/null-tokens.js";
 
 /** What a typed command means, or a friendly parse error. */
@@ -1304,6 +1304,12 @@ function argumentOptions(verb: string, meta: ColumnMeta): { arg: string; hint: s
   }
 }
 
+/** What a column name typed on its own offers, in this order; the ones with something to act on rise to the top. */
+const COLUMN_FIRST = [
+  "fill", "flag", "winsorize", "merge", "sort", "filter", "chart", "round", "trim", "upper", "lower", "title",
+  "date", "number", "rename", "type", "split", "replace", "drop",
+];
+
 /** Whether a suggestion still wants something after its column (taking it adds a space so those show next). */
 export function takesArgument(usage: string): boolean {
   const verb = usage.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
@@ -1446,6 +1452,33 @@ export function commandSuggestions(
     if (completions.length > 0) return completions;
   }
 
+  // A column name on its own lists what can be done to it: the commands with something to act on first, and
+  // none that would change nothing (“fill” on a column with nothing missing).
+  const columnActions: CommandSuggestion[] = [];
+  if (prefix === null) {
+    const needle = text2.replace(/[[\]]/g, "").trim();
+    const hits = columns
+      .map((meta, index) => ({ meta, index, score: columnMatchScore(normalise(meta.name), needle) }))
+      .filter((hit) => hit.score >= 60 && hit.meta.role !== "provenance")
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .slice(0, 2);
+    for (const hit of hits) {
+      const offers = COLUMN_FIRST.filter((verb) => columnFitsVerb(verb, hit.meta))
+        .map((verb, order) => ({ verb, order, fit: columnBenefit(verb, hit.meta) }))
+        .filter((offer) => offer.fit.score >= 0)
+        .sort((a, b) => Number(b.fit.score > 0) - Number(a.fit.score > 0) || a.order - b.order);
+      for (const offer of offers) {
+        const usage = `${offer.verb} ${bracket(hit.meta.name)}`;
+        const hint = VERBS.find((verb) => verb.name === offer.verb)?.hint ?? "";
+        columnActions.push({
+          usage,
+          hint: offer.fit.reason === "" ? hint : `${hint} · ${offer.fit.reason}`,
+          command: parseCommand(usage, columns),
+        });
+      }
+    }
+  }
+
   const scored = base
     .map((suggestion) => {
       const usage = normalise(suggestion.usage);
@@ -1456,11 +1489,15 @@ export function commandSuggestions(
       else if (usage.includes(text2)) score = 40;
       return { suggestion, score };
     })
-    .filter((entry) => entry.score >= 0)
+    // When the text names a column, its own list below says it better than examples that happen to mention it.
+    .filter((entry) => entry.score >= (columnActions.length > 0 ? 60 : 0))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map((entry) => entry.suggestion);
-  if (scored.length > 0) return scored;
+  if (scored.length > 0 || columnActions.length > 0) {
+    const seen = new Set<string>();
+    return [...scored, ...columnActions].filter((s) => !seen.has(s.usage) && seen.add(s.usage) !== undefined).slice(0, limit);
+  }
   const parsed = parseCommand(text, columns);
   return [{ usage: text, hint: parsed.kind === "error" ? parsed.message : "Run this command", command: parsed }];
 }
@@ -1594,7 +1631,14 @@ export function openCommandBar(options: CommandBarOptions): void {
         el("span", { class: "command-usage" }, usageParts(suggestion.usage, options.columns())),
         el("span", { class: "command-hint" }, [suggestion.hint]),
       );
-      row.addEventListener("click", () => runConfirmed(suggestion.command));
+      row.addEventListener("click", () => {
+        // An unfinished command (“filter [price]” needs a value) goes into the input to be finished.
+        if (suggestion.command.kind === "error") {
+          active = index;
+          accept();
+          input.focus();
+        } else runConfirmed(suggestion.command);
+      });
       list.append(row);
     });
     // Opened empty, the hint names a real command for this table.
@@ -1666,6 +1710,16 @@ export function openCommandBar(options: CommandBarOptions): void {
     } else if (event.key === "Enter") {
       event.preventDefault();
       const parsed = parseCommand(input.value, options.columns());
+      const highlighted = suggestions[active];
+      if (parsed.kind === "error" && highlighted !== undefined && highlighted.usage !== input.value.trim()) {
+        // Enter picks the highlighted suggestion: runs it when it is complete, else takes it to be finished.
+        if (highlighted.command.kind === "error") accept();
+        else {
+          input.value = highlighted.usage;
+          runConfirmed(highlighted.command);
+        }
+        return;
+      }
       if (parsed.kind === "error") {
         // Keep the palette open and show the message as the active hint.
         list.replaceChildren(

@@ -182,3 +182,14 @@ test("taking a column for round, sort, fill or filter goes straight on to what c
   await expect(page.locator(".command-modal")).toBeHidden();
   await expect(page.locator(".table-rows .tr").first()).toContainText("98,000,000");
 });
+
+test("typing a column name lists its actions; an unfinished one is taken into the input to finish", async ({ page }) => {
+  await openListings(page);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("neighbour");
+  await expect(page.locator(".command-item").first()).toContainText("fill [neighbourhood]");
+  await page.locator(".command-item", { hasText: "filter [neighbourhood]" }).click();
+  await expect(page.locator(".command-input")).toHaveValue("filter [neighbourhood] ");
+  await expect(page.locator(".command-item").first()).toContainText(/filter \[neighbourhood\] \S/);
+});
