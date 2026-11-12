@@ -944,7 +944,8 @@ export class ResultTable {
     let label: string;
     const only = issues.length === 1 ? issues[0] : undefined;
     if (only !== undefined) {
-      const words = only.kind === "nulls" && placeholders ? "missing" : only.count === 1 ? only.noun.one : only.noun.many;
+      // One word for empty cells and placeholder text alike, so neighbouring headers read the same.
+      const words = only.kind === "nulls" ? "missing" : only.count === 1 ? only.noun.one : only.noun.many;
       label = `${only.count.toLocaleString()} ${words}`;
     } else if (issues.length > 1) label = `${issues.length} issues`;
     else label = chips.length === 1 ? (chips[0]!.textContent ?? "Review") : `${chips.length} to review`;

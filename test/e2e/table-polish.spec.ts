@@ -77,3 +77,13 @@ test("a fade on the right edge says more columns lie off to the side, and goes a
   await page.locator(".table-scroller").evaluate((node) => (node.scrollLeft = 0));
   await expect(fade).toHaveClass(/\bon\b/);
 });
+
+test("header chips use one word for missing cells and one colour", async ({ page }) => {
+  await openListings(page);
+  const blanks = th(page, "agent_name").locator(".th-qa-summary");
+  const placeholders = th(page, "neighbourhood").locator(".th-qa-summary");
+  await expect(blanks).toHaveText(/^\d+ missing ▾$/);
+  await expect(placeholders).toHaveText(/^\d+ missing ▾$/);
+  const colours = await page.locator(".th-qa-summary:visible").evaluateAll((chips) => [...new Set(chips.map((c) => getComputedStyle(c).color))]);
+  expect(colours).toHaveLength(1);
+});
