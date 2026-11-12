@@ -119,3 +119,18 @@ test("a collapsed Filters pane gives its width to the grid, and the toolbar brin
   await expect(sidebar).toBeVisible();
   await expect(show).toBeHidden();
 });
+
+test("the cursor cell marks its row number and column header, and a hovered row is tinted", async ({ page }) => {
+  await openListings(page);
+  const col = await th(page, "neighbourhood").getAttribute("data-col");
+  await page.locator(`.tr[data-pos="4"] .td[data-col="${col}"]`).click();
+  await expect(page.locator('.tr[data-pos="4"]')).toHaveClass(/\bcursor-row\b/);
+  await expect(th(page, "neighbourhood")).toHaveClass(/\bcursor-col\b/);
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator('.tr[data-pos="5"]')).toHaveClass(/\bcursor-row\b/);
+  await expect(page.locator(".tr.cursor-row")).toHaveCount(1);
+  const row = page.locator('.tr[data-pos="9"]');
+  const before = await row.evaluate((node) => getComputedStyle(node).backgroundColor);
+  await row.hover();
+  await expect.poll(() => row.evaluate((node) => getComputedStyle(node).backgroundColor)).not.toBe(before);
+});

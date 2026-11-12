@@ -635,6 +635,7 @@ export class ResultTable {
       const name = column.name;
       const cell = el("div", { class: "th" });
       cell.dataset.col = String(index);
+      if (this.cursor?.col === index) cell.classList.add("cursor-col");
       const frozenAt = this.frozenLeft(index);
       if (frozenAt !== null) { cell.classList.add("frozen"); cell.style.left = `${frozenAt}px`; }
       if (this.flashIndex === index) cell.classList.add("flash-column");
@@ -1301,6 +1302,8 @@ export class ResultTable {
   /** Moves the cursor's mark on the cells already drawn (no repaint, so a double-click still lands). */
   private markCursor(): void {
     for (const cell of this.rowsHost.querySelectorAll(".cursor-cell")) cell.classList.remove("cursor-cell");
+    for (const node of this.rowsHost.querySelectorAll(".cursor-row")) node.classList.remove("cursor-row");
+    for (const node of this.header.querySelectorAll(".cursor-col")) node.classList.remove("cursor-col");
     this.options.onCursor?.(
       this.cursor === null
         ? null
@@ -1308,6 +1311,9 @@ export class ResultTable {
     );
     if (this.cursor === null) return;
     this.rowsHost.querySelector(`.tr[data-pos="${this.cursor.row}"] .td[data-col="${this.cursor.col}"]`)?.classList.add("cursor-cell");
+    // The cell's row number and column header light up too, so the cursor can be found from either edge.
+    this.rowsHost.querySelector(`.tr[data-pos="${this.cursor.row}"]`)?.classList.add("cursor-row");
+    this.header.querySelector(`.th[data-col="${this.cursor.col}"]`)?.classList.add("cursor-col");
   }
 
   private reveal(row: number, col: number): void {
@@ -1462,6 +1468,7 @@ export class ResultTable {
     if (this.groupStarts.has(index)) tr.classList.add("group-start");
     if (((this.rowFlags.get(index) ?? 0) & 1) !== 0) tr.classList.add("dup-row");
     if (this.pendingRowDeletes.has(index)) tr.classList.add("row-pending");
+    if (this.cursor?.row === index) tr.classList.add("cursor-row");
 
     const indexCell = el("div", { class: "td row-index" });
     const del = el(

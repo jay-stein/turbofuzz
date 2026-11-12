@@ -17788,3 +17788,25 @@ button.cmp-change-name:hover {
   background: none;
   box-shadow: none;
 }
+
+/* ---------- Table: row hover and the cursor's row and column (item 11) ---------- */
+/* A hover tint strong enough to follow a row across a wide table; opaque cells (row number, frozen) take it too. */
+.tr:not(.skeleton):hover {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.tr:not(.skeleton):hover > .td.row-index,
+.tr:not(.skeleton):hover > .td.frozen,
+.tr:not(.skeleton):hover > .td.file-row {
+  background: color-mix(in srgb, var(--accent) 9%, var(--panel));
+}
+/* The cursor cell's row number and column header are marked, so the cell is easy to find from either edge. */
+.tr.cursor-row > .td.row-index {
+  color: var(--accent);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+.table-header > .th.cursor-col {
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-2));
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
