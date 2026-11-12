@@ -435,9 +435,10 @@ test("a text column of months is offered as the date, and one click makes the pa
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
   await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
-  const offer = page.locator(".ts-page [data-use-date]");
+  // The page says plainly what is missing, and the fix is its first button.
+  await expect(page.locator(".ts-page .page-empty-title")).toHaveText("No dates in this table");
+  const offer = page.locator(".ts-page .page-empty").getByRole("button", { name: "Use month as dates" });
   await expect(offer).toBeVisible({ timeout: 20_000 });
-  await expect(offer).toContainText("Use month as date");
   await offer.click();
   await expect(page.locator(".ts-page [data-ref=empty]")).toBeHidden({ timeout: 20_000 });
 });

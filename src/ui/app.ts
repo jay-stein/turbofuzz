@@ -1681,9 +1681,10 @@ export class App {
   }
 
   /** Opens the fuzzy command palette (Ctrl/⌘+K or the "Enter a command" button). */
-  private openPalette(): void {
+  private openPalette(initial?: string): void {
     if (this.workspace.classList.contains("hidden")) return;
     openCommandBar({
+      ...(initial === undefined ? {} : { initial }),
       columns: () => this.metas,
       cursorColumn: () => (this.view === "table" ? (this.table?.cursorColumn() ?? null) : null),
       onRun: (command) => this.runCommand(command),
@@ -4836,6 +4837,7 @@ export class App {
         sampleValues: async (column) => (await this.client.getColumnSample(column)).values,
         onApplySuggestion: (column, suggestion) => this.applySuggestionNow(column, suggestion),
         onUseAsDate: (column, order) => this.applyQuickClean(column, { kind: "toDate", order: order as DateOrder }),
+        onCommand: (text) => this.openPalette(text),
         onShowRows: (column, min, max) => {
           this.changeFilter(column, { kind: "range", min, max });
           this.setView("table");

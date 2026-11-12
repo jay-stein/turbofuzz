@@ -1,5 +1,6 @@
 import type { ColumnNetworkEdge, ColumnNetworkNode } from "../data/column-network.js";
 import type { DatasetStats } from "../data/stats.js";
+import { emptyState, EMPTY_ICONS } from "./empty-state.js";
 import {
   anomalyFindings,
   explainColumn,
@@ -2198,10 +2199,22 @@ export class OutliersPanel {
       !hasNetwork &&
       !loading
     ) {
+      const columns = this.metas.filter((meta) => meta.role !== "provenance");
+      const withData = columns.filter((meta) => meta.stats.nulls < this.rowCount || this.rowCount === 0);
       wrap.append(
-        el("div", { class: "outliers-empty" }, [
-          "Relationships need at least two columns with data. Load a table with numeric, category or text columns.",
-        ]),
+        emptyState({
+          icon: EMPTY_ICONS.relationships,
+          title: columns.length < 2 ? "Only one column: nothing to relate it to" : "Not enough columns with data",
+          lead: "Relationships shows how columns move together (numbers, categories and text), so it needs at least two columns that hold values.",
+          needs: [
+            {
+              ok: withData.length >= 2,
+              label: "Two or more columns with data",
+              detail: `${withData.length} of ${columns.length} ${columns.length === 1 ? "column has" : "columns have"} values`,
+            },
+          ],
+          foot: "Load a table with more columns, or join one on from Load more.",
+        }),
       );
     }
     if (this.columnNetwork !== null && this.columnNetwork.nodes.length >= 2) {

@@ -5,7 +5,9 @@
  * markers and cities layer. Nothing is fetched. Markers are kept per dataset in this browser only (IndexedDB).
  */
 
-import { detectGeoPair } from "../data/geo.js";
+import { detectGeoPair, matchGeoName } from "../data/geo.js";
+import { emptyState, EMPTY_ICONS } from "./empty-state.js";
+import { listNames, measureColumnNames } from "./tab-availability.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import type { ChartCardConfig } from "./chart-card-types.js";
 import type { ChartCard } from "./chart-card.js";
@@ -276,10 +278,35 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     noCoordinates = names === "";
     syncEmpty();
     if (names === "") {
+      // A banner, not a blank page: the map below still shows markers, cities and boundaries.
+      const numeric = (m: ColumnMeta): boolean => m.type === "integer" || m.type === "number";
+      const lat = metas.find((m) => numeric(m) && matchGeoName(m.name) === "lat")?.name;
+      const lon = metas.find((m) => numeric(m) && matchGeoName(m.name) === "lon")?.name;
+      const numbers = measureColumnNames(metas);
       empty.replaceChildren(
-        el("p", {}, [
-          "No latitude and longitude columns found, so the map shows your markers only. To plot rows, the table needs two number columns in degrees, named for what they are: a latitude (lat, latitude) and a longitude (lon, lng, longitude). Columns are only used when their names say so; a column of prices or ages is never taken for a coordinate. If your columns are named differently, choose them with Latitude and Longitude above. A table of named places can still be mapped: choose Choropleth above and load a boundary file.",
-        ]),
+        emptyState({
+          layout: "banner",
+          icon: EMPTY_ICONS.map,
+          title: "No rows on the map: this table has no coordinates",
+          lead: "The map places each row from a latitude and a longitude column, in degrees. Columns are only used when their names say so, so a price or an age is never taken for a coordinate.",
+          needs: [
+            { ok: lat !== undefined, label: "A latitude column", detail: lat ?? "named lat or latitude: none found" },
+            { ok: lon !== undefined, label: "A longitude column", detail: lon ?? "named lon, lng or longitude: none found" },
+          ],
+          actions: [
+            {
+              label: "Choose latitude and longitude",
+              title: numbers.length > 0 ? `Number columns you could pick: ${listNames(numbers)}` : "Pick the two columns that hold the coordinates",
+              primary: true,
+              run: () => {
+                latPick.scrollIntoView({ block: "center", behavior: "smooth" });
+                latPick.focus();
+              },
+            },
+            { label: "Load boundaries…", title: "A table of named places can still be mapped: colour regions from a boundary file", run: () => boundaries.click() },
+          ],
+          foot: "The map below still shows your markers and the cities layer.",
+        }),
       );
     }
     sub.textContent = names;

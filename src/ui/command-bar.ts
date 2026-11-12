@@ -1528,6 +1528,8 @@ export interface CommandBarOptions {
   columns(): readonly ColumnMeta[];
   /** The column the table's cursor is in, which suggestions put first; null when there is none. */
   cursorColumn?(): number | null;
+  /** Text to open with, already typed (a page's fix button: “combine dates”). */
+  initial?: string;
   onRun(command: ParsedCommand): void;
 }
 
@@ -1718,6 +1720,7 @@ export function openCommandBar(options: CommandBarOptions): void {
   });
   document.addEventListener("keydown", onKey, true);
   document.body.append(overlay);
+  if (options.initial !== undefined) input.value = options.initial;
   input.focus();
   render();
 }

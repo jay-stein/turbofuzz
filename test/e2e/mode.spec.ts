@@ -59,3 +59,26 @@ test("chart line cards point to Time Series: chart tools are never held back", a
   await page.locator("canvas.chart-canvas").first().waitFor();
   await expect(page.getByRole("button", { name: "Open in Time Series →" }).first()).toBeVisible();
 });
+
+test("a table with no dates or coordinates greys Time Series and Map, says why on hover, and the pages say so plainly", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto("/");
+  const rows = ["agent,price"];
+  for (let i = 0; i < 30; i++) rows.push(`A${i % 4},${100 + i}`);
+  await page.locator('input[type="file"]').setInputFiles({ name: "plain.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  const ts = page.getByRole("tab", { name: "Time Series" });
+  await expect(ts).toHaveClass(/\bunavailable\b/);
+  await expect(ts).toHaveAttribute("title", /No date column/);
+  await expect(page.getByRole("tab", { name: "Map" })).toHaveClass(/\bunavailable\b/);
+  await expect(page.getByRole("tab", { name: "Outliers" })).not.toHaveClass(/\bunavailable\b/);
+  // Still clickable: the page says what it needs, ticked against this table.
+  await ts.click();
+  await expect(page.locator(".ts-page .page-empty-title")).toHaveText("No dates in this table");
+  await expect(page.locator(".ts-page .page-empty-needs .missing")).toContainText("A date or date-time column");
+  await expect(page.locator(".ts-page .page-empty-needs .ok")).toContainText("price");
+  // Its fix opens the command bar already filled in.
+  await page.locator(".ts-page .page-empty").getByRole("button", { name: "Change a column's type…" }).click();
+  await expect(page.locator(".command-input")).toHaveValue("type ");
+});

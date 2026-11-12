@@ -17782,6 +17782,114 @@ button.cmp-change-name:hover {
   .research-lane-tip { animation: none; }
 }
 
+/* ---------- A page with nothing to show for this table: say so, loudly, and offer the fix ---------- */
+.page-empty {
+  display: flex;
+  align-items: flex-start;
+  gap: 22px;
+  max-width: 660px;
+  margin: 48px auto;
+  padding: 28px 32px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  text-align: left;
+}
+.page-empty-banner {
+  max-width: none;
+  margin: 0 0 12px;
+  padding: 16px 20px;
+  border-left: 4px solid var(--qa-warn);
+  box-shadow: none;
+}
+/* The page's own icon, struck through: "not with this table". */
+.page-empty-icon {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--research) 12%, var(--panel));
+  color: var(--research-text);
+}
+.page-empty-icon::after {
+  content: "";
+  position: absolute;
+  width: 72%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--research) 12%, var(--panel));
+  transform: rotate(-45deg);
+}
+.page-empty-icon-svg {
+  width: 32px;
+  height: 32px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.page-empty-body { min-width: 0; }
+.page-empty-title {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.page-empty-banner .page-empty-title { font-size: 17px; }
+.page-empty .page-empty-lead {
+  max-width: 60ch;
+  margin: 0 0 16px;
+  color: var(--text-dim);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+}
+.page-empty-needs-head {
+  margin-bottom: 6px;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.page-empty-needs {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+.page-empty-needs li { display: flex; align-items: flex-start; gap: 10px; }
+.page-empty-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 50%;
+}
+.page-empty-needs .missing .page-empty-mark { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.page-empty-needs .ok .page-empty-mark { background: color-mix(in srgb, var(--research) 18%, transparent); color: var(--research-text); }
+.page-empty-mark-icon { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; }
+.page-empty-need { display: flex; flex-direction: column; gap: 1px; }
+.page-empty-need strong { color: var(--text); font-size: var(--fs-md); }
+.page-empty-detail { color: var(--text-dim); font-size: var(--fs-sm); }
+.page-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.page-empty .page-empty-foot { margin: 12px 0 0; color: var(--text-dim); font-size: var(--fs-sm); }
+@media (max-width: 560px) {
+  .page-empty { flex-direction: column; gap: 14px; margin: 16px; padding: 20px; }
+}
+/* The card brings its own frame: the pages' older empty boxes step back. */
+.ts-empty:has(.page-empty) { max-width: none; margin: 0; padding: 0; border: none; background: none; }
+.map-empty:has(.page-empty) { padding: 0; border: none; }
+
 /* A research tab this table has nothing for: greyed (no green), still clickable, the reason on hover. */
 .view-tabs .view-tab.unavailable:not(.active) {
   opacity: 0.42;
@@ -17791,3 +17899,6 @@ button.cmp-change-name:hover {
 .view-tabs .view-tab.unavailable:not(.active):focus-visible {
   opacity: 0.75;
 }
+/* Pages that set their own button colour (Time Series) still get readable fix buttons. */
+.page-empty .page-empty-actions .primary { color: var(--primary-fg); }
+.page-empty .page-empty-actions .ghost { color: var(--text); }
