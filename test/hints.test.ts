@@ -92,3 +92,26 @@ test("a hidden or missing target defers the hint", () => {
   assert.equal(document.querySelector(".hint-callout"), null);
   hints.dispose();
 });
+
+test("a hint that times out goes without bringing the next one in", () => {
+  const window = setupDom();
+  const document = window.document;
+  const target = document.createElement("button");
+  document.body.append(target);
+  const rect = { x: 0, y: 0, top: 0, left: 0, right: 50, bottom: 20, width: 50, height: 20, toJSON: () => ({}) };
+  target.getBoundingClientRect = (() => rect) as unknown as typeof target.getBoundingClientRect;
+  const pending: Array<{ fn: () => void; ms: number }> = [];
+  (window as unknown as { setTimeout: unknown }).setTimeout = (fn: () => void, ms: number) => pending.push({ fn, ms });
+  const hints = new Hints([
+    { id: "a", text: "First", target: () => target as unknown as HTMLElement },
+    { id: "b", text: "Second", target: () => target as unknown as HTMLElement },
+  ]);
+  hints.refresh();
+  assert.match(document.querySelector(".hint-callout")?.textContent ?? "", /First/);
+  assert.ok(pending[0]!.ms <= 6000, "a hint goes within a few seconds");
+  pending[0]!.fn();
+  assert.equal(document.querySelector(".hint-callout"), null, "the next hint waits");
+  hints.refresh();
+  assert.match(document.querySelector(".hint-callout")?.textContent ?? "", /Second/);
+  hints.dispose();
+});

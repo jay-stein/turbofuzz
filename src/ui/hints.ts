@@ -8,6 +8,8 @@ export interface HintSpec {
 }
 
 const KEY = "turbofuzz.hints.seen";
+/** How long a hint stays before it fades; the CSS fade-out starts 0.6s earlier. */
+export const HINT_MS = 5000;
 
 export function readSeenHints(): Set<string> {
   try {
@@ -89,14 +91,15 @@ export class Hints {
     document.body.append(callout);
     this.current = callout;
     this.currentId = spec.id;
-    // Fades out and goes after 8s, bottom right and away from the chart's axis, so a hint never lingers over the data.
+    // Fades out and goes after a few seconds, above the status bar, so a hint never lingers over the data. A hint that
+    // times out does not bring the next one straight in; that waits for the next view change or action.
     const id = spec.id;
     this.timer = window.setTimeout(() => {
-      if (this.currentId === id) this.dismiss();
-    }, 8000);
+      if (this.currentId === id) this.dismiss(false);
+    }, HINT_MS);
   }
 
-  private dismiss(): void {
+  private dismiss(showNext = true): void {
     if (this.timer !== null) window.clearTimeout(this.timer);
     this.timer = null;
     if (this.currentId !== null) {
@@ -106,7 +109,7 @@ export class Hints {
     this.current?.remove();
     this.current = null;
     this.currentId = null;
-    this.refresh();
+    if (showNext) this.refresh();
   }
 
   private readonly onKey = (event: KeyboardEvent): void => {

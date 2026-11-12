@@ -9604,20 +9604,21 @@ label.null-row {
   position: fixed;
   z-index: 90;
   right: 16px;
-  bottom: 16px;
-  animation: hint-in 0.2s ease-out, hint-out 0.6s ease-in 7.4s forwards;
+  /* Clears the table's status bar (34px) so "Add column" and "Go to…" stay visible. */
+  bottom: 46px;
+  animation: hint-in 0.2s ease-out, hint-out 0.6s ease-in 4.4s forwards;
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  max-width: min(320px, calc(100vw - 32px));
-  padding: 8px 8px 8px 12px;
+  gap: 6px;
+  max-width: min(260px, calc(100vw - 32px));
+  padding: 6px 6px 6px 10px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
   box-shadow: var(--shadow-pop);
-  font-size: var(--fs-md);
-  line-height: 1.45;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
   pointer-events: none;
 }
 
