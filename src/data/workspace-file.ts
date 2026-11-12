@@ -59,7 +59,8 @@ export interface WorkspaceFile {
   removedRows: number[];
   /** Rows removed by hand before a transform cannot be replayed; how many were lost. */
   removedRowsLost: number;
-  mode: "general" | "research";
+  /** Older files recorded General or Research; there is one mode now, so it is read and ignored. */
+  mode?: "general" | "research";
   view: string;
   table: WorkspaceTable;
   views: { columns: string[]; defs: ViewDef[]; active: number } | null;

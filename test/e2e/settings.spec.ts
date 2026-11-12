@@ -18,7 +18,6 @@ test("Settings starts with every convention unset, and a holiday region chosen t
   await page.locator('input[type="file"]').setInputFiles({ name: "s.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
   await expect(page.locator(".ts-tok[data-tok=holidays]")).toContainText("Western Australia", { timeout: 20_000 });
 });

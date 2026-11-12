@@ -22,7 +22,6 @@ async function openMap(page: Page, csv: string): Promise<Locator> {
   await page.locator('input[type="file"]').first().setInputFiles({ name: "t.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Map" }).first().click();
   const card = page.locator(".map-card");
   await card.locator(".chart-note").waitFor();

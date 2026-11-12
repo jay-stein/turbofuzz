@@ -184,8 +184,7 @@ import { buildHistoryPanel } from "./history-panel.js";
 import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
-import { GENERAL_VIEWS, ViewTabs, isResearchView, viewSwitchHint, type ViewId } from "./view-tabs.js";
-import { ModeSwitch, readMode, writeMode, type AppMode } from "./mode.js";
+import { ViewTabs, viewSwitchHint, type ViewId } from "./view-tabs.js";
 import { TableNav } from "./table-nav.js";
 import { openNewColumn } from "./new-column-dialog.js";
 import { confirmCellEdit } from "./cell-edit-confirm.js";
@@ -791,9 +790,6 @@ export class App {
   private view: ViewId = "table";
   private lastLens: ViewId = "table";
   /** Where switching back to General lands when a research view is open. */
-  private lastGeneralView: ViewId = "table";
-  private mode: AppMode = readMode();
-  private modeSwitch: ModeSwitch | null = null;
   private tabs: ViewTabs | null = null;
   private overviewHost!: HTMLElement;
   private overview: Overview | null = null;
@@ -885,7 +881,7 @@ export class App {
     this.hints = new Hints([
       {
         id: "tabs",
-        text: `Table, Overview, Data Quality, Pivot View and Chart are lenses — ${viewSwitchHint(GENERAL_VIEWS.length)}. The green Research tabs (Time Series, Map, Outliers, Relationships) show by default; slide to General to hide them.`,
+        text: `Each tab is a lens on the same table — ${viewSwitchHint()}. After the green divider are the deeper tools: Time Series, Map, Outliers and Relationships.`,
         target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
       },
       {
@@ -1249,8 +1245,7 @@ export class App {
 
     const tabHost = el("div");
     this.tabHost = tabHost;
-    this.tabs = new ViewTabs(tabHost, { onChange: (view) => this.setView(view) }, this.mode === "research");
-    this.modeSwitch = new ModeSwitch(this.mode, { onChange: (mode) => this.setMode(mode) });
+    this.tabs = new ViewTabs(tabHost, { onChange: (view) => this.setView(view) });
 
     this.stepsButton = el(
       "button",
@@ -1434,7 +1429,6 @@ export class App {
     new MutationObserver(syncWhy).observe(navActions, { subtree: true, attributes: true, attributeFilter: ["disabled", "title"] });
     syncWhy();
     const navRow = el("div", { class: "nav-row" }, [
-      this.modeSwitch.element,
       tabHost,
       el("span", { class: "grow" }),
       navActions,
@@ -1748,7 +1742,7 @@ export class App {
       ) {
         return;
       }
-      // Number keys follow the tabs on screen, so they change with the mode.
+      // Number keys follow the tabs, 1 to 9.
       const numbered = /^[1-9]$/.test(event.key) ? this.tabs?.visibleViews()[Number(event.key) - 1] : undefined;
       if (numbered !== undefined) this.setView(numbered);
       else if (
@@ -2769,13 +2763,6 @@ export class App {
     // A new table shows every column, none frozen.
     this.hiddenColumns = new Set();
     this.frozenThrough = -1;
-    // A new dataset always opens with the research tabs showing; sliding to General hides them until the next file.
-    if (loaded.type === "loaded" && this.mode !== "research") {
-      this.mode = "research";
-      writeMode("research");
-      this.modeSwitch?.setSelected("research");
-      this.tabs?.setResearch(true);
-    }
     const captured = this.chartsPanel?.captureConfigs() ?? this.chartRestore;
     const hadOrphans =
       (captured ?? []).some((config) => (config.missingColumns?.length ?? 0) > 0) ||
@@ -4482,10 +4469,6 @@ export class App {
   }
 
   private setView(view: ViewId): void {
-    // Links and commands can still ask for a research view in General mode:
-    // switch modes (and say so) rather than open a page with no tab.
-    if (isResearchView(view) && this.mode !== "research") this.setMode("research");
-    if (!isResearchView(view)) this.lastGeneralView = view;
     this.syncPivotFilters(view);
     this.view = view;
     if (view === "table" || view === "chart" || view === "views") this.ensureFilters();
@@ -4703,9 +4686,6 @@ export class App {
         break;
       case "help":
         openHelpDrawer();
-        break;
-      case "mode":
-        this.setMode(command.mode);
         break;
       case "goto": {
         this.setView("table");
@@ -5078,33 +5058,6 @@ export class App {
 
   private syncTabs(): void {
     this.tabs?.setSelected(this.view);
-  }
-
-  /**
-   * Shows or hides the research lenses. Leaving Research while one is open
-   * returns to the last general lens; the research pages keep their state.
-   */
-  private setMode(mode: AppMode): void {
-    if (mode === this.mode) return;
-    const previous = this.mode;
-    const previousView = this.view;
-    this.mode = mode;
-    writeMode(mode);
-    this.modeSwitch?.setSelected(mode);
-    this.tabs?.setResearch(mode === "research", !this.workspace.classList.contains("hidden"));
-    if (mode === "general" && isResearchView(this.view)) this.setView(this.lastGeneralView);
-    // Chart cards drop or restore their "Open in Time Series / Map" links.
-    if (this.view === "chart") this.chartsPanel?.repaint();
-    this.hints?.refresh();
-    const message =
-      mode === "research"
-        ? "Research mode: Time Series, Map, Outliers and Relationships are on the tab bar"
-        : "General mode: the research views are tucked away, and your work in them is kept";
-    this.setAction(message);
-    this.showToast(message, () => {
-      this.setMode(previous);
-      if (previousView !== this.view) this.setView(previousView);
-    });
   }
 
   /** Refreshes the health group and dataset stats after a worker update. */
@@ -7322,13 +7275,11 @@ export class App {
    */
   private outlierMenuItems(columns: number[]): MenuItem[] {
     const items: MenuItem[] = [];
-    if (this.mode === "research") {
-      items.push({
-        label: "Review the outliers first…",
-        title: "See how confident each method is, then keep, fix or remove rows one by one",
-        action: () => this.setView("outliers"),
-      });
-    }
+    items.push({
+      label: "Review the outliers first…",
+      title: "See how confident each method is, then keep, fix or remove rows one by one",
+      action: () => this.setView("outliers"),
+    });
     for (const index of columns) {
       const meta = this.metas[index];
       if (meta === undefined) continue;
@@ -8112,7 +8063,6 @@ export class App {
       },
       removedRows: removed,
       removedRowsLost: this.bakedRows,
-      mode: this.mode,
       view: this.view,
       table: {
         filters: [...this.filters.entries()].flatMap(([column, filter]) => (nameOf(column) === null ? [] : [{ column: nameOf(column) as string, filter: JSON.parse(JSON.stringify(filter)) as ColumnFilter }])),
@@ -8321,7 +8271,6 @@ export class App {
       if (ws.quality.rules.length > 0) this.setRules(ws.quality.rules);
       this.updateStepsButton();
       this.refreshScore();
-      if (ws.mode !== this.mode) this.setMode(ws.mode);
       // However it was saved, it opens on the Table.
       this.setView("table");
       const steps = this.workspaceStepCount(ws);

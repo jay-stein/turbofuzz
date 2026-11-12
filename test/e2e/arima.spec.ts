@@ -20,7 +20,6 @@ async function open(page: Page): Promise<void> {
   await page.locator('input[type="file"]').setInputFiles({ name: "AirPassengers.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
   await page.locator(".ts-modes [data-mode=forecast]").click();
   await expect(page.locator(".ts-page [data-ref=heroBadge]")).toBeVisible();

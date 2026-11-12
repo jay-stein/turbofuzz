@@ -7,7 +7,6 @@ import type { HeaderCaseStyle } from "../data/headers.js";
 import type { TransformOp } from "../data/transform-ops.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnType } from "../types.js";
-import type { AppMode } from "./mode.js";
 import type { ThemePreference } from "./theme.js";
 import type { ViewId } from "./view-tabs.js";
 import { openConfirm } from "./dialog.js";
@@ -48,7 +47,6 @@ export type ParsedCommand =
   | { kind: "recipe"; label: string }
   | { kind: "help"; label: string }
   | { kind: "theme"; preference: ThemePreference; label: string }
-  | { kind: "mode"; mode: AppMode; label: string }
   | { kind: "goto"; target: string; label: string }
   | { kind: "reverse"; label: string }
   | { kind: "addColumn"; name?: string; formula?: string; label: string }
@@ -186,13 +184,6 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   { name: "recipe", aliases: ["steps", "undo"], hint: "Open Recipe to inspect, undo or reuse applied steps" },
   { name: "help", aliases: ["guide"], hint: "Open the in-app help guide" },
   { name: "theme", aliases: [], hint: "Set the theme — “theme dark”, “theme light” or “theme auto”" },
-  {
-    name: "research",
-    aliases: ["research mode"],
-    hint: "Research mode: shows Time Series, Map, Outliers and Relationships on the tabs",
-  },
-  { name: "general", aliases: ["general mode"], hint: "General mode: the everyday tabs only" },
-  { name: "mode", aliases: [], hint: "Switch mode — “mode research” or “mode general”" },
   {
     name: "goto",
     aliases: ["go to", "jump to", "jump"],
@@ -1210,17 +1201,6 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
       if (!Number.isFinite(n) || n < 1) return { kind: "error", message: `How many rows? “${verb} 100”, or “${verb} all” for every row.` };
       return { kind: "rowLimit", limit: { from: verb, n: Math.floor(n) }, label: `Kept the ${verb === "head" ? "first" : "last"} ${Math.floor(n)} rows` };
     }
-    case "research":
-      return { kind: "mode", mode: "research", label: "Switched to Research mode" };
-    case "general":
-      return { kind: "mode", mode: "general", label: "Switched to General mode" };
-    case "mode": {
-      const mode = normalise(rest);
-      if (mode !== "research" && mode !== "general") {
-        return { kind: "error", message: "Mode needs general or research — “mode research”." };
-      }
-      return { kind: "mode", mode, label: `Switched to ${mode === "research" ? "Research" : "General"} mode` };
-    }
     default:
       return { kind: "error", message: `Unrecognised command “${verb}”.` };
   }
@@ -1374,8 +1354,6 @@ export function commandSuggestions(
         return `flag ${bracket(pickColumn("flag"))}`;
       case "theme":
         return "theme dark";
-      case "mode":
-        return "mode research";
       case "goto":
         return "goto -1";
       default:

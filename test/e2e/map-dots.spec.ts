@@ -16,7 +16,6 @@ async function openMap(page: Page): Promise<void> {
   await page.locator('input[type="file"]').setInputFiles({ name: "trips.csv", mimeType: "text/csv", buffer: Buffer.from(trips()) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Map" }).first().click();
   await page.locator(".chart-note").first().waitFor();
 }
@@ -96,7 +95,6 @@ test("one dot per place can be coloured by the average of a number, blue to red,
   await page.locator('input[type="file"]').setInputFiles({ name: "trips.csv", mimeType: "text/csv", buffer: Buffer.from(lines.join("\n")) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Map" }).first().click();
   const card = page.locator(".map-card");
   const notes = card.locator(".chart-note");
@@ -140,7 +138,6 @@ test("the Map page has the settings beside the map, dots that say what they are,
   await page.locator('input[type="file"]').setInputFiles({ name: "t.csv", mimeType: "text/csv", buffer: Buffer.from(lines.join("\n")) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Map" }).first().click();
   const card = page.locator(".map-card");
   await expect(card.locator(".chart-note")).toContainText("12 places");

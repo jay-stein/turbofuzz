@@ -17,7 +17,6 @@ test("rows from many places in one line: the page says so, suggests the column a
   await page.locator('input[type="file"]').setInputFiles({ name: "2014-02 - Citi Bike trip data.csv", mimeType: "text/csv", buffer: Buffer.from(trips()) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
   const banner = page.locator(".ts-page [data-ref=mixed]");
   await expect(banner).toBeVisible({ timeout: 20_000 });
@@ -43,7 +42,6 @@ test("All N… opens a searchable list of every value", async ({ page }) => {
   await page.locator('input[type="file"]').setInputFiles({ name: "trips.csv", mimeType: "text/csv", buffer: Buffer.from(trips()) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
   const banner = page.locator(".ts-page [data-ref=mixed]");
   await expect(banner).toBeVisible({ timeout: 20_000 });
@@ -63,7 +61,6 @@ test("the mixed-series notice is full size on Explore and a slim line on the oth
   await page.locator('input[type="file"]').setInputFiles({ name: "2014-02 - Citi Bike trip data.csv", mimeType: "text/csv", buffer: Buffer.from(trips()) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
   const banner = page.locator(".ts-page [data-ref=mixed]");
   await expect(banner).toContainText("Several series in one line", { timeout: 20_000 });

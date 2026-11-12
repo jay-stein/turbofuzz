@@ -32,7 +32,7 @@ export function buildAbout(): HTMLElement {
     el("h2", { id: "about-title" }, ["An analyst's Swiss Army knife for tables"]),
     el("p", { class: "about-lead" }, [
       "One place to check, clean and understand a dataset before you trust it: load a file, see what is wrong with it, fix it, then chart, pivot, map and forecast. ",
-      "The Research mode goes deeper, and is particularly useful if you do time-series forecasting.",
+      "Time Series, Map, Outliers and Relationships go deeper, and are particularly useful if you do time-series forecasting.",
     ]),
     kit,
     el("p", { class: "about-private" }, [

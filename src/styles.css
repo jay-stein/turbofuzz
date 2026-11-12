@@ -6909,100 +6909,6 @@ tr.views-drop-after > td {
   --research-lane: color-mix(in srgb, var(--research) 12%, transparent);
 }
 
-/* A pill with a thumb that slides to the chosen half. */
-.mode-switch {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  flex: none;
-  height: 30px;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--panel-2);
-}
-
-.mode-switch-thumb {
-  position: absolute;
-  top: 2px;
-  bottom: 2px;
-  left: 2px;
-  width: calc(50% - 2px);
-  border-radius: 999px;
-  background: var(--panel);
-  box-shadow: 0 1px 2px rgb(16 24 40 / 12%), 0 0 0 1px var(--border);
-  transition:
-    transform 280ms cubic-bezier(0.3, 0.9, 0.3, 1),
-    background 200ms ease,
-    box-shadow 200ms ease;
-}
-
-.mode-switch[data-mode="research"] .mode-switch-thumb {
-  transform: translateX(100%);
-  background: var(--research-soft);
-  box-shadow:
-    0 0 0 1px var(--research-border),
-    0 0 14px color-mix(in srgb, var(--research) 28%, transparent);
-}
-
-.mode-switch-option {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  height: 100%;
-  padding: 0 12px;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  white-space: nowrap;
-  transition: color 200ms ease;
-}
-
-.mode-switch-option:hover {
-  color: var(--text);
-}
-
-.mode-switch-option[aria-checked="true"] {
-  color: var(--text);
-}
-
-.mode-switch-option[data-mode="research"][aria-checked="true"] {
-  color: var(--research-text);
-}
-
-.mode-switch-option:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px var(--accent);
-}
-
-.mode-switch-icon {
-  flex: none;
-  width: 14px;
-  height: 14px;
-}
-
-/* Phones: icons only, so the tabs keep their room; the names stay for screen readers. */
-@media (max-width: 480px) {
-  .mode-switch-option {
-    padding: 0 9px;
-  }
-
-  .mode-switch-text {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-}
-
 /* The research tabs are set apart by a thin green divider and their green names, not a box: a heavy frame
    pulled the eye away from the active tab's underline, which is where you are. */
 .view-tabs-research {
@@ -7041,39 +6947,6 @@ tr.views-drop-after > td {
 .view-tabs .view-tabs-research button.active {
   color: var(--research-text);
   border-bottom-color: var(--research);
-}
-
-.view-tabs-research.entering {
-  animation: research-lane-in 360ms ease-out both;
-}
-
-.view-tabs-research.entering button {
-  animation: research-tab-in 340ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  animation-delay: calc(var(--i, 0) * 60ms + 80ms);
-}
-
-@keyframes research-lane-in {
-  from {
-    opacity: 0;
-    clip-path: inset(0 100% 0 0);
-  }
-
-  to {
-    opacity: 1;
-    clip-path: inset(0 0 0 0);
-  }
-}
-
-@keyframes research-tab-in {
-  from {
-    opacity: 0;
-    transform: translateX(-10px);
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
 }
 
 .chart-host {
@@ -14083,7 +13956,6 @@ button.qp-tile:hover {
 .view-tabs button.active { color: var(--text); font-weight: 600; }
 /* Every tab shows its name when they all fit: five tabs from 1100px, nine (Research on) from 1760px. */
 @media (min-width: 1100px) {
-  .view-tabs:not(:has(.view-tabs-research:not(.hidden))) .view-tab-label { max-width: none; padding-left: 6px; opacity: 1; }
 }
 @media (min-width: 1760px) {
   .view-tabs .view-tab-label { max-width: none; padding-left: 6px; opacity: 1; }
@@ -14150,7 +14022,7 @@ button.qp-tile:hover {
 .health-tile, .qp-tile, .ts-card, .overview-card, .filter-card, .views-card, .chart-card {
   box-shadow: none;
 }
-.mode-switch, .view-tabs { font-feature-settings: "tnum"; }
+.view-tabs { font-feature-settings: "tnum"; }
 
 /* Contrast pass (phase 4): every text colour reaches 4.5:1 on its own background in both themes. */
 :root { --role-text: #2563eb; --role-category: #b45309; --role-numeric: #6d28d9; --accent-ink: #1d4ed8; }
@@ -17876,3 +17748,4 @@ button.cmp-change-name:hover {
 /* The top bar's example command: its column in the chrome accent. */
 .topbar .palette-button .command-col { color: var(--chrome-accent); font-weight: 600; }
 .topbar .palette-button .command-bracket { color: color-mix(in srgb, var(--chrome-accent) 45%, transparent); }
+

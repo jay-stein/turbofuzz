@@ -375,18 +375,8 @@ test("sort, filter, view and output commands parse", () => {
   const theme = parseCommand("theme dark", columns);
   assert.equal(theme.kind, "theme");
   if (theme.kind === "theme") assert.equal(theme.preference, "dark");
-  for (const [input, mode] of [
-    ["research", "research"],
-    ["research mode", "research"],
-    ["general", "general"],
-    ["mode general", "general"],
-    ["mode Research", "research"],
-  ] as const) {
-    const command = parseCommand(input, columns);
-    assert.equal(command.kind, "mode", input);
-    if (command.kind === "mode") assert.equal(command.mode, mode);
-  }
-  assert.equal(parseCommand("mode expert", columns).kind, "error");
+  // There is one mode now: the old switch commands are not commands any more.
+  for (const input of ["research", "general", "mode general"]) assert.equal(parseCommand(input, columns).kind, "error", input);
   const goto = parseCommand("go to file 12", columns);
   assert.equal(goto.kind, "goto");
   if (goto.kind === "goto") assert.equal(goto.target, "file 12");
