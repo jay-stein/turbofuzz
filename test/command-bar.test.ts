@@ -442,3 +442,21 @@ test("the grey completion continues what was typed, with or without the brackets
   assert.equal(ghostRest("round", "trim [notes]"), "");
   assert.equal(ghostRest("", "trim [notes]"), "");
 });
+
+test("after the column, the bar suggests what comes next from the column itself", () => {
+  const cols: ColumnMeta[] = [
+    meta({ name: "price", type: "number", stats: { ...meta().stats, mean: 12.345, min: 1, max: 99 } }),
+    meta({ name: "city", type: "category", categories: { labels: ["(empty)", "Paris", "New York", "N/A"], counts: [9, 5, 7, 2] } }),
+  ];
+  const round = commandSuggestions("round [price] ", cols);
+  assert.deepEqual(round.map((s) => s.usage), ["round [price] 0", "round [price] 1", "round [price] 2"]);
+  assert.match(round[1]!.hint, /12\.3/);
+  assert.equal(round[1]!.command.kind, "transform");
+  assert.deepEqual(commandSuggestions("sort [price] d", cols).map((s) => s.usage), ["sort [price] desc"]);
+  // Real values, most rows first, quoted when they hold a space; blanks and placeholders are not offered.
+  assert.deepEqual(commandSuggestions("filter [city] ", cols).map((s) => s.usage), ['filter [city] "New York"', "filter [city] Paris"]);
+  assert.equal(commandSuggestions("fill [price] ", cols)[0]!.usage, "fill [price] median");
+  assert.equal(commandSuggestions("fill [city] ", cols)[0]!.usage, "fill [city] mode");
+  // Without the trailing space the column itself is still being chosen.
+  assert.equal(commandSuggestions("sort [price]", cols)[0]!.usage, "sort [price]");
+});

@@ -163,6 +163,22 @@ test("the command bar shows a grey completion that → takes, written with the c
   await page.keyboard.type("sort pri");
   await expect(page.locator(".command-ghost-rest")).toHaveText("ce");
   await page.keyboard.press("ArrowRight");
-  await expect(input).toHaveValue("sort [price]");
-  await expect(page.locator(".command-ghost-rest")).toHaveText("");
+  // Sort takes a direction next, so the space is added and its first choice shows in grey.
+  await expect(input).toHaveValue("sort [price] ");
+  await expect(page.locator(".command-ghost-rest")).toHaveText("asc");
+});
+
+test("taking a column for round, sort, fill or filter goes straight on to what comes next", async ({ page }) => {
+  await openListings(page);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("sort pri");
+  await page.keyboard.press("Tab");
+  await expect(page.locator(".command-input")).toHaveValue("sort [price] ");
+  await expect(page.locator(".command-item .command-usage")).toHaveText(["sort [price] asc", "sort [price] desc"]);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".command-modal")).toBeHidden();
+  await expect(page.locator(".table-rows .tr").first()).toContainText("98,000,000");
 });
