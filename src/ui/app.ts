@@ -1687,6 +1687,7 @@ export class App {
     if (this.workspace.classList.contains("hidden")) return;
     openCommandBar({
       columns: () => this.metas,
+      cursorColumn: () => (this.view === "table" ? (this.table?.cursorColumn() ?? null) : null),
       onRun: (command) => this.runCommand(command),
     });
   }

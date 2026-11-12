@@ -12,6 +12,7 @@ import type { ThemePreference } from "./theme.js";
 import type { ViewId } from "./view-tabs.js";
 import { openConfirm } from "./dialog.js";
 import { el } from "./dom.js";
+import { fitNote, rankColumns } from "./command-columns.js";
 
 /** What a typed command means, or a friendly parse error. */
 export type ParsedCommand =
@@ -246,6 +247,9 @@ function findColumn(text: string, columns: readonly ColumnMeta[]): number {
   });
   return bestScore >= 40 ? best : -1;
 }
+
+/** Column verbs whose example picks a text column its own way (pickTextColumn), not by the ranking. */
+const TEXT_PICKED = new Set(["type", "filter", "chart"]);
 
 /** Verbs that take a column argument. */
 const ALL_VERBS = new Set(["upper", "lower", "title", "trim"]);
@@ -1226,19 +1230,21 @@ export function commandSuggestions(
   input: string,
   columns: readonly ColumnMeta[],
   limit = 8,
+  context: { cursorColumn?: number | null } = {},
 ): CommandSuggestion[] {
   const text = input.trim();
-  // Examples pick a column the verb actually applies to (dates for "date",
-  // numbers for "round"), so the base list is not fixated on the first column.
-  const pickColumn = (verb: string): string =>
-    columns.find((meta) => columnFitsVerb(verb, meta))?.name ?? columns[0]?.name ?? "amount";
-  const pickTextColumn = (): string =>
-    columns.find(
-      (meta) =>
-        meta.type === "string" || meta.type === "category" || meta.type === "identifier",
-    )?.name ??
-    columns[0]?.name ??
-    "notes";
+  const cursor = context.cursorColumn ?? null;
+  // Examples pick the column a verb would do most for: the selected one, then one with something to act on
+  // (missing cells for "fill", outliers for "flag"), never an ID for maths, then the file's order.
+  const ranked = (verb: string) => rankColumns(verb, columns, columnFitsVerb, cursor);
+  const pickColumn = (verb: string): string => ranked(verb)[0]?.meta.name ?? columns[0]?.name ?? "amount";
+  const pickTextColumn = (): string => {
+    const textish = (meta: ColumnMeta): boolean =>
+      meta.type === "string" || meta.type === "category" || meta.type === "identifier";
+    const selected = cursor === null ? undefined : columns[cursor];
+    if (selected !== undefined && textish(selected)) return selected.name;
+    return columns.find(textish)?.name ?? columns[0]?.name ?? "notes";
+  };
   const specialExample = (name: string): string | null => {
     switch (name) {
       case "keydup":
@@ -1287,13 +1293,20 @@ export function commandSuggestions(
   };
   const example = (name: string): string =>
     specialExample(name) ?? (COLUMN_VERBS.has(name) ? `${name} ${bracket(pickColumn(name))}` : name);
-  const base: CommandSuggestion[] = VERBS.map((verb) => ({
-    usage: example(verb.name),
-    hint: verb.hint,
-    command: parseCommand(example(verb.name), columns),
-  }));
+  // A column command's hint ends with why its example column was picked ("45 missing", "selected column").
+  const noted: { suggestion: CommandSuggestion; acts: boolean }[] = VERBS.map((verb) => {
+    const usage = example(verb.name);
+    const top = COLUMN_VERBS.has(verb.name) && !TEXT_PICKED.has(verb.name) ? ranked(verb.name)[0] : undefined;
+    const note = top === undefined ? "" : fitNote(top);
+    return {
+      suggestion: { usage, hint: note === "" ? verb.hint : `${verb.hint} · ${note}`, command: parseCommand(usage, columns) },
+      acts: top !== undefined && top.fit.score > 0,
+    };
+  });
+  const base = noted.map((entry) => entry.suggestion);
   const text2 = normalise(text);
-  if (text2 === "") return base.slice(0, limit);
+  // Opened empty, the commands with something real to act on in this table come first.
+  if (text2 === "") return [...noted.filter((e) => e.acts), ...noted.filter((e) => !e.acts)].map((e) => e.suggestion).slice(0, limit);
 
   // Verb + partial column: complete against every matching column of the
   // right type, so any column name can be finished from the palette.
@@ -1312,20 +1325,18 @@ export function commandSuggestions(
         },
       ];
     }
-    const completions = columns
-      .map((meta, index) => ({
-        meta,
-        index,
-        score: columnMatchScore(normalise(meta.name), rest),
-      }))
-      .filter((entry) => entry.score > 0 && columnFitsVerb(prefix.verb, entry.meta))
-      .sort((a, b) => b.score - a.score || a.index - b.index)
+    // Name match first (what was typed), then the ranking: selected, something to act on, file order.
+    const completions = ranked(prefix.verb)
+      .map((entry, order) => ({ entry, order, score: columnMatchScore(normalise(entry.meta.name), rest) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => (rest === "" ? 0 : b.score - a.score) || a.order - b.order)
       .slice(0, limit)
-      .map(({ meta }) => {
-        const usage = `${prefix.verb} ${bracket(meta.name)}`;
+      .map(({ entry }) => {
+        const usage = `${prefix.verb} ${bracket(entry.meta.name)}`;
+        const note = fitNote(entry);
         return {
           usage,
-          hint: hint === "" ? meta.name : `${hint} · ${meta.name}`,
+          hint: note === "" ? hint : `${hint} · ${note}`,
           command: parseCommand(usage, columns),
         };
       });
@@ -1378,6 +1389,8 @@ function usageParts(usage: string, columns: readonly ColumnMeta[]): (Node | stri
 
 export interface CommandBarOptions {
   columns(): readonly ColumnMeta[];
+  /** The column the table's cursor is in, which suggestions put first; null when there is none. */
+  cursorColumn?(): number | null;
   onRun(command: ParsedCommand): void;
 }
 
@@ -1423,6 +1436,7 @@ export function openCommandBar(options: CommandBarOptions): void {
       input.value,
       options.columns(),
       input.value.trim() === "" ? 50 : 8,
+      { cursorColumn: options.cursorColumn?.() ?? null },
     );
     active = Math.min(active, Math.max(0, suggestions.length - 1));
     list.replaceChildren();

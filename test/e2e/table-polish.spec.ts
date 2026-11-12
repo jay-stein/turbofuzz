@@ -142,3 +142,14 @@ test("a disabled toolbar icon says why in its hover label", async ({ page }) => 
   await expect(undo.locator(".xbtn-label")).toHaveAttribute("data-why", "Nothing to undo yet");
   await expect(page.locator(".nav-actions button:not(:disabled) .xbtn-label[data-why]")).toHaveCount(0);
 });
+
+test("Ctrl+K opens the command bar while a cell is selected, and suggests that cell's column first", async ({ page }) => {
+  await openListings(page);
+  const col = await th(page, "review_summary").getAttribute("data-col");
+  await page.locator(`.tr[data-pos="2"] .td[data-col="${col}"]`).click();
+  await page.keyboard.press("Control+k");
+  await expect(page.locator(".command-modal")).toBeVisible();
+  await page.keyboard.type("trim ");
+  await expect(page.locator(".command-item").first()).toContainText("trim [review_summary]");
+  await expect(page.locator(".command-item").first()).toContainText("selected column");
+});

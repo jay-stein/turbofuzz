@@ -1299,6 +1299,11 @@ export class ResultTable {
     this.markCursor();
   }
 
+  /** The column the cell cursor is in, or null when there is no cursor. */
+  cursorColumn(): number | null {
+    return this.cursor?.col ?? null;
+  }
+
   /** Moves the cursor's mark on the cells already drawn (no repaint, so a double-click still lands). */
   private markCursor(): void {
     for (const cell of this.rowsHost.querySelectorAll(".cursor-cell")) cell.classList.remove("cursor-cell");
