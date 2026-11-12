@@ -3321,13 +3321,11 @@ button:disabled {
   will-change: transform;
 }
 
+/* Rows are told apart by their hairline borders alone; zebra striping on top doubled up (and, keyed on the
+   rendered window's nth-child, could flip as the rows scrolled). */
 .tr {
   display: grid;
   height: 28px;
-}
-
-.tr:nth-child(even) {
-  background: color-mix(in srgb, var(--panel-2) 45%, transparent);
 }
 
 .tr.skeleton .td {
@@ -3445,10 +3443,6 @@ button:disabled {
 
 .ghost.small.danger:hover {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
-}
-
-.tr:nth-child(even) .td.row-index {
-  background: color-mix(in srgb, var(--panel-2) 45%, var(--panel));
 }
 
 .tr.dup-row .td.row-index {
@@ -13868,7 +13862,6 @@ button.qp-tile:hover {
 /* Table: frozen columns and the File row column stay put when scrolling sideways. */
 .td.frozen, .td.file-row { position: sticky; z-index: 1; background: var(--panel); }
 .th.frozen, .th.file-row-head { position: sticky; z-index: 3; background: var(--panel-2); }
-.tr:nth-child(even) .td.frozen, .tr:nth-child(even) .td.file-row { background: color-mix(in srgb, var(--panel-2) 55%, var(--panel)); }
 .td.frozen:has(+ .td:not(.frozen)), .th.frozen:has(+ .th:not(.frozen)) { box-shadow: 2px 0 0 color-mix(in srgb, var(--accent) 35%, var(--border)); }
 /* Headers: the column number only on hover, so the name has the room. */
 .th .th-index { display: none; }
