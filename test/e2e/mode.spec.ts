@@ -73,7 +73,7 @@ test("asking for a research page from the command bar switches to Research and s
   await expect(page.locator(".toast")).toContainText("Research mode");
 });
 
-test("chart line cards only point to Time Series in Research mode", async ({ page }) => {
+test("chart line cards point to Time Series whichever mode is on: chart tools are never held back", async ({ page }) => {
   await load(page);
   await page.getByRole("tab", { name: "Chart" }).click();
   await page.locator(".chart-add-type", { hasText: /^Line/ }).first().click();
@@ -84,8 +84,5 @@ test("chart line cards only point to Time Series in Research mode", async ({ pag
   await expect(link.first()).toBeVisible();
 
   await modeOption(page, "General").click();
-  await expect(link).toHaveCount(0);
-
-  await modeOption(page, "Research").click();
   await expect(link.first()).toBeVisible();
 });

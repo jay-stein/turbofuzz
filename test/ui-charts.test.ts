@@ -1301,20 +1301,16 @@ test("the colour map list is short until More colour maps is chosen, and keeps t
   card.dispose();
 });
 
-test("error bars and Extract stats are left off the panel in General mode", async () => {
+test("every chart offers Extract stats and error bars: there is no reduced mode", async () => {
   const window = setupDom();
   captureMockContext(window, []);
-  let research = false;
   const host = document.createElement("div");
-  const card = new ChartCard(host, { ...stubCardOptions(), research: () => research }, { kind: "bar", column: 0 });
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
   card.setColumns([meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } })]);
   await tick();
   card.repaint();
   const stats = host.querySelector(".chart-stats-btn") as HTMLElement;
-  assert.equal(stats.classList.contains("hidden"), true);
-  research = true;
-  card.repaint();
-  assert.equal(stats.classList.contains("hidden"), false, "Research brings it back");
+  assert.equal(stats.classList.contains("hidden"), false);
   card.dispose();
   void window;
 });

@@ -10,7 +10,7 @@ import { refreshCrosstab, refreshBubble, refreshCorrelation, drawBubble, bubbleF
 import { syncAnimationOptions, frameWidths, syncFrameOptions, refreshAnimation, animationBlock, setAnimationTime, toggleAnimationSetup, toggleAnimation, setAnimationSpeed, promptAnimationSpeed, playAnimation, stopAnimation, syncAnimationBar, renderAnimationFrames, exportAnimationGif, exportAnimationVideo, drawAnimatedHistogram, drawAnimatedTreemap, drawAnimatedDensity, drawAnimatedBars } from "./chart-draw-animated.js";
 import { drawPlotMessage, emptySeriesMessage, subtitle, drawChart, drawSplitAggregate, drawRankedBars, drawViewAggregate, drawSeries, drawCountAxis, lineUnitLabel, drawGroupedHistogram, drawGroupedLines, syncLegend } from "./chart-draw-aggregate.js";
 import { mapExtract, regionOptions, setMapMode, syncRegionAxes, refreshMapGrid, placeFrame, beginMapBrush, endMapBrush, zoomMap, exportMapHtml, mapHtmlPayload, mapViewShown, mapViewOrAuto, dataViewOrNull, resetMapZoom, fitMapAll, markerBox, frameBox, drawMap, drawMapLayers, drawMapClusters, drawMapBody, syncDotControls, mapLabelColumn, mapDotLines, drawMapSizeLegend, mapRadii } from "./chart-map-draw.js";
-import { errorBarExtract, errorBarBlock, syncResearchControls, syncErrorBarControls, refreshErrorBars, cancelErrorBars, showErrorBarProgress, hideErrorBarProgress, errorBarAt, drawWhisker, appendErrorBarNote } from "./chart-error-bars.js";
+import { errorBarExtract, errorBarBlock, syncErrorBarControls, refreshErrorBars, cancelErrorBars, showErrorBarProgress, hideErrorBarProgress, errorBarAt, drawWhisker, appendErrorBarNote } from "./chart-error-bars.js";
 import type { ChartBins } from "../data/chart-bins.js";
 import { ChartDataDrawer } from "./chart-data-drawer.js";
 import { cssVar, readGroupOpen, type SettingsGroup } from "./chart-card-parts.js";
@@ -879,7 +879,7 @@ export class ChartCard {
 
   /** Repaints the current payloads; used when the lens is re-entered. */
   repaint(): void {
-    this.syncResearchControls();
+    this.syncErrorBarControls();
     for (const details of this.settingsGroups) details.open = readGroupOpen(details.dataset.group as SettingsGroup);
     this.dataDrawer.restoreOpen();
     // The host may still be hidden at this point; painting then would leave a
@@ -1455,10 +1455,6 @@ export class ChartCard {
 
   errorBarsOn(): boolean {
     return this.config.errorBars === true && ERROR_BAR_KINDS.has(this.config.kind) && this.errorBarBlock() === null;
-  }
-
-  private syncResearchControls(): void {
-    return syncResearchControls(this);
   }
 
   syncErrorBarControls(): void {

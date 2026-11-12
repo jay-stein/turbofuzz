@@ -391,8 +391,6 @@ export interface ChartCardOptions {
   onDeepDive?(series: ChartSeriesTarget): void;
   /** Open this map card full width on the Map page. */
   onOpenMap?(preset: Partial<ChartCardConfig>): void;
-  /** False in General mode: the Time Series and Map pages are hidden, so are links to them. */
-  research?(): boolean;
   /** Map card with no coordinate columns: leave them unset instead of picking any number columns. */
   keepEmptyMap?: boolean;
   /** The title is shown by the page around the card: it goes on exports, not on the plot. */

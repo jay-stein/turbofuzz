@@ -512,7 +512,7 @@ export function gridCsvRows(card: ChartCard, grid: GridCountsResult): string[][]
 /** Line cards point to the Time Series page for trend, seasons and a forecast; map cards to the Map page. */
 export function syncDeepDive(card: ChartCard): void {
   if (card.config.kind === "map") {
-    const on = card.options.onOpenMap !== undefined && card.options.research?.() !== false;
+    const on = card.options.onOpenMap !== undefined;
     const key = on ? "map" : "";
     if (card.deepDiveEl.dataset.key === key) return;
     card.deepDiveEl.dataset.key = key;
@@ -606,20 +606,15 @@ export function openCardMenu(card: ChartCard, anchor: HTMLElement): void {
         disabled: card.options.onBreakDown === undefined,
         action: () => card.options.onBreakDown?.(card),
       },
-      // The Time Series page is a Research view: General mode leaves the item out.
-      ...(card.options.research?.() === false
-        ? []
-        : [
-            {
-              label: "Open in Time Series",
-              title: "Trend, seasons, typical day and a forecast for this series",
-              disabled: card.seriesTarget() === null,
-              action: () => {
-                const target = card.seriesTarget();
-                if (target !== null) card.options.onDeepDive?.(target);
-              },
-            },
-          ]),
+      {
+        label: "Open in Time Series",
+        title: "Trend, seasons, typical day and a forecast for this series",
+        disabled: card.seriesTarget() === null,
+        action: () => {
+          const target = card.seriesTarget();
+          if (target !== null) card.options.onDeepDive?.(target);
+        },
+      },
       {
         label: "Duplicate",
         title: "Duplicate this chart",

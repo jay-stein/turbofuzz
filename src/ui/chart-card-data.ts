@@ -862,7 +862,6 @@ export function defaultTitle(card: ChartCard): string {
 /** The series a line card plots, when the Time Series page can read it. */
 export function seriesTarget(card: ChartCard): ChartSeriesTarget | null {
   if (card.config.kind !== "line" || card.config.source !== "" || card.options.onDeepDive === undefined) return null;
-  if (card.options.research?.() === false) return null;
   if (!card.isDateLike(card.meta(card.config.column))) return null;
   const value = card.config.valueColumn ?? -1;
   return {

@@ -3116,7 +3116,6 @@ export class App {
       },
       onDeepDive: (series) => this.openSeries(series),
       onOpenMap: (config) => this.openMap(config),
-      research: () => this.mode === "research",
       onConvertToken: (column, tokens) => this.convertToken(column, tokens),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
       onMapBrush: (selection) => this.filterToMapArea(selection),
