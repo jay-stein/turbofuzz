@@ -17805,3 +17805,26 @@ button.cmp-change-name:hover {
   background: color-mix(in srgb, var(--accent) 12%, var(--panel-2));
   box-shadow: inset 0 -2px 0 var(--accent);
 }
+
+/* A disabled toolbar icon's hover label gives the reason under its name (item 13). The icon is dimmed, not the
+   whole button, so the label stays readable. */
+.nav-actions .xbtn:disabled {
+  opacity: 1;
+}
+.nav-actions .xbtn:disabled .xbtn-icon {
+  opacity: 0.45;
+}
+.nav-actions .xbtn-label[data-why] {
+  width: max-content;
+  max-width: 260px;
+  white-space: normal;
+}
+.nav-actions .xbtn-label[data-why]::after {
+  content: attr(data-why);
+  display: block;
+  max-width: 240px;
+  margin-top: 1px;
+  white-space: normal;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}

@@ -376,6 +376,17 @@ function expandButton(button: HTMLElement, icon: keyof typeof BUTTON_ICONS, labe
   button.classList.add("xbtn");
   button.replaceChildren(svgIcon(BUTTON_ICONS[icon], "xbtn-icon"), el("span", { class: "xbtn-label" }, [label]));
 }
+/**
+ * A disabled toolbar icon says why in its hover label, not just its name: the reason is its title ("Nothing to
+ * undo yet"), drawn by CSS from data-why so the button's own text stays its name.
+ */
+function showWhyDisabled(button: HTMLButtonElement): void {
+  const label = button.querySelector<HTMLElement>(".xbtn-label");
+  if (label === null) return;
+  const reason = button.disabled ? button.title.trim() : "";
+  if (reason === "") label.removeAttribute("data-why");
+  else if (label.dataset.why !== reason) label.dataset.why = reason;
+}
 function setButtonLabel(button: HTMLElement, label: string): void {
   const span = button.querySelector(".xbtn-label");
   if (span === null) button.textContent = label;
@@ -1404,20 +1415,26 @@ export class App {
     const navSettings = this.makeSettingsButton();
     const navHelp = this.makeHelpButton();
     for (const button of [navSettings, navHelp]) button.classList.add("nav-action");
+    const navActions = el("div", { class: "nav-actions" }, [
+      reshapeButton,
+      this.undoButton,
+      this.stepsButton,
+      workspaceButton,
+      this.exportButton,
+      navSettings,
+      navHelp,
+      actionsMenu,
+    ]);
+    const syncWhy = (): void => {
+      for (const button of navActions.querySelectorAll<HTMLButtonElement>("button.xbtn")) showWhyDisabled(button);
+    };
+    new MutationObserver(syncWhy).observe(navActions, { subtree: true, attributes: true, attributeFilter: ["disabled", "title"] });
+    syncWhy();
     const navRow = el("div", { class: "nav-row" }, [
       this.modeSwitch.element,
       tabHost,
       el("span", { class: "grow" }),
-      el("div", { class: "nav-actions" }, [
-        reshapeButton,
-        this.undoButton,
-        this.stepsButton,
-        workspaceButton,
-        this.exportButton,
-        navSettings,
-        navHelp,
-        actionsMenu,
-      ]),
+      navActions,
     ]);
 
     const sidebar = el("aside", { class: "sidebar hidden" });

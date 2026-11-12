@@ -134,3 +134,11 @@ test("the cursor cell marks its row number and column header, and a hovered row 
   await row.hover();
   await expect.poll(() => row.evaluate((node) => getComputedStyle(node).backgroundColor)).not.toBe(before);
 });
+
+test("a disabled toolbar icon says why in its hover label", async ({ page }) => {
+  await openListings(page);
+  const undo = page.locator(".nav-actions button", { has: page.locator(".xbtn-label", { hasText: /^Undo/ }) });
+  await expect(undo).toBeDisabled();
+  await expect(undo.locator(".xbtn-label")).toHaveAttribute("data-why", "Nothing to undo yet");
+  await expect(page.locator(".nav-actions button:not(:disabled) .xbtn-label[data-why]")).toHaveCount(0);
+});
