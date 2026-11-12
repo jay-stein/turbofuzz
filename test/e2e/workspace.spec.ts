@@ -31,7 +31,8 @@ test("a workspace file brings a cleaned, transformed, pivoted and charted table 
 
   // Transform: fill the empty ages with the median.
   await page.getByRole("tab", { name: "Table" }).click();
-  await page.locator('button[title^="Fill the empty cells in one click"]').click();
+  await page.locator(".health-issues").click();
+  await page.locator('.context-item[title^="Fill the empty cells in one click"]').click();
   await page.locator(".context-item", { hasText: /Fill with median/ }).first().click();
   const confirm = page.locator(".modal-overlay").getByRole("button", { name: /^Fill/ });
   if (await confirm.count()) await confirm.first().click();
