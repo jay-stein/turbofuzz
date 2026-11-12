@@ -14891,6 +14891,14 @@ button.qp-tile:hover {
   display: flex;
   flex-direction: column;
   overscroll-behavior: contain;
+  /* Scroll cues: a soft shadow at an edge with more items past it. The panel-coloured covers scroll with the
+     content and hide each shadow once that edge is reached (CSS only, no scroll listener). */
+  background:
+    linear-gradient(var(--panel) 30%, transparent) center top / 100% 32px no-repeat local,
+    linear-gradient(transparent, var(--panel) 70%) center bottom / 100% 32px no-repeat local,
+    radial-gradient(farthest-side at 50% 0, color-mix(in srgb, var(--text) 22%, transparent), transparent) center top / 100% 12px no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, color-mix(in srgb, var(--text) 22%, transparent), transparent) center bottom / 100% 12px no-repeat scroll,
+    var(--panel);
 }
 .cmenu .context-header.cmenu-section {
   margin: 0;
