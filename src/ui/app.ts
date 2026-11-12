@@ -184,7 +184,8 @@ import { buildHistoryPanel } from "./history-panel.js";
 import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
-import { ViewTabs, viewSwitchHint, type ViewId } from "./view-tabs.js";
+import { RESEARCH_VIEWS, ViewTabs, viewSwitchHint, type ViewId } from "./view-tabs.js";
+import { researchGaps } from "./tab-availability.js";
 import { TableNav } from "./table-nav.js";
 import { openNewColumn } from "./new-column-dialog.js";
 import { confirmCellEdit } from "./cell-edit-confirm.js";
@@ -6261,6 +6262,7 @@ export class App {
     if (stats === null) {
       this.healthChipCount = 0;
       this.syncPaletteExample();
+      this.syncResearchTabs();
       return;
     }
     const views: { kind: SpecialKind; label: string; title: string }[] = [];
@@ -6372,6 +6374,13 @@ export class App {
     this.healthHost.classList.toggle("hidden", this.view === "overview" || count === 0);
     this.syncHealthChips();
     this.syncPaletteExample();
+    this.syncResearchTabs();
+  }
+
+  /** Greys the research tabs this table has nothing for (no dates, no coordinates), with the reason on hover. */
+  private syncResearchTabs(): void {
+    const gaps = researchGaps(this.metas, this.rowCount);
+    for (const view of RESEARCH_VIEWS) this.tabs?.setUnavailable(view, gaps[view] ?? null);
   }
 
   /**

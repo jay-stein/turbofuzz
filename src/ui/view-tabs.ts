@@ -170,6 +170,21 @@ export class ViewTabs {
     this.sync();
   }
 
+  /**
+   * Greys a tab whose page this table has nothing for, with the reason on hover; null restores it. The tab
+   * stays clickable, and the page says plainly what it needs.
+   */
+  setUnavailable(view: ViewId, reason: string | null): void {
+    const button = this.buttons.get(view);
+    if (button === undefined) return;
+    const base = RESEARCH_VIEWS.includes(view) ? `Research · ${LABELS[view].title}` : LABELS[view].title;
+    button.classList.toggle("unavailable", reason !== null);
+    const research = RESEARCH_VIEWS.includes(view) ? "Research · " : "";
+    button.title = reason === null ? base : `${research}${LABELS[view].label}: ${reason}`;
+    if (reason === null) button.removeAttribute("aria-description");
+    else button.setAttribute("aria-description", reason);
+  }
+
   /** Small count badge (e.g. "3 ideas") or null to clear it. */
   setBadge(view: ViewId, label: string | null): void {
     const button = this.buttons.get(view);

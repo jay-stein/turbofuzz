@@ -17781,3 +17781,13 @@ button.cmp-change-name:hover {
   .view-tabs-research { transition: none; }
   .research-lane-tip { animation: none; }
 }
+
+/* A research tab this table has nothing for: greyed (no green), still clickable, the reason on hover. */
+.view-tabs .view-tab.unavailable:not(.active) {
+  opacity: 0.42;
+  filter: grayscale(1);
+}
+.view-tabs .view-tab.unavailable:not(.active):hover,
+.view-tabs .view-tab.unavailable:not(.active):focus-visible {
+  opacity: 0.75;
+}
