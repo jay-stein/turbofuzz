@@ -17749,3 +17749,35 @@ button.cmp-change-name:hover {
 .topbar .palette-button .command-col { color: var(--chrome-accent); font-weight: 600; }
 .topbar .palette-button .command-bracket { color: color-mix(in srgb, var(--chrome-accent) 45%, transparent); }
 
+/* The research lane names itself on hover: a soft green glow round the four tools and a small
+   "Research tools" label under them, so the green tint reads as a group, not decoration. */
+.view-tabs-research {
+  border-radius: 8px;
+  transition: box-shadow 160ms ease, background 160ms ease;
+}
+.view-tabs-research:hover,
+.view-tabs-research:focus-within {
+  background: color-mix(in srgb, var(--research) 7%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--research) 30%, transparent), 0 0 14px color-mix(in srgb, var(--research) 28%, transparent);
+}
+.research-lane-tip {
+  position: fixed;
+  z-index: 95;
+  padding: 2px 9px;
+  border: 1px solid var(--research-border);
+  border-radius: 999px;
+  background: var(--research-soft);
+  color: var(--research-text);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--research) 25%, transparent);
+  animation: research-tip-in 140ms ease-out;
+}
+@keyframes research-tip-in { from { opacity: 0; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) {
+  .view-tabs-research { transition: none; }
+  .research-lane-tip { animation: none; }
+}

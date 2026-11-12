@@ -43,6 +43,7 @@ test("every tab is always on the bar; the research ones sit in the green lane an
   assert.equal(lane.querySelectorAll("button").length, RESEARCH_VIEWS.length);
   assert.ok(!lane.classList.contains("hidden"));
   assert.deepEqual(tabs.visibleViews(), VIEW_ORDER);
+  for (const button of lane.querySelectorAll("button")) assert.match(button.getAttribute("title") ?? "", /^Research · /);
   // ArrowRight from Chart moves on into the research lane.
   tabs.setSelected("chart");
   root.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight" }) as unknown as Event);

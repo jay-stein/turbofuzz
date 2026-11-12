@@ -103,7 +103,8 @@ export class ViewTabs {
           type: "button",
           role: "tab",
           id: `view-tab-${id}`,
-          title: LABELS[id].title,
+          // The four deeper tools say so on hover, alongside the lane's own "Research tools" label.
+          title: RESEARCH_VIEWS.includes(id) ? `Research · ${LABELS[id].title}` : LABELS[id].title,
         },
         [el("span", { class: "view-tab-key", "data-key": String(VIEW_ORDER.indexOf(id) + 1) }), svgIcon(ICONS[id], "view-tab-icon"), el("span", { class: "view-tab-label" }, [LABELS[id].label])],
       ) as HTMLButtonElement;
@@ -113,8 +114,38 @@ export class ViewTabs {
       else this.root.append(button);
     }
     this.root.append(this.researchLane);
+    this.labelResearchLane();
     this.root.addEventListener("keydown", (event) => this.onKeydown(event));
     this.sync();
+  }
+
+  /**
+   * Hovering (or tabbing into) the green lane shows a small "Research tools" label under it. It floats on the
+   * page because the tab bar scrolls sideways and would clip anything drawn below it.
+   */
+  private labelResearchLane(): void {
+    let tip: HTMLElement | null = null;
+    const show = (): void => {
+      if (tip !== null) return;
+      const rect = this.researchLane.getBoundingClientRect();
+      tip = el("div", { class: "research-lane-tip", "aria-hidden": "true" }, ["Research tools"]);
+      document.body.append(tip);
+      tip.style.left = `${Math.max(8, rect.left + rect.width / 2 - tip.offsetWidth / 2)}px`;
+      tip.style.top = `${rect.bottom + 6}px`;
+    };
+    const hide = (): void => {
+      if (this.researchLane.matches(":hover") || this.researchLane.contains(document.activeElement)) return;
+      tip?.remove();
+      tip = null;
+    };
+    this.researchLane.addEventListener("mouseenter", show);
+    this.researchLane.addEventListener("focusin", show);
+    this.researchLane.addEventListener("mouseleave", () => queueMicrotask(hide));
+    this.researchLane.addEventListener("focusout", () => queueMicrotask(hide));
+    this.researchLane.addEventListener("click", () => {
+      tip?.remove();
+      tip = null;
+    });
   }
 
   /** The tabs, in order; number keys 1–9 map onto these. */

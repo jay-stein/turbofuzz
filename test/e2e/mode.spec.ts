@@ -33,6 +33,15 @@ test("every tab is always on the bar: there is no General or Research switch", a
   await expect(page.getByRole("tab", { name: "Chart" })).toHaveAttribute("aria-selected", "true");
 });
 
+test("the green lane names itself on hover as the research tools", async ({ page }) => {
+  await load(page);
+  for (const name of RESEARCH_TABS) await expect(page.getByRole("tab", { name })).toHaveAttribute("title", /^Research · /);
+  await page.getByRole("tab", { name: "Map" }).hover();
+  await expect(page.locator(".research-lane-tip")).toHaveText("Research tools");
+  await page.mouse.move(700, 600);
+  await expect(page.locator(".research-lane-tip")).toHaveCount(0);
+});
+
 test("the command bar opens a research page directly", async ({ page }) => {
   await load(page);
   await page.keyboard.press("Control+k");
