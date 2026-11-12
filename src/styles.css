@@ -17844,3 +17844,32 @@ button.cmp-change-name:hover {
 .command-item.active .command-col {
   color: var(--accent);
 }
+
+/* Command bar: the grey completion behind the input (→ or Tab takes it). Type metrics are copied from the
+   input at runtime so the typed part lines up exactly whatever its state. */
+.command-input-wrap {
+  position: relative;
+}
+.command-input-wrap > .command-input {
+  position: relative;
+  z-index: 1;
+  /* See-through, so the grey completion behind shows; the modal's panel is the background. */
+  background: transparent !important;
+}
+.command-ghost {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border-style: solid;
+  border-color: transparent;
+  white-space: pre;
+  overflow: hidden;
+  pointer-events: none;
+}
+.command-ghost-typed {
+  color: transparent;
+}
+.command-ghost-rest {
+  color: var(--text-dim);
+  opacity: 0.75;
+}

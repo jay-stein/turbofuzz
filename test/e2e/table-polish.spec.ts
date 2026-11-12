@@ -153,3 +153,16 @@ test("Ctrl+K opens the command bar while a cell is selected, and suggests that c
   await expect(page.locator(".command-item").first()).toContainText("trim [review_summary]");
   await expect(page.locator(".command-item").first()).toContainText("selected column");
 });
+
+test("the command bar shows a grey completion that → takes, written with the column in brackets", async ({ page }) => {
+  await openListings(page);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Control+k");
+  const input = page.locator(".command-input");
+  await expect(input).toHaveAttribute("placeholder", /^Type a command, e\.g\. \S+ \[/);
+  await page.keyboard.type("sort pri");
+  await expect(page.locator(".command-ghost-rest")).toHaveText("ce");
+  await page.keyboard.press("ArrowRight");
+  await expect(input).toHaveValue("sort [price]");
+  await expect(page.locator(".command-ghost-rest")).toHaveText("");
+});

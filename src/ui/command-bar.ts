@@ -1387,6 +1387,20 @@ function usageParts(usage: string, columns: readonly ColumnMeta[]): (Node | stri
   return parts;
 }
 
+/**
+ * The rest of the highlighted suggestion after what has been typed, shown in grey inside the input. Brackets
+ * may be left out while typing (“trim nei” → “ghbourhood”); accepting writes the suggestion in full. Empty when
+ * the suggestion does not continue the text.
+ */
+export function ghostRest(value: string, usage: string): string {
+  if (value.trim() === "") return "";
+  const typed = value.toLowerCase();
+  if (usage.toLowerCase().startsWith(typed)) return usage.slice(value.length);
+  const plain = usage.replace(/[[\]]/g, "");
+  if (!value.includes("[") && plain.toLowerCase().startsWith(typed)) return plain.slice(value.length);
+  return "";
+}
+
 export interface CommandBarOptions {
   columns(): readonly ColumnMeta[];
   /** The column the table's cursor is in, which suggestions put first; null when there is none. */
@@ -1404,12 +1418,34 @@ export function openCommandBar(options: CommandBarOptions): void {
   const input = el("input", {
     class: "command-input",
     type: "text",
-    placeholder: "Enter a command — “convert date_time to datetime”, “melt keep region”, “round price 2”…",
+    placeholder: "Type a command",
     spellcheck: "false",
     "aria-label": "Command",
   }) as HTMLInputElement;
   const list = el("div", { class: "command-list" });
-  modal.append(input, list);
+  // The grey completion sits behind the input, in the same type and position, and never takes a click.
+  const ghostTyped = el("span", { class: "command-ghost-typed" });
+  const ghostRestEl = el("span", { class: "command-ghost-rest" });
+  const ghost = el("div", { class: "command-ghost", "aria-hidden": "true" }, [ghostTyped, ghostRestEl]);
+  modal.append(el("div", { class: "command-input-wrap" }, [ghost, input]), list);
+  let ghostText = "";
+  const syncGhost = (): void => {
+    const top = suggestions[active];
+    const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
+    ghostText = top === undefined || !atEnd || input.scrollWidth > input.clientWidth ? "" : ghostRest(input.value, top.usage);
+    const style = getComputedStyle(input);
+    ghost.style.font = style.font;
+    ghost.style.letterSpacing = style.letterSpacing;
+    ghost.style.padding = style.padding;
+    ghost.style.borderWidth = style.borderWidth;
+    ghostTyped.textContent = input.value;
+    ghostRestEl.textContent = ghostText;
+  };
+  /** Takes the highlighted suggestion into the input, as Tab always has. */
+  const accept = (): void => {
+    input.value = suggestions[active]?.usage ?? input.value;
+    render();
+  };
   overlay.append(modal);
 
   let suggestions: CommandSuggestion[] = [];
@@ -1456,6 +1492,10 @@ export function openCommandBar(options: CommandBarOptions): void {
       row.addEventListener("click", () => runConfirmed(suggestion.command));
       list.append(row);
     });
+    // Opened empty, the hint names a real command for this table.
+    const first = suggestions[0]?.usage;
+    input.placeholder = input.value === "" && first !== undefined ? `Type a command, e.g. ${first}` : "Type a command";
+    syncGhost();
   };
 
   const run = (command: ParsedCommand): void => {
@@ -1498,6 +1538,9 @@ export function openCommandBar(options: CommandBarOptions): void {
     active = 0;
     render();
   });
+  // Moving the caret off the end hides the completion; back at the end it returns.
+  input.addEventListener("keyup", syncGhost);
+  input.addEventListener("click", syncGhost);
   input.addEventListener("keydown", (event) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -1510,8 +1553,11 @@ export function openCommandBar(options: CommandBarOptions): void {
     } else if (event.key === "Tab" && suggestions.length > 0) {
       // Tab accepts the highlighted suggestion into the input.
       event.preventDefault();
-      input.value = suggestions[active]?.usage ?? input.value;
-      render();
+      accept();
+    } else if (event.key === "ArrowRight" && ghostText !== "") {
+      // → at the end of the text takes the grey completion, as in a browser's address bar.
+      event.preventDefault();
+      accept();
     } else if (event.key === "Enter") {
       event.preventDefault();
       const parsed = parseCommand(input.value, options.columns());

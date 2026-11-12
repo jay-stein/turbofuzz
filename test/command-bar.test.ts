@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { commandState, commandSuggestions, parseCommand, unbracketColumns } from "../src/ui/command-bar.js";
+import { commandState, commandSuggestions, ghostRest, parseCommand, unbracketColumns } from "../src/ui/command-bar.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
 
 function meta(overrides: Partial<ColumnMeta> = {}): ColumnMeta {
@@ -432,4 +432,13 @@ test("columns can be written in square brackets, as in formulas", () => {
   const formula = parseCommand("add column total = [amount] * 2", columns);
   assert.equal(formula.kind, "addColumn");
   if (formula.kind === "addColumn") assert.equal(formula.formula, "[amount] * 2");
+});
+
+test("the grey completion continues what was typed, with or without the brackets", () => {
+  assert.equal(ghostRest("tri", "trim [notes]"), "m [notes]");
+  assert.equal(ghostRest("trim [no", "trim [notes]"), "tes]");
+  assert.equal(ghostRest("trim no", "trim [notes]"), "tes");
+  assert.equal(ghostRest("TRIM", "trim [notes]"), " [notes]");
+  assert.equal(ghostRest("round", "trim [notes]"), "");
+  assert.equal(ghostRest("", "trim [notes]"), "");
 });
