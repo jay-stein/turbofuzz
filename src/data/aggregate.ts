@@ -219,6 +219,8 @@ export interface AggregateResult {
   partials: boolean[] | null;
 }
 
+/** A time period with under half the median rows per period is marked incomplete. */
+const THIN_PERIOD_SHARE = 0.5;
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
@@ -1388,6 +1390,8 @@ export function computeAggregate(
   const accs: MeasureAcc[][] = [];
   /** True for calendar gap groups (used by the carry fill). */
   const filled: boolean[] = [];
+  /** Rows that fell in each group; a time period with far fewer than usual is incomplete. */
+  const groupRows: number[] = [];
 
   // One accumulator slot per aggregate term; expression measures get one slot
   // per term and are evaluated from the term values after the row loop. Slots
@@ -1560,12 +1564,14 @@ export function computeAggregate(
       groupTimes.push(bucket ?? Number.NaN);
       accs.push(newSlotAccs());
       filled.push(false);
+      groupRows.push(0);
       if (collect !== undefined) {
         collect.rows.push([]);
         collect.labels.push(dimValues.map((values) => values[index as number] ?? ""));
       }
     }
     collect?.rows[index]!.push(row);
+    groupRows[index]++;
     const groups = accs[index];
 
     for (let s = 0; s < slots.length; s++) {
@@ -1650,6 +1656,7 @@ export function computeAggregate(
       groupTimes.push(time);
       accs.push(newSlotAccs());
       filled.push(true);
+      groupRows.push(0);
       if (accs.length >= 50_000) break;
     }
   }
@@ -1795,6 +1802,23 @@ export function computeAggregate(
     if (view.partial === "exclude" && partials.some(Boolean)) {
       finalShown = shown.filter((_, position) => partials?.[position] !== true);
       partials = flagsFor(finalShown);
+    }
+    // A period inside the data holding far fewer rows than usual is incomplete
+    // too: a 45-day outage leaves its months thin, and their sums plot as a slump
+    // in the business rather than missing data. Marked, never dropped. Weekly
+    // and coarser only: by the day or hour, quiet Sundays and nights are real.
+    const coarse = timeGrain === "week" || timeGrain === "month" || timeGrain === "quarter" || timeGrain === "year";
+    const counts = coarse ? finalShown.map((index) => groupRows[index] ?? 0).filter((count) => count > 0) : [];
+    if (counts.length >= 4) {
+      const sorted = [...counts].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      if (median >= 4) {
+        const thin = finalShown.map((index) => {
+          const count = groupRows[index] ?? 0;
+          return count > 0 && count < median * THIN_PERIOD_SHARE;
+        });
+        partials = (partials ?? finalShown.map(() => false)).map((flag, position) => flag || thin[position] === true);
+      }
     }
   }
   const limited = finalMeasures.map((values) => {
