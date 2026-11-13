@@ -1311,10 +1311,19 @@ export class ChartsPanel {
     this.addPanel.setSources(this.sources);
     this.addPanelAuto = !this.addPanel.isOpen;
     this.addPanel.open(false);
+    // The builder can be closed (Escape, ×) while there are no charts; this
+    // button is then the only way back, so it is always shown.
+    const reopen = el("button", { type: "button", class: "primary charts-empty-add" }, [
+      "+ Add a chart",
+    ]) as HTMLButtonElement;
+    reopen.addEventListener("click", () => {
+      this.addPanel.open(true);
+    });
     this.empty.append(
       el("div", { class: "charts-empty-title" }, [
         "No charts yet — pick your fields above, or choose a chart type, to start",
       ]),
+      reopen,
     );
   }
 }
