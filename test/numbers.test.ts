@@ -5,7 +5,10 @@ import { parseNumber } from "../src/parse/numbers.js";
 test("dot locale treats commas as thousands separators", () => {
   assert.equal(parseNumber("1,234.56"), 1234.56);
   assert.equal(parseNumber("$3,655.10"), 3655.1);
-  assert.equal(parseNumber("198,72"), 19872);
+  // A comma that does not group thousands is never guessed at (owner decision 2026-11-13).
+  assert.ok(Number.isNaN(parseNumber("198,72")));
+  assert.ok(Number.isNaN(parseNumber("-55348,13")));
+  assert.ok(Number.isNaN(parseNumber("12,34,567")));
 });
 
 test("comma locale treats dots as thousands separators", () => {

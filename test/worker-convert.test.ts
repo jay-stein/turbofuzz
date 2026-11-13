@@ -72,7 +72,9 @@ test("convert ops canonicalise values and keep inferred types", async () => {
   const cleanPreview = find("cleanPreview", 4) as unknown as {
     columns: { column: number; changed: number; total: number; failed: number }[];
   };
-  assert.deepEqual(cleanPreview.columns[0], { column: 0, changed: 1, total: 2, failed: 0 });
+  // "1234.56" is not a valid decimal-comma number, so the conversion reports it
+  // as failed instead of silently reading it as 123456.
+  assert.deepEqual(cleanPreview.columns[0], { column: 0, changed: 1, total: 2, failed: 1 });
 
   send({
     type: "previewTransform",

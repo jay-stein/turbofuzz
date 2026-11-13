@@ -113,7 +113,8 @@ test("number locale can be overridden after creation", () => {
   assert.equal(column.numberLocale, "comma");
   column.setNumberLocale("dot");
   assert.equal(column.numberLocale, "dot");
-  assert.equal(column.numbers()[0], 19872);
+  // Read with a decimal point, "198,72" is not a number; it is left unparsed, not 19872.
+  assert.ok(Number.isNaN(column.numbers()[0]));
   column.setNumberLocale("comma");
   assert.equal(column.numbers()[0], 198.72);
 });
