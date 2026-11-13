@@ -590,7 +590,7 @@ function describeHeader(preview: string[][], layout: HeaderLayout | null, whole:
   const left: string[] = [];
   if (t.skipRows > 0) left.push(`${rows(t.skipRows)} above it skipped`);
   if (t.skipAfter > 0) left.push(`${rows(t.skipAfter)} under it skipped`);
-  if (whole && t.footerRows > 0) left.push(`${rows(t.footerRows)} of notes after the data left out`);
+  if (whole && t.footerRows > 0) left.push(`${rows(t.footerRows)} of totals or notes after the data left out`);
   const dropped = layout?.skipColumns?.length ?? 0;
   if (dropped > 0) left.push(`${dropped} column${dropped === 1 ? "" : "s"} left out`);
   return `${head}${left.length > 0 ? ` ${left.join("; ")}.` : t.headerRows > 0 && t.skipRows === 0 ? " Nothing skipped." : ""}`;

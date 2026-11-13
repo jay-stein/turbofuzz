@@ -247,3 +247,31 @@ test("a code the file's own notes say means missing is read from the rows above 
   assert.deepEqual(statedMissingCodes([["999 = unknown"], ["Missing values are coded as -99"]]).sort(), ["-99", "999"]);
   assert.deepEqual(statedMissingCodes([["Australian Road Deaths Database"], ["(Data current to September 2026)"]]), []);
 });
+
+test("trailing Total rows are left out as summary rows, not data", () => {
+  const card = detectTable([
+    ["Txn ID", "Date", "Merchant", "Amount"],
+    ["TXN1", "2024-01-01", "Tesco", "-18.46"],
+    ["TXN2", "2024-01-02", "Uber", "-8.87"],
+    ["TOTAL", "", "", "-27.33"],
+  ]);
+  assert.equal(card.rows.length, 2);
+  assert.equal(card.footerRows, 1);
+
+  const budget = detectTable([
+    ["Dept", "Jan", "Feb"],
+    ["Sales", "100", "120"],
+    ["Ops", "80", "90"],
+    [],
+    ["Grand total:", "180", "210"],
+  ]);
+  assert.equal(budget.rows.length, 2);
+
+  const lookalike = detectTable([
+    ["Supplier", "Amount"],
+    ["Shell", "10"],
+    ["TotalEnergies", "12"],
+  ]);
+  assert.equal(lookalike.rows.length, 2);
+  assert.equal(lookalike.rows[1][0], "TotalEnergies");
+});

@@ -111,6 +111,8 @@ function mergeHeaders(grid: readonly string[][], start: number, count: number, c
 
 const FOOTER_MARKER = /^(foot)?notes?\b|^sources?\b|^symbol legend\b|^how to cite\b/i;
 const FOOTER_HEADING = /^((foot)?notes?|sources?|symbol legend)\s*:?$/i;
+/** A summary row's label: "Total", "TOTAL", "Grand total", "Sub-total", "Totals:". */
+const TOTAL_LABEL = /^(grand\s+|sub-?\s*)?totals?\b\s*:?/i;
 const FOOTER_SCAN_ROWS = 400;
 const BODY_SAMPLE_ROWS = 20;
 
@@ -169,6 +171,24 @@ function footerStart(rows: readonly string[][], width: number): number {
   return rows.length;
 }
 
+/**
+ * Where a trailing block of summary rows begins, looking back from `stop`
+ * (blank rows in between are skipped). A row counts when its first filled cell
+ * is a Total label: it sums the rows above, so keeping it double-counts every
+ * figure in sums, pivots and charts.
+ */
+function totalRowsStart(rows: readonly string[][], stop: number): number {
+  let start = stop;
+  for (let index = stop - 1; index > 0; index--) {
+    const row = rows[index];
+    if (isEmptyRow(row)) continue;
+    const first = row.find((cell) => cell.trim() !== "") ?? "";
+    if (!TOTAL_LABEL.test(first.trim())) break;
+    start = index;
+  }
+  return start;
+}
+
 function applyDataEnd(
   rows: string[][],
   width: number,
@@ -183,6 +203,7 @@ function applyDataEnd(
     if (blank !== -1) stop = blank;
   } else if (end === "auto") {
     stop = footerStart(rows, width);
+    stop = totalRowsStart(rows, stop);
   }
   while (stop > 0 && isEmptyRow(rows[stop - 1])) stop--;
   let footerRows = 0;
