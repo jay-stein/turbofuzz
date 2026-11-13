@@ -3885,6 +3885,10 @@ export class App {
       void this.confirmDecimalRepair(column, name, suggestion);
       return;
     }
+    if (suggestion.kind === "signSuffix") {
+      void this.confirmSignSuffix(column, name, suggestion);
+      return;
+    }
     this.confirmFix(
       `Apply this fix to “${name}”?`,
       `${suggestionLabel(suggestion)}. The change is recorded in the Recipe and can be undone.`,
@@ -3918,6 +3922,34 @@ export class App {
         `Until you decide they are left out of totals and charts. Apply to read every one of them as a decimal (→ ${reading}); ` +
         "Cancel to leave them as they are. The change is recorded in the Recipe and can be undone.",
       changed === undefined ? "Apply fix" : `Read ${count} as decimals`,
+      () => this.applySuggestionNow(column, suggestion),
+    );
+  }
+
+  /**
+   * Which accounting suffix is money out depends on whose books the file comes
+   * from, so the user picks; the dialog states the exact count over the column
+   * and what each suffix will become.
+   */
+  private async confirmSignSuffix(
+    column: number,
+    name: string,
+    suggestion: Extract<ColumnSuggestion, { kind: "signSuffix" }>,
+  ): Promise<void> {
+    const existing = this.cleanedColumns.get(column) ?? [];
+    const preview = await this.client
+      .previewClean([{ column, ops: [...existing, { kind: "signSuffix", negative: suggestion.negative }] }])
+      .catch(() => null);
+    const changed = preview?.columns[0]?.changed;
+    const count = changed === undefined ? "Some" : changed.toLocaleString();
+    const positive = suggestion.negative === "DR" ? "CR" : "DR";
+    this.confirmFix(
+      `Read ${suggestion.negative} amounts as negative in “${name}”?`,
+      `${count} amount${changed === 1 ? " ends" : "s end"} in DR or CR. Until you decide they are left out of totals and charts. ` +
+        `Apply to read ${suggestion.negative} as negative (19215.35 ${suggestion.negative} → -19215.35) and ${positive} as positive ` +
+        `(19215.35 ${positive} → 19215.35). If ${suggestion.negative} is money in for these books, cancel and pick the other reading. ` +
+        "The change is recorded in the Recipe and can be undone.",
+      `Read ${suggestion.negative} as negative`,
       () => this.applySuggestionNow(column, suggestion),
     );
   }
@@ -3964,6 +3996,13 @@ export class App {
         // The ambiguous value text stays as-is; the column type decides how
         // ranges, sorting, histograms and exports read it.
         this.changeType(column, suggestion.kind);
+        break;
+      }
+      case "signSuffix": {
+        const existing = this.cleanedColumns.get(column) ?? [];
+        this.applyClean([
+          { column, ops: [...existing, { kind: "signSuffix", negative: suggestion.negative }] },
+        ]);
         break;
       }
       case "mixedNumber": {

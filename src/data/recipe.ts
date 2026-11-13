@@ -515,13 +515,25 @@ function cleanLines(
         return `${column} = pd.to_numeric(${column}.str.replace(r"[^0-9eE+\\-.]", "", regex=True), errors="coerce")`;
       case "repairDecimal":
         if (op.locale === "dot") {
-          return `${column} = ${column}.astype(str).str.replace(r"^([+-]?\\d{1,3}(?:\\.\\d{3})*),(\\d{1,2})$", r"\\1.\\2", regex=True)`;
+          return `${column} = ${column}.astype(str).str.replace(r"^([+-]?(?:\\d{1,3}(?:\\.\\d{3})+|\\d+)),(\\d{1,2})$", r"\\1.\\2", regex=True)`;
         }
-        return `${column} = ${column}.astype(str).str.replace(r"^([+-]?\\d{1,3}(?:,\\d{3})*)\\.(\\d{1,2})$", r"\\1,\\2", regex=True)`;
+        return `${column} = ${column}.astype(str).str.replace(r"^([+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+))\\.(\\d{1,2})$", r"\\1,\\2", regex=True)`;
       case "escapeFormulas":
         // Mirrors looksLikeFormula(): =, @, tab and CR always; a leading sign
         // only when the rest is not a plain number.
         return `${column} = ${column}.map(lambda v: ("'" + v) if isinstance(v, str) and v != "" and (v[0] in "=@\\t\\r" or (v[0] in "+-" and v[1:] != "" and not re.fullmatch(r"[0-9.,\\s]+", v[1:]))) else v)`;
+      case "signSuffix":
+        return [
+          "def _sign_suffix(v, negative):",
+          "    m = re.match(r\"^\\s*(.*\\d)\\s*(DR|CR)\\.?\\s*$\", v, re.I) if isinstance(v, str) else None",
+          "    if m is None:",
+          "        return v",
+          "    body = m.group(1).strip()",
+          "    if m.group(2).upper() != negative:",
+          "        return body",
+          "    return body[1:] if body.startswith(\"-\") else \"-\" + body",
+          `${column} = ${column}.map(lambda v: _sign_suffix(v, ${py(op.negative)}))`,
+        ].join("\n");
       case "keepNumbers":
         return [
           "def _keep_number(v, mark):",

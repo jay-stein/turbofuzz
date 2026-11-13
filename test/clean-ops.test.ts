@@ -273,3 +273,17 @@ test("a merge recode replaces whole cells in one pass, so merges never chain or 
     "ACME CONSULTING LTD LTD",
   ]);
 });
+
+test("signSuffix turns DR/CR into a sign the user chose, and leaves other values alone", () => {
+  const values = ["19215.35 DR", "10.00 CR", "£1,200.00CR", "-5.00 DR", "-35.90", "N/A", "DRAWINGS"];
+  assert.deepEqual(applyCleanOps(values, [{ kind: "signSuffix", negative: "DR" }]), [
+    "-19215.35",
+    "10.00",
+    "£1,200.00",
+    "5.00",
+    "-35.90",
+    "N/A",
+    "DRAWINGS",
+  ]);
+  assert.deepEqual(applyCleanOps(values.slice(0, 2), [{ kind: "signSuffix", negative: "CR" }]), ["19215.35", "-10.00"]);
+});
