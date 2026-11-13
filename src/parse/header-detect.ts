@@ -94,6 +94,49 @@ function numericDataBelow(grid: readonly string[][], index: number): number {
   return best;
 }
 
+/** A cell's outline: letter runs become "a", digit runs "9", punctuation kept ("TXN100379" → "a9", "02/11/2023" → "9/9/9"). */
+function cellShape(cell: string): string {
+  return cell.trim().replace(/\p{L}+/gu, "a").replace(/\d+/g, "9").replace(/\s+/g, " ");
+}
+
+const SHAPE_LOOKAHEAD = 6;
+
+/**
+ * Share of a row's filled cells whose shape matches most of the cells below them
+ * in the same column (up to SHAPE_LOOKAHEAD filled rows). A record scores high;
+ * a header ("Txn ID" over "TXN100379") scores low.
+ */
+function shapeLikeBelow(grid: readonly string[][], index: number): number {
+  const row = grid[index] ?? [];
+  const below: (readonly string[])[] = [];
+  for (let next = index + 1; next < grid.length && below.length < SHAPE_LOOKAHEAD; next++) {
+    const candidate = grid[next] ?? [];
+    if (candidate.some((cell) => cell !== "")) below.push(candidate);
+  }
+  // Too few rows below to compare: no evidence it is a header, so it ranks as a
+  // record does. Fewer than three is too few to judge fairly.
+  if (below.length < 3) return 1;
+  let filled = 0;
+  let alike = 0;
+  const limit = Math.min(row.length, MAX_SCAN_COLUMNS);
+  for (let column = 0; column < limit; column++) {
+    const cell = row[column] ?? "";
+    if (cell.trim() === "") continue;
+    filled++;
+    const shape = cellShape(cell);
+    let same = 0;
+    let seen = 0;
+    for (const other of below) {
+      const value = other[column] ?? "";
+      if (value.trim() === "") continue;
+      seen++;
+      if (cellShape(value) === shape) same++;
+    }
+    if (seen > 0 && same * 2 > seen) alike++;
+  }
+  return filled === 0 ? 0 : alike / filled;
+}
+
 function mergeHeaders(grid: readonly string[][], start: number, count: number, columns: number): string[] {
   // A label in an upper header row spans the blank cells to its right, as a
   // merged cell does in Excel ("Jan" over Budget | Actual): carry it across while
@@ -405,15 +448,27 @@ export function detectTable(grid: readonly string[][], layout?: HeaderLayout): D
 
   let bestIndex = -1;
   let bestScore = 0;
+  let bestRank = -Infinity;
   for (let row = 0; row < scanRows; row++) {
     const profile = profiles[row];
     if (profile.populated < 2) continue;
+    // One label repeated in every filled cell is a merged title spread across
+    // the row (Excel "Q1 payments" over A1:D1), never a set of column names.
+    if (new Set((grid[row] ?? []).filter((cell) => cell.trim() !== "").map((cell) => cell.trim())).size === 1) continue;
     const textRatio = profile.text / profile.populated;
     const widthRatio = width > 0 ? profile.populated / width : 0;
     const below = numericDataBelow(grid, row);
     const selfNumbers = profile.numeric / profile.populated;
     const score = textRatio * 2 + widthRatio * 2 + below * 3 - selfNumbers * 3;
-    if (score > bestScore) {
+    if (score < MIN_SCORE) continue;
+    // Among rows that could be the header, prefer the one least like the rows
+    // under it: in a text-heavy table a record ("TXN100379, 02/11/2023, …")
+    // scores as well as the real header, but its cells share the shape of the
+    // cells below. Only ranks candidates; whether there is a header at all
+    // still rests on the score alone.
+    const rank = score - shapeLikeBelow(grid, row) * 3;
+    if (rank > bestRank) {
+      bestRank = rank;
       bestScore = score;
       bestIndex = row;
     }

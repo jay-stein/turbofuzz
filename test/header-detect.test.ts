@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { detectTable } from "../src/parse/header-detect.js";
 
 test("skips title rows and finds a single header row", () => {
@@ -293,4 +294,28 @@ test("a two-level header carries the upper label across its merged span, and nam
     ["South", "4", "5", "6"],
   ]);
   assert.deepEqual(flat.headers, ["Region", "Actual", "Actual 3", "Actual 2"]);
+});
+
+test("a record that only looks like a header loses to the real header above it", () => {
+  // First 30 lines of the 2026-11-12 card export: title lines, the header, then
+  // text-heavy records. Row 17 ("TXN100379, 02/11/2023, BRITISH GAS, -, …") used
+  // to win, dropping the real header and 13 transactions.
+  const grid = JSON.parse(readFileSync("test/fixtures/card-export-head.json", "utf8")) as string[][];
+  const table = detectTable(grid);
+  assert.equal(table.headers[0], "Txn ID");
+  assert.equal(table.skipRows, 3);
+});
+
+test("a merged Excel title spread across the row is not taken as the header", () => {
+  const table = detectTable([
+    ["Q1 payments", "Q1 payments", "Q1 payments", "Q1 payments"],
+    [],
+    ["Date", "Payee", "Amount", "Posted"],
+    ["2025-01-01", "Payee 1", "-1234.5", "2025-01-01 09:30"],
+    ["2025-01-02", "Payee 2", "-2469", "2025-01-02 09:30"],
+    ["2025-01-03", "Payee 3", "-3703.5", "2025-01-03 09:30"],
+    ["2025-01-04", "Payee 0", "-4938", "2025-01-04 09:30"],
+  ]);
+  assert.deepEqual(table.headers, ["Date", "Payee", "Amount", "Posted"]);
+  assert.equal(table.rows.length, 4);
 });
