@@ -289,7 +289,7 @@ test("split by a group, each series' thin periods are judged against that series
   }
   const data = buildDataset("sales", ["date", "store", "revenue"], rows);
   const result = computeAggregate(
-    view({ dimensions: [{ column: 0, by: { time: "month" } }, { column: 1 }], sort: { key: "dim0", dir: "asc" } }),
+    view({ dimensions: [{ column: 0, by: { time: "month" } }, { column: 1, by: "value" }], sort: { key: "dim0", dir: "asc" } }),
     data.columns,
     data.rowCount,
     allIds(data.rowCount),
