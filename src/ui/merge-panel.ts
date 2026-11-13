@@ -50,7 +50,7 @@ export function openMergePanel(
   levelField.append(levelSelect);
 
   const hint = el("div", { class: "clean-hint" }, [
-    "Pick the spelling to keep for each group. Merged values are rewritten with literal find-and-replace steps you can undo.",
+    "Pick the spelling to keep for each group. Each merged value is replaced as a whole cell, in one step you can undo.",
   ]);
 
   const list = el("div", { class: "merge-list" });
@@ -92,13 +92,20 @@ export function openMergePanel(
     return merges;
   }
 
+  /**
+   * One whole-cell recode for every accepted merge. A text find-and-replace per
+   * merge rewrote inside other values and chained: "ACME CONSULTING" →
+   * "ACME CONSULTING LTD" also turned "ACME CONSULTING LTD" into "… LTD LTD".
+   * A single exact-match map applied in one pass cannot do either.
+   */
   function selectedOps(): CleanOp[] {
-    return selectedMerges().map(({ find, replacement }) => ({
-      kind: "replace",
-      find,
-      replacement,
-      ignoreCase: false,
-    }));
+    const pairs = new Map<string, string>();
+    for (const { find, replacement } of selectedMerges()) {
+      const from = find.trim();
+      const to = replacement.trim();
+      if (from !== to && !pairs.has(from)) pairs.set(from, to);
+    }
+    return pairs.size === 0 ? [] : [{ kind: "recode", pairs: [...pairs] }];
   }
 
   function render(): void {

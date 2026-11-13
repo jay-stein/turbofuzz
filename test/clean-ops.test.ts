@@ -250,3 +250,26 @@ test("keep only text keeps letters and spaces, with ' and - inside words", () =>
   assert.equal(describeCleanOpDetail({ kind: "keepText" }), "keepText()");
 });
 
+
+test("a merge recode replaces whole cells in one pass, so merges never chain or rewrite inside values", () => {
+  // The merge panel's op for: keep "ACME CONSULTING LTD", fold in the other spellings.
+  const op = {
+    kind: "recode" as const,
+    pairs: [
+      ["ACME CONSULTING", "ACME CONSULTING LTD"],
+      ["Acme Consultng Ltd", "ACME CONSULTING LTD"],
+      ["amazon  uk", "Amazon.co.uk"],
+    ] as [string, string][],
+  };
+  const out = applyCleanOps(
+    ["ACME CONSULTING", "ACME CONSULTING LTD", "Acme Consultng Ltd", "amazon  uk ", "ACME CONSULTING LTD LTD"],
+    [op],
+  );
+  assert.deepEqual(out, [
+    "ACME CONSULTING LTD",
+    "ACME CONSULTING LTD",
+    "ACME CONSULTING LTD",
+    "Amazon.co.uk",
+    "ACME CONSULTING LTD LTD",
+  ]);
+});
