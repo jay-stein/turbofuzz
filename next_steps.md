@@ -2283,3 +2283,22 @@ badly each one misleads the reader.
    pandas code" gave no visible result in a headless test; verify in a real browser.
 8. **Missing chart types for finance users:** combo or dual-axis (bars plus a
    line), stacked area, and reference or target lines (budget vs actual).
+
+## Intermittent browser tests under gate load (found 2026-11-13)
+
+These fail in `npm run gate` (full suite, parallel workers) but pass when run
+alone. They make a red gate hard to read: a real break and a load failure look
+the same. Each needs its root cause found, not a longer timeout by reflex.
+
+| Test | How it fails | What is known |
+|---|---|---|
+| `map-boundaries.spec.ts:3` (boundaries load, labels switch, clear) | The page stops responding for 30 s: `labels.evaluate` or the "Clear boundaries" click never completes although the element is ready. Failed in 3 gate runs. | Alone: 9/9 passes on current code. Under load (3 workers, 4 repeats of the map specs): current 2/112 failures, pre-2026-11-13 code 0/112, so a change since then cannot be ruled out. Main-thread long tasks after loading boundaries are the same on both (one block of ~262 ms), which cannot explain a 30 s freeze; suspect a render loop starved under load. **Next step:** keep the `test-results/map-boundaries-…/trace.zip` from a failing gate run and read what the page was doing. |
+| `knn-fill.spec.ts:62` (KNN fill adds to the Recipe) | Failed once in a gate run; error output not captured. | Alone: 4/4 passes; takes ~2.7 s on both current and pre-2026-11-13 code. Its neighbour `knn-fill.spec.ts:15` takes 26.4 s against the 30 s test limit, so it has almost no headroom under load. **Next step:** capture the error and trace from a failing run. |
+| `chart-workspace.spec.ts:33` (whole chart in view) | 30 s timeout under parallel load. | Passes alone in 13–32 s; same on pre-2026-11-13 code. |
+| `chart-markers.spec.ts` (scatter R² and reference lines) | Failed once under parallel load. | Passes alone (27–31 s). |
+| `arima.spec.ts:98` (DV-ARIMA) | 150 s wait for the differencing vote expired in a gate run. | Passes alone in ~15 s. |
+
+Also seen: helper processes left running from an interactive test session
+(11 `node launch.mjs` processes on 2026-11-13) slowed a gate run. Check for
+stray `node`/headless browser processes before trusting a red gate (see the
+E2E run-limits note).
