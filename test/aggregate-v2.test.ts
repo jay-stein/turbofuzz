@@ -227,3 +227,22 @@ test("cohort and period-since dimensions follow each entity's first period", () 
   assert.equal(periodIndex(Date.UTC(2024, 0, 1), Date.UTC(2024, 2, 1), "month"), 2);
   assert.equal(periodIndex(Date.UTC(2024, 0, 1), Date.UTC(2024, 9, 1), "quarter"), 3);
 });
+
+test("a last period the data stops inside is partial, even when it has ended", () => {
+  const daily = (last: number) => {
+    const rows: string[][] = [];
+    for (let day = 1; day <= 31; day++) rows.push([`2025-03-${String(day).padStart(2, "0")}`, "10"]);
+    for (let day = 1; day <= last; day++) rows.push([`2025-04-${String(day).padStart(2, "0")}`, "10"]);
+    const data = buildDataset("sales", ["date", "revenue"], rows);
+    return computeAggregate(
+      view({ dimensions: [{ column: 0, by: { time: "month" } }], sort: { key: "dim0", dir: "asc" } }),
+      data.columns,
+      data.rowCount,
+      allIds(data.rowCount),
+    ).partials;
+  };
+  // 14 of April's 30 days: a half month that would plot as a crash.
+  assert.deepEqual(daily(14), [false, true]);
+  // Every day of April: complete.
+  assert.deepEqual(daily(30), [false, false]);
+});

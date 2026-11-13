@@ -748,6 +748,22 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
       ctx.fillStyle = card.primaryColor();
       ctx.strokeStyle = card.primaryColor();
     }
+    // An incomplete edge period (the data starts or stops inside it) is drawn
+    // as a hollow point joined by a dashed line, with no area under it: at full
+    // strength a half month reads as a collapse in the business.
+    const partials = result.partials ?? null;
+    const dashed = (from: { x: number; y: number }, to: { x: number; y: number }): void => {
+      ctx.save();
+      ctx.setLineDash([5 * ui, 4 * ui]);
+      ctx.globalAlpha = 0.7;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+      ctx.restore();
+    };
+    let afterPartial: { x: number; y: number } | null = null;
     for (let i = 0; i < n; i++) {
       const value = values[i];
       if (!Number.isFinite(value)) {
@@ -759,12 +775,28 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
         ctx.fillRect(frame.left + i * slot, frame.top, slot, frame.plotH);
         ctx.restore();
         flush();
+        afterPartial = null;
         continue;
       }
-      segment.push({
-        x: frame.left + (i + 0.5) * slot,
-        y: base - (value / top) * frame.plotH,
-      });
+      const point = { x: frame.left + (i + 0.5) * slot, y: base - (value / top) * frame.plotH };
+      if (partials?.[i] === true) {
+        const previous = segment[segment.length - 1];
+        flush();
+        if (previous !== undefined) dashed(previous, point);
+        ctx.save();
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 3.5 * ui, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        afterPartial = point;
+        continue;
+      }
+      if (afterPartial !== null) {
+        dashed(afterPartial, point);
+        afterPartial = null;
+      }
+      segment.push(point);
     }
     flush();
   } else {

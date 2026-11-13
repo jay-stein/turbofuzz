@@ -1751,6 +1751,7 @@ export function computeAggregate(
     const shift = dimRuntime[0]?.shift ?? null;
     let rawMin = Infinity;
     let rawMax = -Infinity;
+    let beforeMax = -Infinity;
     if (numbers !== null) {
       for (let position = 0; position < ids.length; position++) {
         const row = ids[position];
@@ -1758,7 +1759,12 @@ export function computeAggregate(
         if (!Number.isFinite(value)) continue;
         const shifted = shift === null ? value : shift(value);
         if (shifted < rawMin) rawMin = shifted;
-        if (shifted > rawMax) rawMax = shifted;
+        if (shifted > rawMax) {
+          beforeMax = rawMax;
+          rawMax = shifted;
+        } else if (shifted < rawMax && shifted > beforeMax) {
+          beforeMax = shifted;
+        }
       }
     }
     const firstBucket = Number.isFinite(rawMin)
@@ -1769,13 +1775,20 @@ export function computeAggregate(
       : Number.NaN;
     const lastEnd = nextBucket(lastBucket, timeGrain, stepOptions);
     const firstPartial = Number.isFinite(rawMin) && rawMin > firstBucket;
+    // The last period is also partial when the data stops before it ends, not
+    // only while it is still running: daily rows up to 14 Apr make April a
+    // half month that plots as a crash. "Before it ends" is judged by the data's
+    // own spacing (the gap between its last two timestamps), so daily rows up to
+    // 30 Apr leave April complete.
+    const spacing = Number.isFinite(beforeMax) ? rawMax - beforeMax : Number.NaN;
+    const stopsEarly = Number.isFinite(spacing) && rawMax + spacing * 1.5 < lastEnd;
     const now = Date.now();
     const flagsFor = (indexes: readonly number[]): boolean[] =>
       indexes.map((index) => {
         const time = groupTimes[index] ?? Number.NaN;
         if (!Number.isFinite(time)) return false;
         if (firstPartial && time === firstBucket) return true;
-        if (time === lastBucket && now < lastEnd) return true;
+        if (time === lastBucket && (now < lastEnd || stopsEarly)) return true;
         return false;
       });
     partials = flagsFor(shown);
