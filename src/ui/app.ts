@@ -3881,10 +3881,43 @@ export class App {
 
   private applySuggestion(column: number, suggestion: ColumnSuggestion): void {
     const name = this.metas[column]?.name ?? `Column ${column + 1}`;
+    if (suggestion.kind === "mixedNumber") {
+      void this.confirmDecimalRepair(column, name, suggestion);
+      return;
+    }
     this.confirmFix(
       `Apply this fix to “${name}”?`,
       `${suggestionLabel(suggestion)}. The change is recorded in the Recipe and can be undone.`,
       "Apply fix",
+      () => this.applySuggestionNow(column, suggestion),
+    );
+  }
+
+  /**
+   * Reading comma-decimals is the user's decision (owner decision 2026-11-13), so
+   * the dialog states the exact number of values it will rewrite, counted over
+   * the whole column rather than the sample behind the chip, and what happens to
+   * them if the user declines.
+   */
+  private async confirmDecimalRepair(
+    column: number,
+    name: string,
+    suggestion: Extract<ColumnSuggestion, { kind: "mixedNumber" }>,
+  ): Promise<void> {
+    const existing = this.cleanedColumns.get(column) ?? [];
+    const preview = await this.client
+      .previewClean([{ column, ops: [...existing, { kind: "repairDecimal", locale: suggestion.locale }] }])
+      .catch(() => null);
+    const changed = preview?.columns[0]?.changed;
+    const count = changed === undefined ? "Some" : changed.toLocaleString();
+    const other = suggestion.locale === "dot" ? "a decimal comma (55348,13)" : "a decimal point (55348.13)";
+    const reading = suggestion.locale === "dot" ? "55348.13" : "55348,13";
+    this.confirmFix(
+      `Read decimal commas in “${name}”?`,
+      `${count} value${changed === 1 ? " is" : "s are"} written with ${other}, unlike the rest of this column. ` +
+        `Until you decide they are left out of totals and charts. Apply to read every one of them as a decimal (→ ${reading}); ` +
+        "Cancel to leave them as they are. The change is recorded in the Recipe and can be undone.",
+      changed === undefined ? "Apply fix" : `Read ${count} as decimals`,
       () => this.applySuggestionNow(column, suggestion),
     );
   }
