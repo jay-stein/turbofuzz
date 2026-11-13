@@ -13,6 +13,7 @@ import { lint, type LintNote, type RecColumn } from "./chart-recommender.js";
 import type { AggregateMessage, ColumnMeta } from "../worker/protocol.js";
 import { CHART_KIND_LABELS, type ChartCardKind, defaultChartTitle, autoShortStep, isGroupable, isNumericType, isPairKind, parseChartNumber, plainMeasureName, SPLIT_KINDS, GROUP_REQUIRED_KINDS, VALUE_AGGREGATE_KINDS, toRecColumn, suggestedBinRange } from "./chart-utils.js";
 import { clear, el } from "./dom.js";
+import { dismissedClusterCount } from "./similar-dismissals.js";
 import { describeScope } from "./scope.js";
 import type { ChartCard } from "./chart-card.js";
 import type { ChartSeriesTarget, ChartCardConfig, ChartSource } from "./chart-card-types.js";
@@ -555,15 +556,18 @@ export function syncDataIssues(card: ChartCard): void {
         (suggestion): suggestion is Extract<ColumnSuggestion, { kind: "sentinel" }> =>
           suggestion.kind === "sentinel",
       );
-      if (missing === 0 && tokens.length === 0 && sentinels.length === 0) return null;
+      // Near-identical labels ("Bristol" / "BRISTOL ") each become their own bar or
+      // line, so a grouping column with them splits one category into several.
+      const similar = meta.categories === null ? 0 : Math.max(0, meta.similarGroups - dismissedClusterCount(meta.name));
+      if (missing === 0 && tokens.length === 0 && sentinels.length === 0 && similar === 0) return null;
       const active =
         card.options.currentFilter?.(index)?.kind === "blank" &&
         (card.options.currentFilter?.(index) as { negate?: boolean } | null)?.negate === false;
-      return { index, meta, missing, tokens, sentinels, active };
+      return { index, meta, missing, tokens, sentinels, similar, active };
     })
     .filter((issue): issue is NonNullable<typeof issue> => issue !== null);
   const signature = issues
-    .map((issue) => `${issue.meta.name}:${issue.missing}:${issue.tokens.length}:${issue.active}`)
+    .map((issue) => `${issue.meta.name}:${issue.missing}:${issue.tokens.length}:${issue.similar}:${issue.active}`)
     .join("|");
   if (signature === card.issueSignature) return;
   card.issueSignature = signature;
@@ -576,7 +580,12 @@ export function syncDataIssues(card: ChartCard): void {
   for (const issue of issues.slice(0, 2)) {
     const row = el("div", { class: "chart-issue-row" });
     const tokenCount = issue.tokens.reduce((sum, token) => sum + token.count, 0);
-    const details = [`${issue.missing.toLocaleString()} missing`];
+    const details = issue.missing > 0 || tokenCount > 0 ? [`${issue.missing.toLocaleString()} missing`] : [];
+    if (issue.similar > 0) {
+      details.push(
+        `${issue.similar.toLocaleString()} group${issue.similar === 1 ? "" : "s"} of near-identical values, each drawn separately (merge them from the column's Review similar)`,
+      );
+    }
     if (tokenCount > 0) details.push(`${tokenCount.toLocaleString()} placeholders`);
     if (issue.sentinels.length > 0) {
       details.push(
@@ -609,7 +618,7 @@ export function syncDataIssues(card: ChartCard): void {
       );
       row.append(filter);
     }
-    if (card.options.onShowRows !== undefined) {
+    if (card.options.onShowRows !== undefined && missingOrTokens(issue.missing, tokenCount)) {
       const show = el(
         "button",
         { class: "chart-issue-chip", type: "button", title: "Show the affected rows" },

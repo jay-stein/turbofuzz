@@ -4161,3 +4161,23 @@ test("Extract stats gives a histogram's bins from the edges drawn, with the KDE'
   void window;
 });
 
+
+test("chart data issues name near-identical labels that each draw as their own bar", () => {
+  setupDom();
+  const host = document.createElement("div") as unknown as HTMLElement;
+  const card = new ChartCard(host, { ...stubCardOptions(), onShowRows: () => {} }, { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({
+      name: "store",
+      type: "category",
+      categories: { labels: ["Bristol", "BRISTOL ", "Leeds", "LEEDS "], counts: [1180, 25, 1100, 22] },
+      similarGroups: 2,
+    }),
+  ]);
+  const bar = host.querySelector(".chart-data-issues") as HTMLElement;
+  assert.ok(bar !== null && !bar.classList.contains("hidden"));
+  assert.match(bar.textContent ?? "", /store: 2 groups of near-identical values, each drawn separately/);
+  assert.doesNotMatch(bar.textContent ?? "", /missing/, "nothing is missing, so the line says so only about the variants");
+  const chips = [...bar.querySelectorAll(".chart-issue-chip")] as HTMLButtonElement[];
+  assert.ok(!chips.some((chip) => chip.textContent === "Show rows"), "no blank rows to show");
+});
