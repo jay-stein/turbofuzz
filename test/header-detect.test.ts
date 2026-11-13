@@ -275,3 +275,22 @@ test("trailing Total rows are left out as summary rows, not data", () => {
   assert.equal(lookalike.rows.length, 2);
   assert.equal(lookalike.rows[1][0], "TotalEnergies");
 });
+
+test("a two-level header carries the upper label across its merged span, and names stay unique", () => {
+  const table = detectTable([
+    ["FY2025 Budget vs Actual"],
+    [],
+    ["", "", "Jan", "", "Feb", ""],
+    ["Dept", "Cost centre", "Budget", "Actual", "Budget", "Actual"],
+    ["Sales", "CC870", "69,000", "65,957", "49,000", "53,795"],
+    ["Ops", "CC542", "118,000", "105,576", "200,000", "192,376"],
+  ]);
+  assert.deepEqual(table.headers, ["Dept", "Cost centre", "Jan Budget", "Jan Actual", "Feb Budget", "Feb Actual"]);
+
+  const flat = detectTable([
+    ["Region", "Actual", "Actual", "Actual 2"],
+    ["North", "1", "2", "3"],
+    ["South", "4", "5", "6"],
+  ]);
+  assert.deepEqual(flat.headers, ["Region", "Actual", "Actual 3", "Actual 2"]);
+});

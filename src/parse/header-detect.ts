@@ -95,18 +95,51 @@ function numericDataBelow(grid: readonly string[][], index: number): number {
 }
 
 function mergeHeaders(grid: readonly string[][], start: number, count: number, columns: number): string[] {
+  // A label in an upper header row spans the blank cells to its right, as a
+  // merged cell does in Excel ("Jan" over Budget | Actual): carry it across while
+  // the bottom row still names a column, so the second column reads "Jan Actual".
+  const bottom = start + count - 1;
+  const levels: string[][] = [];
+  for (let row = start; row < start + count; row++) {
+    const cells: string[] = [];
+    let carry = "";
+    for (let column = 0; column < columns; column++) {
+      const value = (grid[row]?.[column] ?? "").trim();
+      const named = (grid[bottom]?.[column] ?? "").trim() !== "";
+      if (value !== "") carry = value;
+      else if (row === bottom || !named) carry = "";
+      cells.push(value !== "" ? value : carry);
+    }
+    levels.push(cells);
+  }
   const headers: string[] = [];
   for (let column = 0; column < columns; column++) {
     const parts: string[] = [];
-    for (let row = start; row < start + count; row++) {
-      const value = (grid[row]?.[column] ?? "").trim();
-      if (value === "") continue;
-      if (parts.includes(value)) continue;
+    for (const cells of levels) {
+      const value = cells[column];
+      if (value === "" || parts.includes(value)) continue;
       parts.push(value);
     }
     headers.push(parts.join(" ").slice(0, 120));
   }
-  return headers;
+  return uniqueNames(headers);
+}
+
+/** Numbers repeated column names ("Actual", "Actual 2", …) so every column can be told apart and referenced. */
+function uniqueNames(names: readonly string[]): string[] {
+  const taken = new Set(names.map((name) => name.toLowerCase()));
+  const seen = new Map<string, number>();
+  return names.map((name) => {
+    if (name === "") return name;
+    const key = name.toLowerCase();
+    const count = (seen.get(key) ?? 0) + 1;
+    seen.set(key, count);
+    if (count === 1) return name;
+    let suffix = count;
+    while (taken.has(`${key} ${suffix}`)) suffix++;
+    taken.add(`${key} ${suffix}`);
+    return `${name} ${suffix}`;
+  });
 }
 
 const FOOTER_MARKER = /^(foot)?notes?\b|^sources?\b|^symbol legend\b|^how to cite\b/i;
