@@ -276,3 +276,24 @@ test("a period inside the data with far fewer rows than usual is marked incomple
   );
   assert.equal(daily.partials?.filter(Boolean).length ?? 0, 0);
 });
+
+test("split by a group, each series' thin periods are judged against that series", () => {
+  const rows: string[][] = [];
+  const start = Date.UTC(2024, 0, 1);
+  for (let day = 0; day < 182; day++) {
+    const date = new Date(start + day * 86_400_000);
+    const iso = date.toISOString().slice(0, 10);
+    rows.push([iso, "Big", "10"], [iso, "Big", "10"], [iso, "Big", "10"]);
+    // "Small" has one row a day, and an outage on 1-25 March.
+    if (!(date.getUTCMonth() === 2 && date.getUTCDate() <= 25)) rows.push([iso, "Small", "1"]);
+  }
+  const data = buildDataset("sales", ["date", "store", "revenue"], rows);
+  const result = computeAggregate(
+    view({ dimensions: [{ column: 0, by: { time: "month" } }, { column: 1 }], sort: { key: "dim0", dir: "asc" } }),
+    data.columns,
+    data.rowCount,
+    allIds(data.rowCount),
+  );
+  const flagged = result.labels.filter((_, i) => result.partials?.[i] === true);
+  assert.deepEqual(flagged.map((label) => label.replace(/\s/g, "")), ["2024-03·Small"]);
+});

@@ -308,6 +308,8 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
     color: string;
     total: number;
     values: Float64Array;
+    /** 1 where the period is incomplete (the data starts, stops or thins out inside it). */
+    partial: Uint8Array;
     /** Where it first appeared: for a pivot chart, the pivot's own column order. */
     first: number;
   }
@@ -321,6 +323,7 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
         color: card.groupColor(byGroup.size),
         total: 0,
         values: new Float64Array(buckets.length).fill(Number.NaN),
+        partial: new Uint8Array(buckets.length),
         first: byGroup.size,
       };
       byGroup.set(label, entry);
@@ -329,6 +332,7 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
     const bucket = bucketIndex.get(bucketLabels[i] ?? "");
     if (Number.isFinite(value) && bucket !== undefined) {
       entry.values[bucket] = value;
+      if (result.partials?.[i] === true) entry.partial[bucket] = 1;
       entry.total += Math.abs(value);
     }
   }
@@ -343,6 +347,7 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
       color: card.groupColor(shown.length),
       total: 0,
       values: new Float64Array(buckets.length).fill(Number.NaN),
+      partial: new Uint8Array(buckets.length),
       first: byGroup.size,
     };
     for (const series of all.slice(seriesLimit)) {
@@ -350,6 +355,7 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
       for (let bucket = 0; bucket < buckets.length; bucket++) {
         const value = series.values[bucket] ?? Number.NaN;
         if (!Number.isFinite(value)) continue;
+        if (series.partial[bucket] === 1) other.partial[bucket] = 1;
         other.values[bucket] = Number.isFinite(other.values[bucket])
           ? (other.values[bucket] as number) + value
           : value;
@@ -444,21 +450,41 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
       // A period with a gap on both sides has no line to belong to: it is drawn as a dot,
       // so a series of scattered periods is never an empty chart.
       const lone: [number, number][] = [];
+      // Incomplete periods (data starts, stops or thins out inside them) are
+      // hollow points joined by dashes, drawn after the solid line.
+      const dashes: [number, number, number, number][] = [];
+      const hollow: [number, number][] = [];
+      let previous: [number, number] | null = null;
+      let previousPartial = false;
       for (let b = 0; b < buckets.length; b++) {
         const value = series.values[b] ?? Number.NaN;
         if (!Number.isFinite(value)) {
           started = false;
+          previous = null;
+          previousPartial = false;
           continue;
         }
         const x = frame.left + (b + 0.5) * slot;
         const y = frame.top + frame.plotH - (value / top) * frame.plotH;
-        if (!started) {
+        const partial = series.partial[b] === 1;
+        if (partial || previousPartial) {
+          if (previous !== null) dashes.push([previous[0], previous[1], x, y]);
+          if (partial) {
+            hollow.push([x, y]);
+            started = false;
+          } else {
+            ctx.moveTo(x, y);
+            started = true;
+          }
+        } else if (!started) {
           ctx.moveTo(x, y);
           started = true;
           if (!Number.isFinite(series.values[b + 1] ?? Number.NaN)) lone.push([x, y]);
         } else {
           ctx.lineTo(x, y);
         }
+        previous = [x, y];
+        previousPartial = partial;
       }
       ctx.stroke();
       ctx.fillStyle = series.color;
@@ -466,6 +492,25 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
         ctx.beginPath();
         ctx.arc(x, y, 1.75 * ui, 0, Math.PI * 2);
         ctx.fill();
+      }
+      if (dashes.length > 0 || hollow.length > 0) {
+        ctx.save();
+        ctx.setLineDash([5 * ui, 4 * ui]);
+        ctx.globalAlpha = 0.7;
+        for (const [x1, y1, x2, y2] of dashes) {
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        for (const [x, y] of hollow) {
+          ctx.beginPath();
+          ctx.arc(x, y, 3 * ui, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
       }
     }
   } else if (stacked) {

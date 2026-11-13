@@ -1299,6 +1299,15 @@ export function computeAggregate(
     "time" in dimensions[0].by
       ? dimensions[0].by.time
       : null;
+  /**
+   * The first dimension's time grain, also when other dimensions follow it
+   * (month × store): incomplete periods are judged on it, so a chart split by a
+   * group marks them too. Gap filling still keys off timeGrain alone.
+   */
+  const edgeGrain =
+    dimensions.length >= 1 && typeof dimensions[0].by === "object" && "time" in dimensions[0].by
+      ? dimensions[0].by.time
+      : null;
   const timeEvery =
     dimensions.length === 1 && typeof dimensions[0].by === "object" && "time" in dimensions[0].by
       ? dimensions[0].by.every
@@ -1752,7 +1761,7 @@ export function computeAggregate(
   };
   let finalShown = shown;
   let partials: boolean[] | null = null;
-  if (timeGrain !== null && shown.length > 0) {
+  if (edgeGrain !== null && shown.length > 0) {
     // Edge partiality is judged from the raw timestamps, not the bucket starts.
     const numbers = columns[dimensions[0].column]?.numbers() ?? null;
     const shift = dimRuntime[0]?.shift ?? null;
@@ -1775,12 +1784,12 @@ export function computeAggregate(
       }
     }
     const firstBucket = Number.isFinite(rawMin)
-      ? timeBucket(rawMin, timeGrain, bucketOptions)
+      ? timeBucket(rawMin, edgeGrain, bucketOptions)
       : Number.NaN;
     const lastBucket = Number.isFinite(rawMax)
-      ? timeBucket(rawMax, timeGrain, bucketOptions)
+      ? timeBucket(rawMax, edgeGrain, bucketOptions)
       : Number.NaN;
-    const lastEnd = nextBucket(lastBucket, timeGrain, stepOptions);
+    const lastEnd = nextBucket(lastBucket, edgeGrain, stepOptions);
     const firstPartial = Number.isFinite(rawMin) && rawMin > firstBucket;
     // The last period is also partial when the data stops before it ends, not
     // only while it is still running: daily rows up to 14 Apr make April a
@@ -1807,15 +1816,33 @@ export function computeAggregate(
     // too: a 45-day outage leaves its months thin, and their sums plot as a slump
     // in the business rather than missing data. Marked, never dropped. Weekly
     // and coarser only: by the day or hour, quiet Sundays and nights are real.
-    const coarse = timeGrain === "week" || timeGrain === "month" || timeGrain === "quarter" || timeGrain === "year";
-    const counts = coarse ? finalShown.map((index) => groupRows[index] ?? 0).filter((count) => count > 0) : [];
-    if (counts.length >= 4) {
-      const sorted = [...counts].sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)];
-      if (median >= 4) {
+    const coarse = edgeGrain === "week" || edgeGrain === "month" || edgeGrain === "quarter" || edgeGrain === "year";
+    // Each period is judged against its own series (the other dimensions' values,
+    // e.g. one store), so a small series is not thin next to a large one.
+    if (coarse) {
+      const seriesOf = (index: number): string =>
+        dimValues.slice(1).map((values) => values[index] ?? "").join("\u0000");
+      const bySeries = new Map<string, number[]>();
+      for (const index of finalShown) {
+        const count = groupRows[index] ?? 0;
+        if (count <= 0) continue;
+        const key = seriesOf(index);
+        const list = bySeries.get(key);
+        if (list === undefined) bySeries.set(key, [count]);
+        else list.push(count);
+      }
+      const medians = new Map<string, number>();
+      for (const [key, list] of bySeries) {
+        if (list.length < 4) continue;
+        list.sort((a, b) => a - b);
+        const median = list[Math.floor(list.length / 2)];
+        if (median >= 4) medians.set(key, median);
+      }
+      if (medians.size > 0) {
         const thin = finalShown.map((index) => {
+          const median = medians.get(seriesOf(index));
           const count = groupRows[index] ?? 0;
-          return count > 0 && count < median * THIN_PERIOD_SHARE;
+          return median !== undefined && count > 0 && count < median * THIN_PERIOD_SHARE;
         });
         partials = (partials ?? finalShown.map(() => false)).map((flag, position) => flag || thin[position] === true);
       }
