@@ -1,0 +1,4 @@
+{
+  "name": "date-type-month-first",
+  "description": "a column typed as date whose values are month first: the script reads it in the order the app detected"
+}

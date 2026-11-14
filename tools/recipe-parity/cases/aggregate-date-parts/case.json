@@ -1,0 +1,4 @@
+{
+  "name": "aggregate-date-parts",
+  "description": "totals by month name and by weekday: groups stay in calendar order, labels as the app writes them"
+}

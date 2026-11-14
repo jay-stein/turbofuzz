@@ -1,0 +1,32 @@
+# TurboFuzz pandas recipe — generated from the applied Recipe.
+# Requirements: pip install pandas  (pandas >= 2.0 for format="mixed" parsing)
+#   Dates: year-first values are read with format="ISO8601" before format="mixed", because on
+#   pandas 3 format="mixed" with dayfirst=True reads 2024-03-05 as 3 May (both need pandas >= 2.0).
+# Input: the app does not record the source file format; point the reader at your data.
+# Conventions: date → Python date objects (datetime64, midnight);
+#   datetime → datetime64 (naive timestamps are read as UTC; pandas 3 stores µs, 2.x ns);
+#   time → Python time; duration → timedelta64.
+# Nulls: pandas NaN/NaT; unparseable values become NaN/NaT via errors="coerce".
+# Every applied step is generated below.
+
+import pandas as pd
+
+# Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).
+df = pd.read_csv("input.csv", dtype={"day": str})
+
+# Missing values as TurboFuzz counts them (any case, padded with spaces)
+_tf_missing = ["-", "--", "---", "----", "—", "–", "?", "??", "???", "...", "…", "####", "null", "nil", "none", "nan", "na", "n/a", "n.a", "n.a.", "#n/a", "undefined", "missing", "unknown", "unspecified", "tbd", "tba", "empty", "blank", "(empty)", "(blank)", "(null)", "[empty]", "[blank]", "[null]", "<na>", "<null>", "<none>", "not available", "not applicable", "not provided", "not specified", "no data", "no value", "no answer", "no response", "null value", "none supplied", "\\n", "#value!", "#div/0!", "#ref!", "#name?", "#num!", "#null!", "#error!", "error", "#error"]
+_tf_keep = {}
+for _c in df.columns:
+    if df[_c].dtype == object or pd.api.types.is_string_dtype(df[_c]):
+        df[_c] = df[_c].mask(df[_c].str.strip().str.lower().isin(_tf_missing) & ~df[_c].isin(_tf_keep.get(_c, [])))
+
+# Transform
+df["_group0"] = pd.to_datetime(df["day"], format="ISO8601", utc=True, errors="coerce").fillna(pd.to_datetime(df["day"], format="mixed", dayfirst=True, utc=True, errors="coerce")).dt.tz_localize(None).dt.month
+df = df.groupby(["_group0"], as_index=False).agg(**{
+    "sum(qty)": ("qty", "sum"),
+})
+df["_group0"] = df["_group0"].map({1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun", 7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"})
+df = df.rename(columns={"_group0": "day (month)"})
+
+df.to_csv("cleaned.csv", index=False)

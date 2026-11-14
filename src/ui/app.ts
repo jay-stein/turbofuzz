@@ -8636,6 +8636,9 @@ export class App {
           keep: [...meta.nullPolicy.keep],
         }))
         .filter((entry) => entry.extra.length > 0 || entry.keep.length > 0),
+      dateOrders: Object.fromEntries(
+        this.metas.filter((meta) => meta.type === "date" || meta.type === "datetime").map((meta) => [meta.name, meta.dateOrder]),
+      ),
       deletedRows: this.bakedRows + this.excludedRowCount > 0 ? this.bakedRows + this.excludedRowCount : undefined,
     };
   }

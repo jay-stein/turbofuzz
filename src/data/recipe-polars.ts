@@ -13,12 +13,14 @@ import {
   type TransformOp,
 } from "./transform-ops.js";
 import {
+  missingTokenSetup,
   readAsTextColumns,
   supportHeaderLines,
+  typeDateEntry,
   type RecipeScript,
   type SupportEntry,
 } from "./recipe-support.js";
-import type { RecipeInput } from "./recipe.js";
+import { dimensionTitle, type RecipeInput } from "./recipe.js";
 import { polarsDateExpr } from "../parse/date-format.js";
 
 function py(value: string): string {
@@ -78,9 +80,28 @@ function mixedDateExpr(name: string): string {
   return `pl.coalesce([_tf_read(${py(name)}, f) for f in _tf_formats])`;
 }
 
+/**
+ * Reads the text column `name` as UTC datetimes in this order. Day-first and month-first
+ * orders read every layout the app does (`setup` defines the reader); an explicit format
+ * reads that one format.
+ */
+function dateReader(name: string, order: string | undefined): { setup: string[]; expr: string; review: string | null } {
+  if (order !== undefined && order.startsWith("fmt:")) {
+    const { expr, review } = polarsDateExpr(col(name), order, ", time_zone=\"UTC\"");
+    return { setup: [], expr, review };
+  }
+  return { setup: mixedDateReader(order === "mdy"), expr: mixedDateExpr(name), review: null };
+}
+
+/** The app's text for a parsed value: yyyy-mm-dd, or ISO with milliseconds only when there are some. */
+function stampText(parsed: string, kind: "toDate" | "toDateTime"): string {
+  if (kind === "toDate") return `${parsed}.dt.strftime("%Y-%m-%d")`;
+  return `pl.concat_str([${parsed}.dt.strftime("%Y-%m-%dT%H:%M:%S%.3f").str.replace(r"\\.000$", ""), pl.lit("Z")])`;
+}
+
 /** Writes the parsed date as text and leaves a value that did not parse as it was, like the app. */
-function keepUnreadable(parsed: string, column: string, name: string, stamp: string): string {
-  return assign(`pl.coalesce(${parsed}.dt.strftime(${py(stamp)}), ${column})`, name);
+function keepUnreadable(formatted: string, column: string, name: string): string {
+  return assign(`pl.coalesce(${formatted}, ${column})`, name);
 }
 
 /**
@@ -102,7 +123,7 @@ function mixedDateReader(monthFirst: boolean): string[] {
   return [
     `_tf_formats = [${formats.map(py).join(", ")}]`,
     "def _tf_read(name, fmt):",
-    "    parsed = pl.col(name).str.to_datetime(fmt, strict=False, time_zone=\"UTC\")",
+    "    parsed = pl.col(name).cast(pl.Utf8).str.to_datetime(fmt, strict=False, time_zone=\"UTC\")",
     "    return pl.when(parsed.dt.year() >= 100).then(parsed)  # %Y also takes 2-digit years; %y reads those",
   ];
 }
@@ -265,17 +286,10 @@ function polarsCleanLines(
         ].join("\n");
       case "toDate":
       case "toDateTime": {
-        const stamp = op.kind === "toDateTime" ? "%Y-%m-%dT%H:%M:%SZ" : "%Y-%m-%d";
-        if (op.order !== undefined && op.order.startsWith("fmt:")) {
-          const { expr, review } = polarsDateExpr(column, op.order, ", time_zone=\"UTC\"");
-          if (review !== null) entries[entries.length - 1] = { ...entries[entries.length - 1], status: "manual_step_required", note: review };
-          return keepUnreadable(expr, column, name, stamp);
-        }
-        // Automatic reading: a column can mix layouts, and one format would null the rest.
-        return [
-          ...mixedDateReader(op.order === "mdy"),
-          keepUnreadable(mixedDateExpr(name), column, name, stamp),
-        ].join("\n");
+        // A column can mix layouts, and one format would null the rest.
+        const reader = dateReader(name, op.order);
+        if (reader.review !== null) entries[entries.length - 1] = { ...entries[entries.length - 1], status: "manual_step_required", note: reader.review };
+        return [...reader.setup, keepUnreadable(stampText(reader.expr, op.kind), column, name)].join("\n");
       }
       case "cast":
         entries[entries.length - 1] = {
@@ -320,9 +334,9 @@ function polarsNullLines(
 function polarsTypeLines(
   types: NonNullable<RecipeInput["types"]>,
   entries: SupportEntry[],
+  dateOrders: RecipeInput["dateOrders"],
 ): string[] {
   const lines: string[] = [];
-  let readerDefined = false;
   for (const { name, type } of types) {
     const column = col(name);
     switch (type) {
@@ -335,17 +349,19 @@ function polarsTypeLines(
         entries.push({ label: `type: ${name} → number`, status: "supported" });
         break;
       case "date":
-        if (!readerDefined) lines.push(...mixedDateReader(true));
-        readerDefined = true;
-        lines.push(assign(`${mixedDateExpr(name)}.dt.replace_time_zone(None).dt.date()`, name));
-        entries.push({ label: `type: ${name} → date`, status: "supported_with_warning", note: "values like 03/04/2024 are read month first; the type step does not record an order" });
+      {
+        const reader = dateReader(name, dateOrders?.[name] ?? "dmy");
+        lines.push(...reader.setup, assign(`${reader.expr}.dt.replace_time_zone(None).dt.date()`, name));
+        entries.push(typeDateEntry(name, "date", dateOrders?.[name], reader.review));
         break;
+      }
       case "datetime":
-        if (!readerDefined) lines.push(...mixedDateReader(true));
-        readerDefined = true;
-        lines.push(assign(`${mixedDateExpr(name)}.dt.replace_time_zone(None)`, name));
-        entries.push({ label: `type: ${name} → datetime`, status: "supported_with_warning", note: "values like 03/04/2024 are read month first; the type step does not record an order" });
+      {
+        const reader = dateReader(name, dateOrders?.[name] ?? "dmy");
+        lines.push(...reader.setup, assign(`${reader.expr}.dt.replace_time_zone(None)`, name));
+        entries.push(typeDateEntry(name, "datetime", dateOrders?.[name], reader.review));
         break;
+      }
       case "time":
         lines.push(assign(`${column}.str.to_time(strict=False)`, name));
         entries.push({ label: `type: ${name} → time`, status: "supported" });
@@ -447,12 +463,42 @@ function measureKey(measure: MeasureSpec, names: readonly string[]): string {
 }
 
 /** Polars equivalents of viewPandasLines for aggregate transforms. */
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DOW_ABBR = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** Polars text for a bucket start, the way the app writes it (2024-03, 2024 Q1, 2024-03-05 14:00). */
+function timeKeyLabel(key: string, grain: string): string {
+  switch (grain) {
+    case "second": return `${key}.dt.strftime("%Y-%m-%d %H:%M:%S")`;
+    case "minute": return `${key}.dt.strftime("%Y-%m-%d %H:%M")`;
+    case "hour": return `${key}.dt.strftime("%Y-%m-%d %H:00")`;
+    case "month": return `${key}.dt.strftime("%Y-%m")`;
+    case "quarter": return `pl.format("{} Q{}", ${key}.dt.year(), ${key}.dt.quarter())`;
+    case "year": return `${key}.dt.strftime("%Y")`;
+    default: return `${key}.dt.strftime("%Y-%m-%d")`;
+  }
+}
+
+/** Polars text for a date part, the way the app writes it (Jan, Q1, Mon, 07, W05). */
+function datePartKeyLabel(key: string, part: string): string {
+  const mapped = (values: readonly string[], offset: number): string =>
+    `${key}.replace_strict({${values.map((value, index) => `${index + offset}: ${py(value)}`).join(", ")}}, return_dtype=pl.Utf8)`;
+  switch (part) {
+    case "month": return mapped(MONTH_ABBR, 1);
+    case "dow": return mapped(DOW_ABBR, 0);
+    case "quarter": return `pl.format("Q{}", ${key})`;
+    case "week": return `pl.format("W{}", ${key}.cast(pl.Utf8).str.zfill(2))`;
+    default: return `${key}.cast(pl.Utf8).str.zfill(2)`;
+  }
+}
+
 function polarsAggregateLines(
   dimensions: readonly DimensionSpec[],
   measures: readonly MeasureSpec[],
   names: readonly string[],
   fill: "none" | "zero" | "carry",
   entries: SupportEntry[],
+  dateOrders: RecipeInput["dateOrders"],
 ): string[] {
   const lines: string[] = [];
   const pre: string[] = [];
@@ -469,6 +515,13 @@ function polarsAggregateLines(
   }
 
   const groupKeys: string[] = [];
+  // Date buckets, date parts and cohorts are grouped on a temp key, then written as the app
+  // labels them and given the app's column name.
+  const keyFinish: string[] = [];
+  const finishKey = (temp: string, name: string, by: DimensionSpec["by"], label: string | null): void => {
+    if (label !== null) keyFinish.push(`df = df.with_columns(${label}.alias(${py(temp)}))`);
+    keyFinish.push(`df = df.rename({${py(temp)}: ${py(dimensionTitle(name, by, names))}})`);
+  };
   const groupExprs = dimensions.map((spec, index) => {
     const name = names[spec.column] ?? `Column ${spec.column + 1}`;
     const by = spec.by;
@@ -501,29 +554,42 @@ function polarsAggregateLines(
       }
       const width = by.every !== undefined && Number.isFinite(by.every) && by.every >= 2 ? Math.floor(by.every) : 1;
       const interval = (GRAIN_INTERVAL[by.time] ?? "1d").replace(/^1/, String(width));
-      lines.push(
-        `${col(name)}.str.to_datetime(strict=False).dt.truncate(${py(interval)}).alias(${py(temp)})`,
-      );
+      const reader = dateReader(name, dateOrders?.[name] ?? "dmy");
+      lines.push(...reader.setup);
       groupKeys.push(temp);
-      return temp;
+      finishKey(temp, name, by, timeKeyLabel(col(temp), by.time));
+      return `${reader.expr}.dt.replace_time_zone(None).dt.truncate(${py(interval)}).alias(${py(temp)})`;
     }
     if (typeof by === "object" && ("cohort" in by || "since" in by)) {
       const spec2 = "cohort" in by ? by.cohort : by.since;
       const entity = names[spec2.entity] ?? `Column ${spec2.entity + 1}`;
-      lines.push(
-        `# cohort/period-since: first period per ${entity} needs a window expression — see the TurboFuzz aggregate view`,
-      );
+      const temp = `_group${index}`;
+      const reader = dateReader(name, dateOrders?.[name] ?? "dmy");
+      lines.push(...reader.setup);
+      const stamp = `${reader.expr}.dt.replace_time_zone(None)`;
+      const first = `${stamp}.min().over(${col(entity)})`;
+      groupKeys.push(temp);
+      if ("cohort" in by) {
+        finishKey(temp, name, by, timeKeyLabel(col(temp), spec2.grain));
+        return `${first}.dt.truncate(${py(GRAIN_INTERVAL[spec2.grain] ?? "1mo")}).alias(${py(temp)})`;
+      }
+      if (spec2.grain === "month") {
+        finishKey(temp, name, by, `pl.format("P{}", ${col(temp)})`);
+        return `((${stamp}.dt.year() - ${first}.dt.year()) * 12 + (${stamp}.dt.month() - ${first}.dt.month())).alias(${py(temp)})`;
+      }
       entries.push({
-        label: `aggregate: ${"cohort" in by ? "cohort" : `periods since first ${entity}`}`,
+        label: `aggregate: periods since first ${entity} (${spec2.grain})`,
         status: "manual_step_required",
-        note: "compute the entity's first period as pl.col.min().over(entity) before truncating",
+        note: "only month offsets are generated; compute the period difference for this grain",
       });
-      groupKeys.push(`_group${index}`);
-      return `_group${index}`;
+      lines.push(`# periods since first ${entity} at ${spec2.grain} grain: subtract the period indices explicitly`);
+      return `${first}.dt.truncate(${py(GRAIN_INTERVAL[spec2.grain] ?? "1mo")}).alias(${py(temp)})`;
     }
     if (typeof by === "object" && "datePart" in by) {
       const temp = `_group${index}`;
-      const base = `${col(name)}.str.to_datetime(strict=False).dt`;
+      const reader = dateReader(name, dateOrders?.[name] ?? "dmy");
+      lines.push(...reader.setup);
+      const base = `${reader.expr}.dt.replace_time_zone(None).dt`;
       const accessor =
         by.datePart === "dow"
           ? "weekday() - 1"
@@ -532,9 +598,9 @@ function polarsAggregateLines(
             : by.datePart === "dom"
               ? "day()"
               : "week()";
-      lines.push(`${base}.${accessor}.alias(${py(temp)})`);
       groupKeys.push(temp);
-      return temp;
+      finishKey(temp, name, by, datePartKeyLabel(col(temp), by.datePart));
+      return `${base}.${accessor}.alias(${py(temp)})`;
     }
     if (typeof by === "object" && "bin" in by) {
       const temp = `_group${index}`;
@@ -672,6 +738,7 @@ function polarsAggregateLines(
     // group order (pandas groupby sorts by keys by default).
     lines.push(`df = df.sort(${py(groupKeys[0])})`);
   }
+  lines.push(...keyFinish);
 
   for (const measure of measures) {
     if (measure.agg !== "expr" || measure.expr === undefined) continue;
@@ -734,6 +801,7 @@ function polarsTransformLines(
   transforms: readonly TransformOp[],
   schema: RecipeInput["schema"],
   entries: SupportEntry[],
+  dateOrders: RecipeInput["dateOrders"],
 ): string[] {
   const lines: string[] = [];
   let current = schema.slice();
@@ -903,7 +971,7 @@ function polarsTransformLines(
         break;
       }
       case "aggregate": {
-        lines.push(...polarsAggregateLines(op.dimensions, op.measures, names, op.fill ?? "none", entries));
+        lines.push(...polarsAggregateLines(op.dimensions, op.measures, names, op.fill ?? "none", entries, dateOrders));
         break;
       }
       case "clip": {
@@ -1051,12 +1119,15 @@ function polarsTransformLines(
               });
               break;
             case "date":
-            case "datetime":
+            case "datetime": {
+              const reader = dateReader(partName, op.order === "auto" ? dateOrders?.[partName] ?? "dmy" : op.order);
+              prep.push(...reader.setup);
               fields.push({
                 role: "__stamp",
-                expr: `${col(partName)}.str.to_datetime(strict=False)`,
+                expr: `${reader.expr}.dt.replace_time_zone(None)`,
               });
               break;
+            }
             case "time":
               prep.push(`# ${partName}: time-only column — split into hour/minute/second before combining`);
               entries.push({
@@ -1236,6 +1307,26 @@ function polarsTransformLines(
  * per-step support report the pandas generator produces. Native pl.Date /
  * pl.Datetime / pl.Time / pl.Duration are used; naive timestamps stay naive.
  */
+/**
+ * The app counts N/A, null, unknown, tbc, "-" and similar (any case, padded) as missing in every
+ * column, and exports them as blanks. pl.read_csv only reads empty cells as null, so the text
+ * columns are blanked here. Tokens the user chose to keep stay.
+ */
+function polarsMissingLines(nulls: NonNullable<RecipeInput["nulls"]>): string[] {
+  const { tokens, keep } = missingTokenSetup(nulls);
+  return [
+    "",
+    "# Missing values as TurboFuzz counts them (any case, padded with spaces)",
+    `_tf_missing = ${tokens}`,
+    `_tf_keep = ${keep}`,
+    "df = df.with_columns([",
+    "    pl.when(pl.col(c).str.strip_chars().str.to_lowercase().is_in(_tf_missing) & ~pl.col(c).is_in(_tf_keep.get(c, [])))",
+    "    .then(None).otherwise(pl.col(c)).alias(c)",
+    "    for c in df.columns if df.schema[c] == pl.Utf8",
+    "])",
+  ];
+}
+
 /** The reader call: text and identifier columns stay text (0800 does not become 800). */
 function polarsReadLines(schema: RecipeInput["schema"]): string[] {
   const text = readAsTextColumns(schema);
@@ -1265,14 +1356,14 @@ export function polarsRecipeScript(input: RecipeInput): RecipeScript {
 
   const types = input.types ?? [];
   if (types.length > 0) {
-    const lines = polarsTypeLines(types, entries);
+    const lines = polarsTypeLines(types, entries, input.dateOrders);
     if (lines.length > 0) {
       body.push("", "# Logical types");
       body.push(...lines);
     }
   }
 
-  const transforms = polarsTransformLines(input.transforms, input.schema, entries);
+  const transforms = polarsTransformLines(input.transforms, input.schema, entries, input.dateOrders);
   if (transforms.length > 0) {
     body.push("", "# Transform");
     body.push(...transforms);
@@ -1305,6 +1396,7 @@ export function polarsRecipeScript(input: RecipeInput): RecipeScript {
     "",
     "# Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).",
     ...polarsReadLines(input.schema),
+    ...polarsMissingLines(input.nulls ?? []),
   ];
   const code = [...header, "", ...setup, ...body].join("\n");
   return { target: "polars", code, entries };

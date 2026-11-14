@@ -9,8 +9,10 @@ import {
   type TransformOp,
 } from "./transform-ops.js";
 import {
+  missingTokenSetup,
   readAsTextColumns,
   supportHeaderLines,
+  typeDateEntry,
   type RecipeScript,
   type SupportEntry,
 } from "./recipe-support.js";
@@ -29,12 +31,42 @@ export interface RecipeInput {
   types?: readonly { name: string; type: ColumnType }[];
   /** Per-column missing-value policy: tokens treated as missing, values kept. */
   nulls?: readonly { name: string; extra: readonly string[]; keep: readonly string[] }[];
+  /**
+   * The day/month order the app read each date or datetime column in ("dmy", "mdy" or
+   * "fmt:..."), by column name. A column missing here is read day first, the app's default.
+   */
+  dateOrders?: Readonly<Record<string, string>>;
   /** Rows deleted interactively — data-dependent, not expressible in code. */
   deletedRows?: number;
 }
 
 function py(value: string): string {
   return JSON.stringify(value);
+}
+
+/**
+ * pandas reading a text date column as naive UTC datetimes in this order. A column can hold
+ * several layouts (2024-03-05 and 05/03/2024); without format="mixed" pandas infers one layout
+ * from the first value and turns every value in another layout into NaT. An explicit format
+ * ("fmt:...") reads that one format.
+ */
+function pandasDateRead(source: string, order: string | undefined, naive = true): { expr: string; review: string | null } {
+  const { args, review } = pandasDateArgs(order ?? "dmy");
+  const expr = args.startsWith("dayfirst")
+    ? pandasMixedDates(source, `${args}, utc=True`)
+    : `pd.to_datetime(${source}, ${args}, utc=True, errors="coerce")`;
+  return { expr: naive ? `${expr}.dt.tz_localize(None)` : expr, review };
+}
+
+/**
+ * pandas reading a column of mixed date layouts with the day/month order in `args`. Year-first
+ * values (2024-03-05, 2024/03/05) are read as ISO 8601 first: from pandas 3, format="mixed" with
+ * dayfirst=True also swaps them (2024-03-05 becomes 3 May), which the app never does. The rest
+ * are read with format="mixed". Both formats exist from pandas 2.0.
+ */
+function pandasMixedDates(source: string, args: string): string {
+  const extra = args.replace(/^dayfirst=(True|False)/, "");
+  return `pd.to_datetime(${source}, format="ISO8601"${extra}, errors="coerce").fillna(pd.to_datetime(${source}, format="mixed", ${args}, errors="coerce"))`;
 }
 
 function target(name: string): string {
@@ -54,6 +86,54 @@ const PERIOD: Record<string, string> = {
   quarter: "Q",
   year: "Y",
 };
+
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DOW_ABBR = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** The app's column name for a grouping key: "day (month)", "day (weekday)". */
+export function dimensionTitle(base: string, by: DimensionSpec["by"], names: readonly string[]): string {
+  if (typeof by === "object" && "time" in by) {
+    const unit = by.every !== undefined && Number.isFinite(by.every) && by.every >= 2 ? `${Math.floor(by.every)} ${by.time}s` : by.time;
+    const extras = [
+      by.weekStart === 0 ? "Sun" : undefined,
+      by.fiscalStartMonth !== undefined && by.fiscalStartMonth !== 1 ? `FY from ${MONTH_ABBR[by.fiscalStartMonth - 1] ?? by.fiscalStartMonth}` : undefined,
+      by.tz !== undefined && by.tz.trim() !== "" ? by.tz : undefined,
+    ].filter((part): part is string => part !== undefined);
+    return extras.length === 0 ? `${base} (${unit})` : `${base} (${unit}, ${extras.join(", ")})`;
+  }
+  if (typeof by === "object" && "datePart" in by) return `${base} (${by.datePart})`;
+  if (typeof by === "object" && "cohort" in by) return `${base} · cohort by ${names[by.cohort.entity] ?? "?"} (${by.cohort.grain})`;
+  if (typeof by === "object" && "since" in by) return `periods since first ${names[by.since.entity] ?? "?"} (${by.since.grain})`;
+  return base;
+}
+
+/** pandas text for a bucket start, the way the app writes it (2024-03, 2024 Q1, 2024-03-05 14:00). */
+function timeKeyLabel(key: string, grain: string): string {
+  const col = `df[${key}]`;
+  switch (grain) {
+    case "second": return `${col}.dt.strftime("%Y-%m-%d %H:%M:%S")`;
+    case "minute": return `${col}.dt.strftime("%Y-%m-%d %H:%M")`;
+    case "hour": return `${col}.dt.strftime("%Y-%m-%d %H:00")`;
+    case "month": return `${col}.dt.strftime("%Y-%m")`;
+    case "quarter": return `${col}.dt.year.astype(str) + " Q" + ${col}.dt.quarter.astype(str)`;
+    case "year": return `${col}.dt.strftime("%Y")`;
+    default: return `${col}.dt.strftime("%Y-%m-%d")`;
+  }
+}
+
+/** pandas text for a date part, the way the app writes it (Jan, Q1, Mon, 07, W05). */
+function datePartKeyLabel(key: string, part: string): string {
+  const col = `df[${key}]`;
+  const mapped = (values: readonly string[], offset: number): string =>
+    `${col}.map({${values.map((value, index) => `${index + offset}: ${py(value)}`).join(", ")}})`;
+  switch (part) {
+    case "month": return mapped(MONTH_ABBR, 1);
+    case "dow": return mapped(DOW_ABBR, 0);
+    case "quarter": return `"Q" + ${col}.astype(str)`;
+    case "week": return `"W" + ${col}.astype(int).astype(str).str.zfill(2)`;
+    default: return `${col}.astype(int).astype(str).str.zfill(2)`;
+  }
+}
 
 /** "15" for a 15-wide bucket; empty for the default width of one. */
 function everyPrefix(every: number | undefined): string {
@@ -150,6 +230,7 @@ export function viewPandasLines(
   names: readonly string[],
   fill: "none" | "zero" | "carry" = "none",
   entries?: SupportEntry[],
+  dateOrders?: RecipeInput["dateOrders"],
 ): string[] {
   const lines: string[] = [];
   if (fill !== "none") {
@@ -162,6 +243,13 @@ export function viewPandasLines(
       note: "the group axis is not reindexed in the generated code",
     });
   }
+  // Date buckets, date parts and cohorts become real key columns; once grouped, they are
+  // written as the app labels them and given the app's column name.
+  const keyFinish: string[] = [];
+  const finishKey = (temp: string, name: string, by: DimensionSpec["by"], label: string | null): void => {
+    if (label !== null) keyFinish.push(`df[${py(temp)}] = ${label}`);
+    keyFinish.push(`df = df.rename(columns={${py(temp)}: ${py(dimensionTitle(name, by, names))}})`);
+  };
   const groupExprs = dimensions.map((spec, index) => {
     const name = names[spec.column] ?? `Column ${spec.column + 1}`;
     const by = spec.by;
@@ -196,9 +284,10 @@ export function viewPandasLines(
         });
       }
       lines.push(
-        `${temp} = pd.to_datetime(df[${py(name)}]).dt.to_period(${py(`${everyPrefix(by.every)}${PERIOD[by.time] ?? "D"}`)}).dt.to_timestamp()${weekArg}`,
+        `df[${py(temp)}] = ${pandasDateRead(`df[${py(name)}]`, dateOrders?.[name]).expr}.dt.to_period(${py(`${everyPrefix(by.every)}${PERIOD[by.time] ?? "D"}`)}).dt.to_timestamp()${weekArg}`,
       );
-      return temp;
+      finishKey(temp, name, by, timeKeyLabel(py(temp), by.time));
+      return py(temp);
     }
     if (typeof by === "object" && ("cohort" in by || "since" in by)) {
       const cohortSpec = "cohort" in by ? by.cohort : by.since;
@@ -206,15 +295,18 @@ export function viewPandasLines(
       const temp = `_group${index}`;
       const first = `_first${index}`;
       const period = py(PERIOD[cohortSpec.grain] ?? "M");
-      lines.push(`${first} = pd.to_datetime(df[${py(name)}]).groupby(df[${py(entity)}]).transform("min")`);
+      const stamps = pandasDateRead(`df[${py(name)}]`, dateOrders?.[name]).expr;
+      lines.push(`${first} = ${stamps}.groupby(df[${py(entity)}]).transform("min")`);
       if ("cohort" in by) {
-        lines.push(`${temp} = ${first}.dt.to_period(${period}).dt.to_timestamp()`);
-        return temp;
+        lines.push(`df[${py(temp)}] = ${first}.dt.to_period(${period}).dt.to_timestamp()`);
+        finishKey(temp, name, by, timeKeyLabel(py(temp), cohortSpec.grain));
+        return py(temp);
       }
       if (cohortSpec.grain === "month") {
         lines.push(
-          `${temp} = (pd.to_datetime(df[${py(name)}]).dt.year - ${first}.dt.year) * 12 + (pd.to_datetime(df[${py(name)}]).dt.month - ${first}.dt.month)`,
+          `df[${py(temp)}] = (${stamps}.dt.year - ${first}.dt.year) * 12 + (${stamps}.dt.month - ${first}.dt.month)`,
         );
+        finishKey(temp, name, by, `"P" + df[${py(temp)}].astype(str)`);
       } else {
         lines.push(
           `# periods since first ${entity} at ${cohortSpec.grain} grain: subtract the period indices of ${name} and ${first}`,
@@ -224,9 +316,10 @@ export function viewPandasLines(
           status: "supported_with_warning",
           note: "the generated temp column holds period labels, not offsets",
         });
-        lines.push(`${temp} = pd.to_datetime(df[${py(name)}]).dt.to_period(${period})`);
+        lines.push(`df[${py(temp)}] = ${stamps}.dt.to_period(${period})`);
+        finishKey(temp, name, by, null);
       }
-      return temp;
+      return py(temp);
     }
     if (typeof by === "object" && "datePart" in by) {
       const temp = `_group${index}`;
@@ -238,8 +331,9 @@ export function viewPandasLines(
             : by.datePart === "dom"
               ? "day"
               : "isocalendar().week";
-      lines.push(`${temp} = pd.to_datetime(df[${py(name)}]).dt.${accessor}`);
-      return temp;
+      lines.push(`df[${py(temp)}] = ${pandasDateRead(`df[${py(name)}]`, dateOrders?.[name]).expr}.dt.${accessor}`);
+      finishKey(temp, name, by, datePartKeyLabel(py(temp), by.datePart));
+      return py(temp);
     }
     if (typeof by === "object" && "bin" in by) {
       const temp = `_group${index}`;
@@ -404,6 +498,7 @@ export function viewPandasLines(
     }
   }
   lines.push(...weightedPost);
+  lines.push(...keyFinish);
   const dropped = [
     ...new Set([...helperNames, ...weightedHelpers]),
   ].filter((name) => !simpleNames.has(name) && !weightedHelpers.includes(name));
@@ -604,17 +699,16 @@ function cleanLines(
         ].join("\n");
       case "toDate":
       case "toDateTime": {
-        const { args, review } = pandasDateArgs(op.order);
-        if (review !== null) entries[entries.length - 1] = { ...entries[entries.length - 1], status: "manual_step_required", note: review };
-        // A column can hold several layouts (2024-03-05 and 05/03/2024). Without
-        // format="mixed" pandas infers one layout from the first value and turns
-        // every value in another layout into NaT.
-        const parseArgs = args.startsWith("dayfirst") ? `format="mixed", ${args}` : args;
-        const stamp = op.kind === "toDateTime" ? "%Y-%m-%dT%H:%M:%SZ" : "%Y-%m-%d";
-        // The app leaves a value it cannot read as it was; so does this, rather than blanking it.
+        const read = pandasDateRead(column, op.order, false);
+        if (read.review !== null) entries[entries.length - 1] = { ...entries[entries.length - 1], status: "manual_step_required", note: read.review };
+        // The app writes milliseconds only when there are some, and leaves a value it cannot read as it was.
+        const text =
+          op.kind === "toDateTime"
+            ? `(_parsed.dt.strftime("%Y-%m-%dT%H:%M:%S.%f").str[:-3].str.replace(r"\\.000$", "", regex=True) + "Z")`
+            : `_parsed.dt.strftime("%Y-%m-%d")`;
         return [
-          `_parsed = pd.to_datetime(${column}, ${parseArgs}, utc=True, errors="coerce")`,
-          `${column} = _parsed.dt.strftime(${py(stamp)}).where(_parsed.notna(), ${column})`,
+          `_parsed = ${read.expr}`,
+          `${column} = ${text}.where(_parsed.notna(), ${column})`,
         ].join("\n");
       }
       case "cast":
@@ -632,6 +726,7 @@ function transformLines(
   transforms: readonly TransformOp[],
   schema: readonly ColumnSchema[],
   entries: SupportEntry[],
+  dateOrders: RecipeInput["dateOrders"],
 ): string[] {
   const lines: string[] = [];
   let current = schema.slice();
@@ -795,7 +890,7 @@ function transformLines(
         break;
       }
       case "aggregate": {
-        lines.push(...viewPandasLines(op.dimensions, op.measures, names, op.fill ?? "none", entries));
+        lines.push(...viewPandasLines(op.dimensions, op.measures, names, op.fill ?? "none", entries, dateOrders));
         break;
       }
       case "clip": {
@@ -874,7 +969,6 @@ function transformLines(
         const fields = new Map<string, string>();
         const prep: string[] = [];
         let temp = 0;
-        const dayfirst = op.order === "dmy" ? "True" : "False";
         op.parts.forEach((part) => {
           const partName = names[part.column];
           if (partName === undefined) {
@@ -938,7 +1032,7 @@ function transformLines(
             default: {
               const name = `_part${temp++}`;
               prep.push(
-                `${name} = pd.to_datetime(${source}, errors="coerce", format="mixed", dayfirst=${dayfirst})`,
+                `${name} = ${pandasMixedDates(source, `dayfirst=${(op.order === "auto" ? dateOrders?.[partName] ?? "dmy" : op.order) === "mdy" ? "False" : "True"}`)}`,
               );
               if (part.role === "datetime" || part.role === "date") {
                 fields.set("year", `${name}.dt.year`);
@@ -1079,6 +1173,7 @@ function nullPolicyLines(
 function typeLines(
   types: NonNullable<RecipeInput["types"]>,
   entries: SupportEntry[],
+  dateOrders: RecipeInput["dateOrders"],
 ): string[] {
   const lines: string[] = [];
   for (const { name, type } of types) {
@@ -1089,14 +1184,18 @@ function typeLines(
         lines.push(`${column} = pd.to_numeric(${column}, errors="coerce")`);
         entries.push({ label: `type: ${name} → ${type}`, status: "supported" });
         break;
-      case "date":
-        lines.push(`${column} = pd.to_datetime(${column}, errors="coerce", format="mixed").dt.date`);
-        entries.push({ label: `type: ${name} → date`, status: "supported" });
+      case "date": {
+        const read = pandasDateRead(column, dateOrders?.[name]);
+        lines.push(`${column} = ${read.expr}.dt.date`);
+        entries.push(typeDateEntry(name, "date", dateOrders?.[name], read.review));
         break;
-      case "datetime":
-        lines.push(`${column} = pd.to_datetime(${column}, errors="coerce", format="mixed")`);
-        entries.push({ label: `type: ${name} → datetime`, status: "supported" });
+      }
+      case "datetime": {
+        const read = pandasDateRead(column, dateOrders?.[name], false);
+        lines.push(`${column} = ${read.expr.replaceAll(", utc=True", "")}`);
+        entries.push(typeDateEntry(name, "datetime", dateOrders?.[name], read.review));
         break;
+      }
       case "time":
         lines.push(`${column} = pd.to_datetime(${column}, errors="coerce", format="mixed").dt.time`);
         entries.push({
@@ -1142,6 +1241,24 @@ function typeLines(
 }
 
 /**
+ * The app counts N/A, null, unknown, tbc, "-" and similar (any case, padded) as missing in every
+ * column, and exports them as blanks. pandas' own list is shorter (no "unknown", "-", "?"; case
+ * sensitive), so the text columns are blanked here. Tokens the user chose to keep stay.
+ */
+function pandasMissingLines(nulls: NonNullable<RecipeInput["nulls"]>): string[] {
+  const { tokens, keep } = missingTokenSetup(nulls);
+  return [
+    "",
+    "# Missing values as TurboFuzz counts them (any case, padded with spaces)",
+    `_tf_missing = ${tokens}`,
+    `_tf_keep = ${keep}`,
+    "for _c in df.columns:",
+    "    if df[_c].dtype == object or pd.api.types.is_string_dtype(df[_c]):",
+    "        df[_c] = df[_c].mask(df[_c].str.strip().str.lower().isin(_tf_missing) & ~df[_c].isin(_tf_keep.get(_c, [])))",
+  ];
+}
+
+/**
  * The reader call. Columns the app holds as text or identifiers are read as text so
  * 0800 does not become 800. `str` (not "string") keeps missing values as NaN, which
  * the generated steps expect.
@@ -1179,14 +1296,14 @@ export function pandasRecipeScript(input: RecipeInput): RecipeScript {
 
   const types = input.types ?? [];
   if (types.length > 0) {
-    const lines = typeLines(types, entries);
+    const lines = typeLines(types, entries, input.dateOrders);
     if (lines.length > 0) {
       body.push("", "# Logical types");
       body.push(...lines);
     }
   }
 
-  const transforms = transformLines(input.transforms, input.schema, entries);
+  const transforms = transformLines(input.transforms, input.schema, entries, input.dateOrders);
   if (transforms.length > 0) {
     body.push("", "# Transform");
     body.push(...transforms);
@@ -1210,9 +1327,11 @@ export function pandasRecipeScript(input: RecipeInput): RecipeScript {
   const header = [
     "# TurboFuzz pandas recipe — generated from the applied Recipe.",
     "# Requirements: pip install pandas  (pandas >= 2.0 for format=\"mixed\" parsing)",
+    "#   Dates: year-first values are read with format=\"ISO8601\" before format=\"mixed\", because on",
+    "#   pandas 3 format=\"mixed\" with dayfirst=True reads 2024-03-05 as 3 May (both need pandas >= 2.0).",
     "# Input: the app does not record the source file format; point the reader at your data.",
     "# Conventions: date → Python date objects (datetime64, midnight);",
-    "#   datetime → datetime64[ns] (naive timestamps are read as UTC);",
+    "#   datetime → datetime64 (naive timestamps are read as UTC; pandas 3 stores µs, 2.x ns);",
     "#   time → Python time; duration → timedelta64.",
     "# Nulls: pandas NaN/NaT; unparseable values become NaN/NaT via errors=\"coerce\".",
     ...supportHeaderLines(entries),
@@ -1223,6 +1342,7 @@ export function pandasRecipeScript(input: RecipeInput): RecipeScript {
     "",
     "# Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).",
     ...pandasReadLines(input.schema),
+    ...pandasMissingLines(input.nulls ?? []),
   ];
   const code = [...header, "", ...setup, ...body].join("\n");
   return { target: "pandas", code, entries };

@@ -98,6 +98,136 @@ const CASES: CaseSpec[] = [
     cleans: [{ column: 1, ops: [{ kind: "toDate", order: "dmy" }] }],
   },
   {
+    name: "na-tokens-text-and-numeric",
+    description: "N/A, unknown and padded or odd-case markers in a text and a numeric column, no missing-value step applied",
+    headers: ["city", "qty"],
+    rows: [
+      ["N/A", "5"],
+      ["Perth", "N/A"],
+      ["null", "15"],
+      ["Sydney", ""],
+      [" Unknown ", "20"],
+      ["-", "Null"],
+      ["Hobart", "7"],
+    ],
+  },
+  {
+    name: "datetime-milliseconds",
+    description: "date and time values in several layouts; milliseconds are kept only where there are some",
+    headers: ["stamp"],
+    rows: [["2024-03-05T14:30:00.250Z"], ["05/03/2024 14:30"], ["2024-03-05"], ["not a date"], ["2024-03-05 09:15:30.5"]],
+    cleans: [{ column: 0, ops: [{ kind: "toDateTime", order: "dmy" }] }],
+  },
+  {
+    name: "aggregate-mixed-dates",
+    description: "monthly totals over a text date column that mixes yyyy-mm-dd and dd/mm/yyyy",
+    headers: ["day", "qty"],
+    rows: [
+      ["2024-01-05", "3"],
+      ["20/01/2024", "4"],
+      ["2024-03-02", "5"],
+      ["31/03/2024", "6"],
+    ],
+    transforms: [
+      {
+        kind: "aggregate",
+        dimensions: [{ column: 0, by: { time: "month" } }],
+        measures: [{ column: 1, agg: "sum" }],
+      },
+    ],
+  },
+  {
+    name: "aggregate-time-grains",
+    description: "quarterly totals, written the way the app labels them",
+    headers: ["day", "qty"],
+    rows: [
+      ["2024-01-05", "3"],
+      ["2024-02-20", "4"],
+      ["2024-05-02", "5"],
+      ["2025-01-31", "6"],
+    ],
+    transforms: [
+      {
+        kind: "aggregate",
+        dimensions: [{ column: 0, by: { time: "quarter" } }],
+        measures: [{ column: 1, agg: "sum" }],
+      },
+    ],
+  },
+  {
+    name: "aggregate-date-parts",
+    description: "totals by month name and by weekday: groups stay in calendar order, labels as the app writes them",
+    headers: ["day", "qty"],
+    rows: [
+      ["2024-03-04", "3"],
+      ["2024-01-09", "4"],
+      ["2024-02-11", "5"],
+      ["2024-03-30", "6"],
+    ],
+    transforms: [
+      {
+        kind: "aggregate",
+        dimensions: [{ column: 0, by: { datePart: "month" } }],
+        measures: [{ column: 1, agg: "sum" }],
+      },
+    ],
+  },
+  {
+    name: "aggregate-cohort",
+    description: "customers grouped by the month of their first order",
+    headers: ["customer", "day", "qty"],
+    rows: [
+      ["a", "2024-01-05", "3"],
+      ["a", "2024-03-20", "4"],
+      ["b", "2024-02-02", "5"],
+      ["b", "2024-02-28", "6"],
+    ],
+    transforms: [
+      {
+        kind: "aggregate",
+        dimensions: [{ column: 1, by: { cohort: { entity: 0, grain: "month" } } }],
+        measures: [{ column: 2, agg: "sum" }],
+      },
+    ],
+  },
+  {
+    name: "aggregate-periods-since",
+    description: "orders by months since the customer's first order",
+    headers: ["customer", "day", "qty"],
+    rows: [
+      ["a", "2024-01-05", "3"],
+      ["a", "2024-03-20", "4"],
+      ["b", "2024-02-02", "5"],
+      ["b", "2024-02-28", "6"],
+    ],
+    transforms: [
+      {
+        kind: "aggregate",
+        dimensions: [{ column: 1, by: { since: { entity: 0, grain: "month" } } }],
+        measures: [{ column: 2, agg: "sum" }],
+      },
+    ],
+  },
+  {
+    name: "date-type-month-first",
+    description: "a column typed as date whose values are month first: the script reads it in the order the app detected",
+    headers: ["when"],
+    rows: [["12/25/2024"], ["03/04/2024"], ["2024-01-31"], ["01/31/2024"]],
+    types: [{ column: 0, type: "date" }],
+  },
+  {
+    name: "na-tokens-treated-as-missing",
+    description: "the same columns with the app's treat-as-missing step applied to the text column",
+    headers: ["city", "qty"],
+    rows: [
+      ["N/A", "5"],
+      ["Perth", "N/A"],
+      ["TBC", "15"],
+      ["Sydney", ""],
+    ],
+    nulls: [{ column: 0, extra: ["TBC"], keep: [] }],
+  },
+  {
     name: "dedupe",
     description: "keep the first copy of each duplicated row",
     headers: ["city", "status"],
@@ -316,6 +446,9 @@ function recipeInput(spec: CaseSpec): RecipeInput {
       numeric: column.type === "integer" || column.type === "number",
       type: column.type,
     })),
+    dateOrders: Object.fromEntries(
+      columns.filter((column) => column.type === "date" || column.type === "datetime").map((column) => [column.name, column.dateOrder]),
+    ),
     types: (spec.types ?? []).map((entry) => ({
       name: columns[entry.column]?.name ?? `Column ${entry.column + 1}`,
       type: entry.type,

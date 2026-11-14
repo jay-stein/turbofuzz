@@ -5,6 +5,7 @@
  */
 
 import type { ColumnType } from "../types.js";
+import { builtInNullTokens } from "../parse/null-tokens.js";
 
 export type RecipeTarget = "pandas" | "polars";
 
@@ -72,6 +73,19 @@ export function supportHeaderLines(entries: readonly SupportEntry[]): string[] {
   return lines;
 }
 
+/**
+ * Report line for a date or datetime type step. The order the app read the column in is
+ * passed through `dateOrders`; without it the script reads day first, the app's default.
+ */
+export function typeDateEntry(name: string, type: "date" | "datetime", order: string | undefined, review: string | null): SupportEntry {
+  const label = `type: ${name} → ${type}`;
+  if (review !== null) return { label, status: "manual_step_required", note: review };
+  if (order === undefined) {
+    return { label, status: "supported_with_warning", note: "the day/month order was not recorded; read day first, the app's default" };
+  }
+  return { label, status: "supported" };
+}
+
 /** Types a default CSV reader would wrongly turn into numbers (0800 → 800, 20240315 → 20,240,315). */
 const READ_AS_TEXT: ReadonlySet<ColumnType> = new Set(["identifier", "string", "category", "date", "datetime", "time"]);
 
@@ -85,4 +99,16 @@ export function readAsTextColumns(schema: readonly { name: string; type?: Column
     if (type !== undefined && READ_AS_TEXT.has(type) && !names.includes(name)) names.push(name);
   }
   return names;
+}
+
+/**
+ * The words and symbols the app counts as missing in every column (any case, padded with
+ * spaces), as a Python list literal, plus the per-column tokens the user chose to keep as
+ * values. A reader's own default list is shorter, so the script blanks these itself.
+ */
+export function missingTokenSetup(nulls: readonly { name: string; keep: readonly string[] }[]): { tokens: string; keep: string } {
+  const tokens = `[${builtInNullTokens().map((token) => JSON.stringify(token)).join(", ")}]`;
+  const kept = nulls.filter((entry) => entry.keep.length > 0);
+  const keep = `{${kept.map((entry) => `${JSON.stringify(entry.name)}: [${entry.keep.map((token) => JSON.stringify(token)).join(", ")}]`).join(", ")}}`;
+  return { tokens, keep };
 }

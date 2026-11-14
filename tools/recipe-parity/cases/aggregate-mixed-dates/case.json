@@ -1,0 +1,4 @@
+{
+  "name": "aggregate-mixed-dates",
+  "description": "monthly totals over a text date column that mixes yyyy-mm-dd and dd/mm/yyyy"
+}

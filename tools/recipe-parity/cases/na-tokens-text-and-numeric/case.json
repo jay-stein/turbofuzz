@@ -1,0 +1,4 @@
+{
+  "name": "na-tokens-text-and-numeric",
+  "description": "N/A, unknown and padded or odd-case markers in a text and a numeric column, no missing-value step applied"
+}

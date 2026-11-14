@@ -1,0 +1,4 @@
+{
+  "name": "aggregate-cohort",
+  "description": "customers grouped by the month of their first order"
+}

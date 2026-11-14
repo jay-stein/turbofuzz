@@ -102,6 +102,35 @@ test("emits pandas lines for combining date/time columns", () => {
   assert.match(recipe, /tz_localize\("Australia\/Sydney"/);
 });
 
+test("pandas combineDate reads a year-first date part as ISO before the day-first read", () => {
+  // pandas 3's format="mixed" with dayfirst=True turns 2024-03-05 into 3 May.
+  const recipe = pandasRecipe({
+    cleans: [],
+    transforms: [
+      {
+        kind: "combineDate",
+        parts: [
+          { column: 0, role: "date" },
+          { column: 1, role: "hour" },
+        ],
+        output: "datetime",
+        outputName: "at",
+        order: "dmy",
+        timeZone: "",
+        dropParts: false,
+      },
+    ],
+    schema: [
+      { name: "d", numeric: false },
+      { name: "h", numeric: true },
+    ],
+  } as never);
+  assert.match(
+    recipe,
+    /_part\d+ = pd\.to_datetime\(df\["d"\], format="ISO8601", errors="coerce"\)\.fillna\(pd\.to_datetime\(df\["d"\], format="mixed", dayfirst=True, errors="coerce"\)\)/,
+  );
+});
+
 test("golden pandas script: cleans, null policy, types, transforms", () => {
   const script = pandasRecipeScript({
     cleans: [
@@ -120,9 +149,11 @@ test("golden pandas script: cleans, null policy, types, transforms", () => {
   });
   const expected = String.raw`# TurboFuzz pandas recipe — generated from the applied Recipe.
 # Requirements: pip install pandas  (pandas >= 2.0 for format="mixed" parsing)
+#   Dates: year-first values are read with format="ISO8601" before format="mixed", because on
+#   pandas 3 format="mixed" with dayfirst=True reads 2024-03-05 as 3 May (both need pandas >= 2.0).
 # Input: the app does not record the source file format; point the reader at your data.
 # Conventions: date → Python date objects (datetime64, midnight);
-#   datetime → datetime64[ns] (naive timestamps are read as UTC);
+#   datetime → datetime64 (naive timestamps are read as UTC; pandas 3 stores µs, 2.x ns);
 #   time → Python time; duration → timedelta64.
 # Nulls: pandas NaN/NaT; unparseable values become NaN/NaT via errors="coerce".
 # Non-equivalent steps (review before trusting the output):
@@ -134,6 +165,13 @@ import pandas as pd
 
 # Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).
 df = pd.read_csv("input.csv")
+
+# Missing values as TurboFuzz counts them (any case, padded with spaces)
+_tf_missing = ["-", "--", "---", "----", "—", "–", "?", "??", "???", "...", "…", "####", "null", "nil", "none", "nan", "na", "n/a", "n.a", "n.a.", "#n/a", "undefined", "missing", "unknown", "unspecified", "tbd", "tba", "empty", "blank", "(empty)", "(blank)", "(null)", "[empty]", "[blank]", "[null]", "<na>", "<null>", "<none>", "not available", "not applicable", "not provided", "not specified", "no data", "no value", "no answer", "no response", "null value", "none supplied", "\\n", "#value!", "#div/0!", "#ref!", "#name?", "#num!", "#null!", "#error!", "error", "#error"]
+_tf_keep = {"town": ["NULL"]}
+for _c in df.columns:
+    if df[_c].dtype == object or pd.api.types.is_string_dtype(df[_c]):
+        df[_c] = df[_c].mask(df[_c].str.strip().str.lower().isin(_tf_missing) & ~df[_c].isin(_tf_keep.get(_c, [])))
 
 # Clean: city
 df["city"] = df["city"].str.strip().str.replace(r"\s+", " ", regex=True)
@@ -178,7 +216,7 @@ test("no applied step is silently dropped: unsupported steps stay in the report"
   assert.match(script.code, /outlier flags for a/);
   assert.match(script.code, /drop skipped in the script/);
   assert.match(script.code, /5 rows were deleted interactively/);
-  assert.doesNotMatch(script.code, /undefined/);
+  assert.doesNotMatch(script.code, /(?<!")undefined(?!")/);
 });
 
 test("combineDate drops its parts and reports warnings", () => {
@@ -254,7 +292,10 @@ const mixedDateInput = {
 
 test("pandas date clean reads every layout in a mixed column and keeps what it cannot read", () => {
   const { code } = pandasRecipeScript(mixedDateInput as never);
-  assert.match(code, /_parsed = pd\.to_datetime\(df\["order_date"\], format="mixed", dayfirst=True, utc=True, errors="coerce"\)/);
+  assert.match(
+    code,
+    /_parsed = pd\.to_datetime\(df\["order_date"\], format="ISO8601", utc=True, errors="coerce"\)\.fillna\(pd\.to_datetime\(df\["order_date"\], format="mixed", dayfirst=True, utc=True, errors="coerce"\)\)/,
+  );
   assert.match(code, /df\["order_date"\] = _parsed\.dt\.strftime\("%Y-%m-%d"\)\.where\(_parsed\.notna\(\), df\["order_date"\]\)/);
 });
 
@@ -262,4 +303,69 @@ test("pandas reader keeps identifier and date columns as text, numbers untouched
   const { code } = pandasRecipeScript(mixedDateInput as never);
   assert.match(code, /df = pd\.read_csv\("input\.csv", dtype=\{"postcode": str, "order_date": str\}\)/);
   assert.doesNotMatch(code, /"qty": str/);
+});
+
+const bucketInput = (by: unknown, dateOrders?: Record<string, string>) =>
+  ({
+    cleans: [],
+    transforms: [{ kind: "aggregate", dimensions: [{ column: 0, by }], measures: [{ column: 1, agg: "sum" }] }],
+    schema: [
+      { name: "day", numeric: false },
+      { name: "qty", numeric: true },
+    ],
+    dateOrders,
+  }) as never;
+
+test("pandas time buckets, date parts and cohorts read a mixed-layout date column", () => {
+  const month = pandasRecipeScript(bucketInput({ time: "month" })).code;
+  assert.match(month, /pd\.to_datetime\(df\["day"\], format="mixed", dayfirst=True, utc=True, errors="coerce"\)\)\.dt\.tz_localize\(None\)\.dt\.to_period\("M"\)/);
+  assert.match(pandasRecipeScript(bucketInput({ datePart: "month" })).code, /format="mixed", dayfirst=True.*\.dt\.month/);
+  const cohort = pandasRecipeScript(bucketInput({ cohort: { entity: 1, grain: "month" } })).code;
+  assert.match(cohort, /_first0 = pd\.to_datetime\(df\["day"\], format="ISO8601".*format="mixed"/);
+  assert.doesNotMatch(cohort, /pd\.to_datetime\(df\["day"\]\)/);
+});
+
+test("the day/month order the app read the column in reaches every pandas date read", () => {
+  const month = pandasRecipeScript(bucketInput({ time: "month" }, { day: "mdy" })).code;
+  assert.match(month, /format="mixed", dayfirst=False/);
+  const typed = pandasRecipeScript({
+    cleans: [],
+    transforms: [],
+    schema: [{ name: "when", numeric: false, type: "date" }],
+    types: [{ name: "when", type: "date" }],
+    dateOrders: { when: "mdy" },
+  } as never);
+  assert.match(
+    typed.code,
+    /df\["when"\] = pd\.to_datetime\(df\["when"\], format="ISO8601", utc=True, errors="coerce"\)\.fillna\(pd\.to_datetime\(df\["when"\], format="mixed", dayfirst=False, utc=True, errors="coerce"\)\)\.dt\.tz_localize\(None\)\.dt\.date/,
+  );
+  assert.equal(typed.entries.find((entry) => entry.label.startsWith("type: when"))?.status, "supported");
+  const unknown = pandasRecipeScript({ cleans: [], transforms: [], schema: [], types: [{ name: "when", type: "date" }] } as never);
+  assert.match(unknown.code, /dayfirst=True/);
+  assert.equal(unknown.entries[0].status, "supported_with_warning");
+});
+
+test("pandas toDateTime keeps milliseconds only where there are some", () => {
+  const { code } = pandasRecipeScript({ cleans: [{ name: "t", ops: [{ kind: "toDateTime", order: "dmy" }] }], transforms: [], schema: [] } as never);
+  assert.match(code, /strftime\("%Y-%m-%dT%H:%M:%S\.%f"\)\.str\[:-3\]\.str\.replace\(r"\\.000\$", "", regex=True\) \+ "Z"/);
+});
+
+test("the script blanks the missing-value markers the app counts, except tokens the user kept", () => {
+  const { code } = pandasRecipeScript({ cleans: [], transforms: [], schema: [], nulls: [{ name: "town", extra: [], keep: ["NULL"] }] } as never);
+  assert.match(code, /_tf_missing = \[.*"n\/a".*"unknown"/);
+  assert.match(code, /_tf_keep = \{"town": \["NULL"\]\}/);
+  assert.match(code, /df\[_c\]\.str\.strip\(\)\.str\.lower\(\)\.isin\(_tf_missing\) & ~df\[_c\]\.isin\(_tf_keep\.get\(_c, \[\]\)\)/);
+});
+
+test("pandas time buckets and date parts are real key columns that keep the app's name and labels", () => {
+  const month = pandasRecipeScript(bucketInput({ time: "month" })).code;
+  assert.match(month, /df\["_group0"\] = pd\.to_datetime/);
+  assert.match(month, /df = df\.groupby\(\["_group0"\], as_index=False\)/);
+  assert.match(month, /df\["_group0"\] = df\["_group0"\]\.dt\.strftime\("%Y-%m"\)\ndf = df\.rename\(columns=\{"_group0": "day \(month\)"\}\)/);
+  const part = pandasRecipeScript(bucketInput({ datePart: "month" })).code;
+  assert.match(part, /df\["_group0"\]\.map\(\{1: "Jan", 2: "Feb"/);
+  assert.match(part, /rename\(columns=\{"_group0": "day \(month\)"\}\)/);
+  const since = pandasRecipeScript(bucketInput({ since: { entity: 1, grain: "month" } })).code;
+  assert.match(since, /"P" \+ df\["_group0"\]\.astype\(str\)/);
+  assert.match(since, /"_group0": "periods since first qty \(month\)"/);
 });

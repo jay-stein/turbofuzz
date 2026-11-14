@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-15 — Recipe: exported scripts read every date layout the app reads, blank its missing-value markers, keep milliseconds, read the detected day/month order, and run time-bucket, date-part and cohort aggregates
+
+- **Status:** Verified (unit tests; parity harness, 21 cases pass)
+- **Related issue / decision:** follow-up to CHG-2026-11-14-01. The time-bucket aggregate dropped its key column in pandas and raised NameError in Polars (this predates the 2026-11-14 work); pandas 3 read year-first dates day first.
+- **What changed:** Time-bucket, date-part and cohort aggregates keep the app's key column and labels (2024-03, 2024 Q1, Jan, Mon, P0 ...) in both scripts; cohort and month-grain periods-since now generate in Polars. The missing-value markers the app blanks (N/A, unknown, -, null ...) are blanked after the read in text columns, except tokens the user kept. Date type steps read the day/month order the app detected (default day first). Milliseconds are kept only where present. On pandas 3, `format="mixed", dayfirst=True` also read year-first strings day first (2024-03-05 became 3 May); the pandas script now reads ISO8601 first, then fills the rest with the mixed read. New parity cases: na-tokens-text-and-numeric, na-tokens-treated-as-missing, date-type-month-first, datetime-milliseconds and five aggregate cases; the other cases were regenerated.
+- **Not covered yet:** Polars `bin` aggregates; fiscal, time-zone and Sunday-week labels are checked as text only.
+- **Files / components changed:** src/data/recipe.ts, src/data/recipe-polars.ts, src/data/recipe-support.ts, src/ui/app.ts (recipeInput passes dateOrders); tools/recipe-parity/make_cases.ts and cases; test/recipe.test.ts, test/recipe-polars.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-14 — About: the front page shows the version, build and last-updated date
 
 - **Status:** Verified (unit tests; browser spec front-page updated). Not yet seen in a browser by eye.
