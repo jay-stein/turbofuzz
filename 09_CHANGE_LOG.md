@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-10 — Table: the time in the results bar is the time the user waited; first use of a column says it is preparing
+
+- **Status:** Verified (unit: 6 + 19 tests). Not measured end-to-end in the browser.
+- **Related issue / decision:** 2026-11-14 product assessment: the status bar printed 8 ms beside a 2.8 s fuzzy wait.
+- **What changed:** The status bar printed only the worker's matching step. It now prints the end-to-end wait and never "<1 ms" for work that ran. A first use of a column that takes over 250 ms shows "Preparing the <column> column (first use)…". Plain-ASCII cells skip the accent passes, so the first contains search prepares about 4× faster (520 ms to 125 ms per 1M strings, Node).
+- **Files / components changed:** src/ui/wait-time.ts (new), src/search/prepare-key.ts (new), src/search/normalize.ts, src/ui/worker-client.ts, src/worker/search.worker.ts, src/ui/app.ts; test/wait-time.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-09 — Compare: a renamed key column is paired automatically; Value differences opens on changed rows; Analyse the differences
 
 - **Status:** Verified (unit: 35 tests; browser spec compare.spec, all 19 passed; bench gates for the new work within budget; older compare gates ran over budget under load and are to be re-checked)

@@ -113,6 +113,7 @@ import {
   type MultiFilePreflight,
 } from "./multi-file-preflight.js";
 import { LoadCancelledError, SearchWorkerClient } from "./worker-client.js";
+import { formatWait, PrepareNote } from "./wait-time.js";
 import { openCleanPanel } from "./clean-panel.js";
 import { openConfirm, openPrompt } from "./dialog.js";
 import {
@@ -659,6 +660,7 @@ export class App {
   private generation = 0;
   /** One worker request at a time: latest-wins for queries, in order for changes that must all land. */
   private readonly sends = new SendQueue(() => this.generation, () => this.memory.soon());
+  private readonly prepareNote = new PrepareNote((text) => { this.countEl.textContent = text; });
   private filters = new Map<number, ColumnFilter>();
   private readonly cleanedColumns = new Map<number, CleanOp[]>();
   /** Clean steps applied as Data Quality fixes: each stays its own Recipe step, never folded into a batch. */
@@ -2700,6 +2702,9 @@ export class App {
       this.setLoadingProgress(progress.detail ?? "Ready");
     } else if (progress.phase === "index" && progress.column !== undefined) {
       this.filterPanel?.setStatus(progress.column, progress.active === true ? "Building index…" : "");
+      // A first use of a column can take seconds: say so when it is still running after a moment, never for fast work.
+      if (progress.active === true) this.prepareNote.start(this.metas[progress.column]?.name ?? "selected");
+      else this.prepareNote.stop();
     } else if (progress.phase === "sort") {
       if (progress.active === true) this.countEl.textContent = "Sorting…";
     }
@@ -6848,7 +6853,8 @@ export class App {
     this.timeSeries?.setData(this.metas, count);
     this.mapPage?.setData(this.metas, count);
     if (this.qualityPage !== null && this.lastLoaded !== null) this.renderQualityPage();
-    const timeText = queryMs < 1 ? "<1" : String(Math.round(queryMs));
+    this.prepareNote.stop();
+    const timeText = formatWait(queryMs);
     const total = this.rowCount;
     const parts: string[] = [];
     if (this.shuffleActive && total > 0 && count < total) {
@@ -6862,7 +6868,7 @@ export class App {
     } else {
       parts.push(`${count.toLocaleString()} rows`);
     }
-    parts.push(`${timeText} ms`);
+    if (timeText !== null) parts.push(timeText);
     this.countEl.textContent = parts.join(" · ");
     const columnCount = this.metas.length;
     this.countEl.title = `${count.toLocaleString()} matching rows out of ${total.toLocaleString()} (${columnCount} columns)`;

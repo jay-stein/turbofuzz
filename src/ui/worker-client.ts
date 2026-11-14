@@ -1,5 +1,6 @@
 import type { FrameStep } from "../data/chart-frames.js";
 import { readSettings } from "./settings.js";
+import { waitedMs } from "./wait-time.js";
 import type { GeoWorkerReply, GeoWorkerRequest } from "../worker/geo.worker.js";
 import type { IntervalKind } from "../data/error-bars.js";
 import type { ErrorBarsMessage, ErrorBarsProgressMessage, JoinSuggestionsMessage, RegionsLoadedMessage, RegionValuesMessage, RegionValuesRequestInput } from "../worker/protocol.js";
@@ -110,6 +111,8 @@ import type {
 interface Pending {
   resolve: (message: WorkerResponse) => void;
   reject: (error: Error) => void;
+  /** When the request left the main thread, so a printed time can be the wait, not just the worker's matching step. */
+  sentAt?: number;
 }
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -769,6 +772,7 @@ export class SearchWorkerClient {
       this.pending.set(requestId, {
         resolve: resolve as (value: WorkerResponse) => void,
         reject,
+        sentAt: performance.now(),
       });
       this.worker.postMessage({ ...message, requestId } as WorkerRequest, transfer ?? []);
     });
@@ -801,6 +805,11 @@ export class SearchWorkerClient {
     } else {
       if (this.currentLoadId === message.requestId && message.type === "loaded") {
         this.currentLoadId = null;
+      }
+      // The status bar prints queryMs: make it the time the person waited (preparation, facets and messaging included).
+      const timed = message as { queryMs?: unknown };
+      if (pending.sentAt !== undefined && typeof timed.queryMs === "number") {
+        timed.queryMs = waitedMs(pending.sentAt, performance.now(), timed.queryMs);
       }
       pending.resolve(message);
     }

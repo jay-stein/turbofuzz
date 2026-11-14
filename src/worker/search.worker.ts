@@ -82,6 +82,7 @@ import { fuzzyScoreNormalized, normalizeForMatch } from "../search/fuzzy-match.j
 import { measureRagged, type RaggedInfo } from "../parse/parse.js";
 import { filteredHistogram, filtersSignature, HistogramCache } from "../search/aggregates.js";
 import { BitSet } from "../search/bitset.js";
+import { preparationKey } from "../search/prepare-key.js";
 import { buildRank, orderIds } from "../search/order.js";
 import { clusterSimilar } from "../search/similar.js";
 import { skipsSimilarity } from "../data/semantic-type.js";
@@ -1194,6 +1195,7 @@ function resetWorkingState(): void {
   compare = null;
   engine = null;
   filters.clear();
+  preparedColumns.clear();
   rankColumn = -1;
   rankAsc = null;
   sortDir = 1;
@@ -1251,23 +1253,28 @@ function handleFinalizeStats(message: FinalizeStatsRequest): void {
     firstChanged: changedFlagsSlice(0, FIRST_PAGE_ROWS) ?? undefined,
   });
 }
+/** Columns whose one-off preparation (see preparationKey) already ran for this table. */
+const preparedColumns = new Set<string>();
+
+/** On a first use of a column's filter kind, tells the page the preparation started; the caller posts the matching "active: false". */
+function beginPreparation(column: number, filter: ColumnFilter | null): boolean {
+  const key = preparationKey(filter);
+  if (key === null || !preparedColumns.add(`${column}:${key}`)) return false;
+  post({ type: "progress", phase: "index", column, active: true });
+  return true;
+}
+
 function handleSetFilter(message: SetFilterRequest): void {
   const { dataset, engine } = state();
 
-  if (message.filter !== null && message.filter.kind === "text" && message.filter.mode === "fuzzy") {
-    const column = dataset.columns[message.column];
-    if (!column.fuzzyBuilt) {
-      post({ type: "progress", phase: "index", column: message.column, active: true });
-      column.fuzzyIndex();
-      post({ type: "progress", phase: "index", column: message.column, active: false });
-    }
-  }
+  const preparing = beginPreparation(message.column, message.filter);
 
   if (message.filter === null) filters.delete(message.column);
   else filters.set(message.column, message.filter);
 
   const started = performance.now();
   const bits = engine.evaluateBits(filters);
+  if (preparing) post({ type: "progress", phase: "index", column: message.column, active: false });
   sortedIds = computeSortedIds(bits);
   const queryMs = performance.now() - started;
   const preview = message.preview === true;
@@ -1287,21 +1294,16 @@ function handleSetFilter(message: SetFilterRequest): void {
 
 function handleSetFilters(message: SetFiltersRequest): void {
   const { dataset, engine } = state();
+  const preparedNow: number[] = [];
   for (const entry of message.filters) {
     const filter = entry.filter;
-    if (filter !== null && filter.kind === "text" && filter.mode === "fuzzy") {
-      const column = dataset.columns[entry.column];
-      if (column !== undefined && !column.fuzzyBuilt) {
-        post({ type: "progress", phase: "index", column: entry.column, active: true });
-        column.fuzzyIndex();
-        post({ type: "progress", phase: "index", column: entry.column, active: false });
-      }
-    }
+    if (beginPreparation(entry.column, filter)) preparedNow.push(entry.column);
     if (filter === null) filters.delete(entry.column);
     else filters.set(entry.column, filter);
   }
   const started = performance.now();
   const bits = engine.evaluateBits(filters);
+  for (const column of preparedNow) post({ type: "progress", phase: "index", column, active: false });
   sortedIds = computeSortedIds(bits);
   const queryMs = performance.now() - started;
   const preview = message.preview === true;
