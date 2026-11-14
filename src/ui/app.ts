@@ -20,6 +20,8 @@ import { renderSheetPicker } from "./sheet-picker.js";
 import { openHeaderRowDialog } from "./header-row-dialog.js";
 import { openProtectDialog, type ProtectMode } from "./protect-dialog.js";
 import { openFixPreview } from "./fix-preview-dialog.js";
+import { fixReportText, planFixes, runFixPlan, type PlannedFix } from "./fix-apply.js";
+import { SendQueue } from "./send-queue.js";
 import {
   batchIsEmpty,
   dataWarnings,
@@ -652,10 +654,12 @@ export class App {
   private datasetName = "";
   private loading = false;
   private generation = 0;
-  private inFlight = false;
-  private pendingSend: { generation: number; send: () => Promise<void> } | null = null;
+  /** One worker request at a time: latest-wins for queries, in order for changes that must all land. */
+  private readonly sends = new SendQueue(() => this.generation, () => this.memory.soon());
   private filters = new Map<number, ColumnFilter>();
   private readonly cleanedColumns = new Map<number, CleanOp[]>();
+  /** Clean steps applied as Data Quality fixes: each stays its own Recipe step, never folded into a batch. */
+  private readonly fixOps = new WeakSet<CleanOp>();
   private readonly nullEdits: NullEdit[] = [];
   private readonly typeEdits: TypeEdit[] = [];
   private transformOps: TransformOp[] = [];
@@ -1833,7 +1837,7 @@ export class App {
     if (this.loading) return;
     this.loading = true;
     this.generation++;
-    this.pendingSend = null;
+    this.sends.clear();
     this.hideTablePicker();
     this.setLoadingText(
       options.files !== undefined && options.files.length > 1
@@ -2574,7 +2578,7 @@ export class App {
     if (this.loading) return;
     this.loading = true;
     this.generation++;
-    this.pendingSend = null;
+    this.sends.clear();
     this.setLoadingText("Building table…");
     this.setImportSource(null);
 
@@ -3521,23 +3525,14 @@ export class App {
    * Keeps at most one query in flight; a newer interaction replaces the
    * pending one instead of queueing behind a slow index build or sort.
    */
+  /** Latest wins: a send queued behind a newer one never runs. Use `sendInOrder` for changes that must all land. */
   private queueSend(send: () => Promise<void>): void {
-    if (this.inFlight) {
-      this.pendingSend = { generation: this.generation, send };
-      return;
-    }
-    this.runSend(send);
+    this.sends.latest(send);
   }
 
-  private runSend(send: () => Promise<void>): void {
-    this.inFlight = true;
-    void send().finally(() => {
-      this.inFlight = false;
-      this.memory.soon();
-      const next = this.pendingSend;
-      this.pendingSend = null;
-      if (next !== null && next.generation === this.generation) this.runSend(next.send);
-    });
+  /** Runs after everything queued before it and is never replaced; resolves once it has run. */
+  private sendInOrder(send: () => Promise<void>): Promise<void> {
+    return this.sends.inOrder(send);
   }
 
   /** Chart actions apply ordinary, removable filters; only "show rows" navigates. */
@@ -5502,75 +5497,128 @@ export class App {
    * step. The returned undo functions put each column back exactly as it was.
    */
   private async fixIssues(issues: readonly PageIssue[]): Promise<FixOutcome | null> {
-    const chosen = await openFixPreview(issues);
-    if (chosen === null || chosen.length === 0) return null;
-    const items: FixOutcome["items"] = [];
-    // Dropped columns go together as one step, after the other fixes: dropping one at a time would shift the positions of the rest.
-    const dropped: number[] = [];
-    let droppedUndone = false;
-    const undoDrop = (): void => {
-      if (droppedUndone) return;
-      droppedUndone = true;
-      this.undoLastStep();
+    const undos = new Map<PlannedFix, (() => void)[]>();
+    const undoList = (fix: PlannedFix): (() => void)[] => {
+      const list = undos.get(fix) ?? [];
+      undos.set(fix, list);
+      return list;
     };
-    for (const issue of issues.filter((candidate) => chosen.includes(candidate.id))) {
-      const undos: (() => void)[] = [];
-      for (const step of issue.fixes) {
-        if (step.kind === "dropColumn") {
-          dropped.push(step.column);
-          undos.push(undoDrop);
-          continue;
-        }
-        const undo = this.applyFixStep(step);
-        if (undo !== null) undos.push(undo);
-      }
-      items.push({
-        id: issue.id,
-        // Undo in reverse order so stacked steps unwind cleanly.
-        undo: () => [...undos].reverse().forEach((undo) => undo()),
+    // The dialog stays open (and Apply stays disabled) until every ticked fix has run.
+    const report = await openFixPreview(issues, (chosen, progress) => {
+      const plan = planFixes(issues, chosen, {
+        name: (column) => this.metas[column]?.name ?? null,
+        cleanOps: (column) => this.cleanedColumns.get(column) ?? [],
+        missingTokens: (column) => this.metas[column]?.nullPolicy.extra ?? [],
       });
-    }
-    if (dropped.length > 0) this.dropEmptyColumns(dropped);
-    this.showToast(
-      items.length === 1 ? "Applied 1 fix" : `Applied ${items.length} fixes`,
-      () => items.forEach((item) => item.undo()),
-      "Undo all",
-    );
+      let dropUndone = false;
+      return runFixPlan(plan, {
+        // One worker rebuild for every clean; each fix still lands as its own Recipe step and undo action.
+        clean: (updates, record) => this.applyClean(updates, { ordered: true, record }),
+        recordCleans: (fix) => {
+          for (const { column, op } of fix.cleans) {
+            this.fixOps.add(op);
+            this.cleanedColumns.set(column, [...(this.cleanedColumns.get(column) ?? []), op]);
+          }
+          this.updateStepsButton();
+          undoList(fix).push(() => this.removeCleanOps(fix.cleans));
+        },
+        missing: async (fix, column, tokens) => {
+          const meta = this.metas[column];
+          if (meta === undefined) return false;
+          const changed = await this.applyNullPolicy(column, [...new Set([...meta.nullPolicy.extra, ...tokens])], [...meta.nullPolicy.keep], {
+            label: `${meta.name}: placeholder text treated as missing`,
+            ordered: true,
+          });
+          const edit = this.nullEdits[this.nullEdits.length - 1];
+          if (changed && edit !== undefined) undoList(fix).push(() => this.undoNullEdit(edit));
+          return changed;
+        },
+        drop: async (columns) => {
+          const dropped = await this.dropEmptyColumns(columns, true);
+          if (dropped) {
+            const undoDrop = (): void => {
+              if (dropUndone) return;
+              dropUndone = true;
+              this.undoLastStep();
+            };
+            for (const fix of plan.fixes) if (fix.drops.length > 0) undoList(fix).push(undoDrop);
+          }
+          return dropped;
+        },
+        progress,
+      });
+    });
+    if (report === null) return null;
+    const items: FixOutcome["items"] = report.applied.map((fix) => ({
+      id: fix.issue.id,
+      // Undo in reverse order so stacked steps unwind cleanly.
+      undo: () => [...(undos.get(fix) ?? [])].reverse().forEach((undo) => undo()),
+    }));
+    const text = fixReportText(report);
+    this.setAction(text);
+    if (items.length === 0) this.showToast(text);
+    else this.showToast(text, () => [...items].reverse().forEach((item) => item.undo()), items.length === 1 ? "Undo" : "Undo all");
     return { items };
+  }
+
+  /** Takes these clean steps back off their columns, reading the columns when the change runs. */
+  private removeCleanOps(steps: readonly { column: number; op: CleanOp }[]): void {
+    void this.applyClean(
+      () => {
+        const next = new Map<number, CleanOp[]>();
+        for (const { column, op } of steps) {
+          const ops = next.get(column) ?? [...(this.cleanedColumns.get(column) ?? [])];
+          const index = ops.findIndex((entry) => JSON.stringify(entry) === JSON.stringify(op));
+          if (index < 0) continue;
+          ops.splice(index, 1);
+          next.set(column, ops);
+        }
+        return [...next.entries()].map(([column, ops]) => ({ column, ops }));
+      },
+      { ordered: true },
+    );
+  }
+
+  /** Takes one missing-value step out of the Recipe and puts the column's earlier rule back. */
+  private undoNullEdit(edit: NullEdit): void {
+    const index = this.nullEdits.indexOf(edit);
+    if (index < 0) return;
+    this.nullEdits.splice(index, 1);
+    void this.applyNullPolicy(edit.column, edit.previousExtra, edit.previousKeep, { record: false, ordered: true });
+    this.updateStepsButton();
   }
 
   /** Applies one fix step as an undoable Recipe step; returns how to undo it, or null if nothing ran. */
   private applyFixStep(step: FixStep): (() => void) | null {
     const meta = this.metas[step.column];
     if (meta === undefined) return null;
-    if (step.kind === "standardise") {
-      const existing = this.cleanedColumns.get(step.column) ?? [];
-      const op: CleanOp = { kind: "recode", pairs: step.pairs };
-      this.applyClean([{ column: step.column, ops: [...existing, op] }]);
-      return () => this.applyClean([{ column: step.column, ops: existing }]);
-    }
-    if (step.kind === "numberSymbols") {
-      const existing = this.cleanedColumns.get(step.column) ?? [];
-      const op: CleanOp = { kind: "toNumber", locale: step.locale };
-      this.applyClean([{ column: step.column, ops: [...existing, op] }]);
-      return () => this.applyClean([{ column: step.column, ops: existing }]);
-    }
-    if (step.kind === "dateFormat") {
-      const existing = this.cleanedColumns.get(step.column) ?? [];
-      const op: CleanOp = { kind: "toDate", order: step.order };
-      this.applyClean([{ column: step.column, ops: [...existing, op] }]);
-      return () => this.applyClean([{ column: step.column, ops: existing }]);
+    const op: CleanOp | null =
+      step.kind === "standardise"
+        ? { kind: "recode", pairs: step.pairs }
+        : step.kind === "numberSymbols"
+          ? { kind: "toNumber", locale: step.locale }
+          : step.kind === "dateFormat"
+            ? { kind: "toDate", order: step.order }
+            : null;
+    if (op !== null) {
+      this.fixOps.add(op);
+      // In order and read when it runs, so a second step on the same column stacks instead of replacing the first.
+      void this.applyClean(() => [{ column: step.column, ops: [...(this.cleanedColumns.get(step.column) ?? []), op] }], { ordered: true });
+      return () => this.removeCleanOps([{ column: step.column, op }]);
     }
     if (step.kind === "placeholders") {
       const previous = { extra: [...meta.nullPolicy.extra], keep: [...meta.nullPolicy.keep] };
       const extra = [...new Set([...previous.extra, ...step.tokens])];
-      this.applyNullPolicy(step.column, extra, previous.keep, {
+      let edit: NullEdit | undefined;
+      void this.applyNullPolicy(step.column, extra, previous.keep, {
         label: `${meta.name}: placeholder text treated as missing`,
+        ordered: true,
+      }).then((changed) => {
+        if (changed) edit = this.nullEdits[this.nullEdits.length - 1];
       });
-      return () =>
-        this.applyNullPolicy(step.column, previous.extra, previous.keep, {
-          label: `${meta.name}: placeholder change undone`,
-        });
+      return () => {
+        if (edit !== undefined) this.undoNullEdit(edit);
+      };
     }
     return null;
   }
@@ -7966,21 +8014,24 @@ export class App {
     }
     if (picked.length === 0) return;
     const label = picked.length === 1 ? picked[0].label : `${picked.length} steps`;
-    this.undoBatch(picked.filter((entry) => entry.kind === "clean"));
-    this.undoBatch(picked.filter((entry) => entry.kind === "transform"));
-    for (const entry of picked.filter((candidate) => candidate.kind === "nulls").sort((a, b) => b.opIndex - a.opIndex)) {
-      const edit = this.nullEdits[entry.opIndex];
-      if (edit === undefined) continue;
-      this.nullEdits.splice(entry.opIndex, 1);
-      if (edit.all === true) this.applyNullPolicyAll([], [], { record: false });
-      else this.applyNullPolicy(edit.column, edit.previousExtra, edit.previousKeep, { record: false });
-    }
-    for (const entry of picked.filter((candidate) => candidate.kind === "type").sort((a, b) => b.opIndex - a.opIndex)) {
-      const edit = this.typeEdits[entry.opIndex];
-      if (edit === undefined) continue;
-      this.typeEdits.splice(entry.opIndex, 1);
-      this.changeType(entry.column, edit.previous, false);
-    }
+    // Several changes from one Undo: each must reach the worker, in order, not just the last.
+    this.sends.ordered(() => {
+      this.undoBatch(picked.filter((entry) => entry.kind === "clean"));
+      this.undoBatch(picked.filter((entry) => entry.kind === "transform"));
+      for (const entry of picked.filter((candidate) => candidate.kind === "nulls").sort((a, b) => b.opIndex - a.opIndex)) {
+        const edit = this.nullEdits[entry.opIndex];
+        if (edit === undefined) continue;
+        this.nullEdits.splice(entry.opIndex, 1);
+        if (edit.all === true) this.applyNullPolicyAll([], [], { record: false });
+        else this.applyNullPolicy(edit.column, edit.previousExtra, edit.previousKeep, { record: false });
+      }
+      for (const entry of picked.filter((candidate) => candidate.kind === "type").sort((a, b) => b.opIndex - a.opIndex)) {
+        const edit = this.typeEdits[entry.opIndex];
+        if (edit === undefined) continue;
+        this.typeEdits.splice(entry.opIndex, 1);
+        this.changeType(entry.column, edit.previous, false);
+      }
+    });
     for (const entry of picked.filter((candidate) => candidate.kind === "review")) this.undoReview(entry.ref ?? "");
     if (picked.some((entry) => entry.kind === "rows")) void this.restoreExcludedRows();
     this.updateStepsButton();
@@ -8018,6 +8069,7 @@ export class App {
           column,
           opIndex: index,
           groupSize: ops.length,
+          ...(this.fixOps.has(ops[index]) ? { single: true } : {}),
         });
       }
     }
@@ -8401,21 +8453,24 @@ export class App {
       onUndoReview: (ref) => this.undoReview(ref),
       onUndoBatch: (batch) => this.undoBatch(batch),
       onClearAll: () => {
-        if (this.transformOps.length > 0) this.applyTransform([]);
-        if (this.cleanedColumns.size > 0) {
-          this.applyClean(
-            [...this.cleanedColumns.keys()].map((column) => ({ column, ops: [] })),
-          );
-        }
-        for (let i = this.nullEdits.length - 1; i >= 0; i--) {
-          const edit = this.nullEdits[i];
-          if (edit.all === true) this.applyNullPolicyAll([], [], { record: false });
-          else this.applyNullPolicy(edit.column, edit.previousExtra, edit.previousKeep, { record: false });
-        }
+        // Undo all makes several changes: each must reach the worker, in order, not just the last.
+        this.sends.ordered(() => {
+          if (this.transformOps.length > 0) this.applyTransform([]);
+          if (this.cleanedColumns.size > 0) {
+            this.applyClean(
+              [...this.cleanedColumns.keys()].map((column) => ({ column, ops: [] })),
+            );
+          }
+          for (let i = this.nullEdits.length - 1; i >= 0; i--) {
+            const edit = this.nullEdits[i];
+            if (edit.all === true) this.applyNullPolicyAll([], [], { record: false });
+            else this.applyNullPolicy(edit.column, edit.previousExtra, edit.previousKeep, { record: false });
+          }
+          for (let i = this.typeEdits.length - 1; i >= 0; i--) {
+            this.changeType(this.typeEdits[i].column, this.typeEdits[i].previous, false);
+          }
+        });
         this.nullEdits.length = 0;
-        for (let i = this.typeEdits.length - 1; i >= 0; i--) {
-          this.changeType(this.typeEdits[i].column, this.typeEdits[i].previous, false);
-        }
         this.typeEdits.length = 0;
         this.updateStepsButton();
       },
@@ -8711,22 +8766,42 @@ export class App {
     );
   }
 
-  private applyClean(updates: CleanUpdate[]): void {
-    if (updates.length === 0) return;
-    this.queueSend(() =>
-      this.client
+  /**
+   * Sends clean lists to the worker. `ordered` waits its turn instead of being
+   * replaced by a later send, and resolves with what happened; `updates` may be a
+   * function so it reads the columns when it runs. `record` puts the steps in the
+   * Recipe itself (one undo action per fix) instead of all at once.
+   */
+  private applyClean(
+    input: CleanUpdate[] | (() => CleanUpdate[]),
+    options: { ordered?: boolean; record?: () => void } = {},
+  ): Promise<"applied" | "unchanged" | "failed"> {
+    if (Array.isArray(input) && input.length === 0) return Promise.resolve("unchanged");
+    let result: "applied" | "unchanged" | "failed" = "failed";
+    const send = (): Promise<void> => {
+      const updates = typeof input === "function" ? input() : input;
+      if (updates.length === 0) {
+        result = "unchanged";
+        return Promise.resolve();
+      }
+      return this.client
         .cleanColumns(updates)
         .then((message) => {
           if (message.noop === true) {
-            this.showToast("Nothing changed - the values already match.");
+            result = "unchanged";
+            if (options.record === undefined) this.showToast("Nothing changed - the values already match.");
             this.setAction("Nothing changed");
             return;
           }
+          result = "applied";
           this.bakeTransformsAfterClean();
-          for (const update of updates) {
-            this.filters.delete(update.column);
-            if (update.ops.length === 0) this.cleanedColumns.delete(update.column);
-            else this.cleanedColumns.set(update.column, update.ops);
+          for (const update of updates) this.filters.delete(update.column);
+          if (options.record !== undefined) options.record();
+          else {
+            for (const update of updates) {
+              if (update.ops.length === 0) this.cleanedColumns.delete(update.column);
+              else this.cleanedColumns.set(update.column, update.ops);
+            }
           }
           this.renderFilterChips();
           for (const { column, meta } of message.columns) {
@@ -8775,8 +8850,11 @@ export class App {
           this.noteChangedCells(message.changedTotal);
           this.updateStepsButton();
         })
-        .catch((error: unknown) => this.showError(error)),
-    );
+        .catch((error: unknown) => this.showError(error));
+    };
+    if (options.ordered === true) return this.sendInOrder(send).then(() => result);
+    this.queueSend(send);
+    return Promise.resolve(result);
   }
 
   /** Header chip: blank a column's placeholder text, tracked + undoable. */
@@ -8804,17 +8882,19 @@ export class App {
     column: number,
     extra: string[],
     keep: string[],
-    options: { record?: boolean; label?: string } = {},
-  ): void {
+    options: { record?: boolean; label?: string; ordered?: boolean } = {},
+  ): Promise<boolean> {
     const previous = this.metas[column]?.nullPolicy;
     const changed =
       previous === undefined ||
       !sameTokens(previous.extra, extra) ||
       !sameTokens(previous.keep, keep);
-    this.queueSend(() =>
+    let landed = false;
+    const send = (): Promise<void> =>
       this.client
         .setNullPolicy(column, extra, keep)
         .then((message) => {
+          landed = changed;
           this.filters.delete(column);
           this.renderFilterChips();
           for (const { column: index, meta } of message.columns) {
@@ -8859,8 +8939,10 @@ export class App {
           );
           this.noteChangedCells(message.changedTotal);
         })
-        .catch((error: unknown) => this.showError(error)),
-    );
+        .catch((error: unknown) => this.showError(error));
+    if (options.ordered === true) return this.sendInOrder(send).then(() => landed);
+    this.queueSend(send);
+    return Promise.resolve(false);
   }
 
   private applyNullPolicyAll(
@@ -8940,12 +9022,15 @@ export class App {
     ops: TransformOp[],
     action?: string,
     after?: (message: TransformedMessage) => void,
-  ): void {
+    ordered = false,
+  ): Promise<boolean> {
     const before = this.rowCount;
-    this.queueSend(() =>
+    let landed = false;
+    const send = (): Promise<void> =>
       this.client
         .transform(ops)
         .then((message) => {
+          landed = true;
           this.openWorkspace(message);
           // A KNN fill as the last step leaves its cells highlighted.
           this.noteChangedCells(message.changedTotal ?? 0);
@@ -8967,8 +9052,10 @@ export class App {
           );
           after?.(message);
         })
-        .catch((error: unknown) => this.showError(error)),
-    );
+        .catch((error: unknown) => this.showError(error));
+    if (ordered) return this.sendInOrder(send).then(() => landed);
+    this.queueSend(send);
+    return Promise.resolve(false);
   }
 
   /** Melt (wide to long): choose what to keep and what to stack, see what it makes, apply. */
@@ -9114,16 +9201,18 @@ export class App {
   }
 
   /** Quick action from the QA block: drop columns that are empty in every row. */
-  private dropEmptyColumns(columns: number[]): void {
-    if (columns.length === 0) return;
+  private dropEmptyColumns(columns: number[], inOrder = false): Promise<boolean> {
+    if (columns.length === 0) return Promise.resolve(false);
     // Highest position first: each drop moves the columns after it, so the rest would otherwise point at the wrong column.
     const ordered = [...new Set(columns)].sort((a, b) => b - a);
-    this.applyTransform(
+    return this.applyTransform(
       [
         ...this.transformOps,
         ...ordered.map((column) => ({ kind: "drop" as const, column })),
       ],
       `Dropped ${columns.length} empty column${columns.length === 1 ? "" : "s"}`,
+      undefined,
+      inOrder,
     );
   }
 }

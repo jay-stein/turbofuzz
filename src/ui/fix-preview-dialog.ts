@@ -11,7 +11,20 @@ import { renderDistCompare } from "./dist-compare.js";
  * then becomes its own undoable Recipe step. Resolves with the ticked issue ids,
  * or null when cancelled.
  */
-export function openFixPreview(issues: readonly PageIssue[]): Promise<string[] | null> {
+export function openFixPreview(issues: readonly PageIssue[]): Promise<string[] | null>;
+/**
+ * With `apply`, the dialog stays open while the ticked fixes run: Apply and
+ * Cancel are disabled and the button shows progress, so a second press cannot
+ * start another run. Resolves with what `apply` returned.
+ */
+export function openFixPreview<T>(
+  issues: readonly PageIssue[],
+  apply: (ids: string[], progress: (done: number, total: number) => void) => Promise<T>,
+): Promise<T | null>;
+export function openFixPreview<T>(
+  issues: readonly PageIssue[],
+  apply?: (ids: string[], progress: (done: number, total: number) => void) => Promise<T>,
+): Promise<T | string[] | null> {
   return new Promise((resolve) => {
     const overlay = el("div", { class: "modal-overlay" });
     const modal = el("div", { class: "modal fix-preview-modal" });
@@ -68,8 +81,8 @@ export function openFixPreview(issues: readonly PageIssue[]): Promise<string[] |
 
     const footer = el("div", { class: "clean-footer" });
     const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
-    const apply = el("button", { class: "primary", type: "button" }, ["Apply"]);
-    footer.append(cancel, el("span", { class: "grow" }), apply);
+    const applyButton = el("button", { class: "primary", type: "button" }, ["Apply"]) as HTMLButtonElement;
+    footer.append(cancel, el("span", { class: "grow" }), applyButton);
     modal.append(footer);
 
     const selected = (): PageIssue[] => issues.filter((issue) => checks.get(issue.id)?.checked === true);
@@ -83,14 +96,15 @@ export function openFixPreview(issues: readonly PageIssue[]): Promise<string[] |
           : `${n(chosen.length)} ${plural(chosen.length, "fix", "fixes")} · about ${n(rows)} ${plural(rows, "cell", "cells")} change${
               points >= 0.1 ? ` · ${pointsLabel(points)} on the score` : ""
             }`;
-      apply.disabled = chosen.length === 0;
-      apply.textContent = chosen.length === 1 ? "Apply 1 fix" : `Apply ${chosen.length} fixes`;
+      applyButton.disabled = chosen.length === 0;
+      applyButton.textContent = chosen.length === 1 ? "Apply 1 fix" : `Apply ${chosen.length} fixes`;
     };
     for (const box of checks.values()) box.addEventListener("change", refresh);
 
     let settled = false;
-    const finish = (value: string[] | null): void => {
-      if (settled) return;
+    let running = false;
+    const finish = (value: T | string[] | null): void => {
+      if (settled || running) return;
       settled = true;
       overlay.remove();
       document.removeEventListener("keydown", onKey);
@@ -101,8 +115,32 @@ export function openFixPreview(issues: readonly PageIssue[]): Promise<string[] |
     };
     closeButton.addEventListener("click", () => finish(null));
     cancel.addEventListener("click", () => finish(null));
-    apply.addEventListener("click", () => {
-      if (!apply.disabled) finish(selected().map((issue) => issue.id));
+    applyButton.addEventListener("click", () => {
+      if (applyButton.disabled || running) return;
+      const ids = selected().map((issue) => issue.id);
+      if (apply === undefined) {
+        finish(ids);
+        return;
+      }
+      running = true;
+      applyButton.disabled = true;
+      cancel.setAttribute("disabled", "");
+      closeButton.setAttribute("disabled", "");
+      for (const box of checks.values()) box.disabled = true;
+      modal.setAttribute("aria-busy", "true");
+      applyButton.textContent = "Applying…";
+      const progress = (done: number, total: number): void => {
+        applyButton.textContent = `Applying ${n(done)} of ${n(total)}…`;
+      };
+      void apply(ids, progress)
+        .then(
+          (value) => value,
+          () => null,
+        )
+        .then((value) => {
+          running = false;
+          finish(value);
+        });
     });
     overlay.addEventListener("click", (event) => {
       if (event.target === overlay) finish(null);

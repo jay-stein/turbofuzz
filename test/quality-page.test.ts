@@ -465,3 +465,36 @@ test("dismissed sensitive columns are tucked away and can be restored", () => {
   (host.querySelector(".qp-sensitive-hidden button") as unknown as HTMLButtonElement).click();
   assert.deepEqual(changes, [["email", { dismissed: false }]]);
 });
+
+test("Apply all safe fixes runs once per press: a second press while it runs does nothing, every applied fix is listed", async () => {
+  const window = setupDom();
+  const columns = [
+    meta({ name: "status", variants: { groups: 1, minorityRows: 30, examples: [{ spellings: [{ value: "Active", count: 60 }, { value: "active", count: 30 }] }], mappings: [{ from: "active", to: "Active", count: 30 }] } }),
+    meta({ name: "state", variants: { groups: 1, minorityRows: 20, examples: [{ spellings: [{ value: "NSW", count: 60 }, { value: "nsw", count: 20 }] }], mappings: [{ from: "nsw", to: "NSW", count: 20 }] } }),
+  ];
+  const score = computeDQScore(columns, stats(), 100);
+  const issues = buildIssues({ score, metas: columns, rowCount: 100, review: [], sensitiveColumns: new Set() });
+  const host = window.document.createElement("div");
+  const calls: string[][] = [];
+  let finish: () => void = () => undefined;
+  const page = new QualityPage(host as unknown as HTMLElement, {
+    onFilter: () => {},
+    onExport: () => Promise.resolve(true),
+    onFixIssues: (picked) => {
+      calls.push(picked.map((entry) => entry.id));
+      return new Promise((resolve) => {
+        finish = () => resolve({ items: picked.map((entry) => ({ id: entry.id, undo: () => {} })) });
+      });
+    },
+  });
+  page.render({ score, rowCount: 100, stats: stats(), columnNames: ["status", "state"], issues });
+  const button = host.querySelector(".qp-apply-all") as unknown as HTMLButtonElement;
+  assert.match(button.textContent ?? "", /Apply all 2 safe fixes/);
+  button.click();
+  button.click();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].length, 2);
+  finish();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(host.querySelectorAll(".qp-fixed-row").length, 2);
+});

@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-03 — Quality: Apply all safe fixes applies every ticked fix as its own Recipe step; Undo all reverts every step
+
+- **Status:** Verified (unit: 12 + 19 tests; browser specs dq-apply-all, undo, dq-reviewed and dq-provenance passed)
+- **Related issue / decision:** 2026-11-14 product assessment: of N fixes applied together only one or two landed, while the toast said all were applied.
+- **What changed:** Cause: the app kept only the newest pending change in its send queue, so earlier changes sent in the same moment were dropped. Now each fix runs in order, as its own Recipe step and its own Undo; the dialog shows progress and ignores a second press; a message names the fixes applied and any skipped. Fixes are not folded into one Recipe row. Undo all and an Undo of several steps revert every step (they also lost the middle steps).
+- **Files / components changed:** src/ui/send-queue.ts (new), src/ui/fix-apply.ts (new), src/ui/fix-preview-dialog.ts, src/ui/steps-panel.ts, src/ui/quality-page.ts, src/ui/app.ts; test/fix-preview-apply.test.ts, test/quality-page.test.ts, test/e2e/dq-apply-all.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-02 — Pivot: removing a value no longer blanks the view; the starter pivot totals an amount; headings keep their case
 
 - **Status:** Verified (69 unit tests: views-panel, pivot, architecture; browser specs pivot-page and pivot-chart passed)

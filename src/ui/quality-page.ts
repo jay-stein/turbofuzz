@@ -175,6 +175,8 @@ export class QualityPage {
   private showAllColumns = false;
   private showAllIssues = false;
   private fixed: FixedEntry[] = [];
+  /** True while a fix run is in progress. */
+  private fixing = false;
   /** Dataset-level advisory signals from the app, shown under the issue list. */
   private advanced: HTMLElement | null = null;
   private datasetKey = "";
@@ -401,8 +403,15 @@ export class QualityPage {
 
   /** Previews and applies the fixes for these issues, then remembers them under Fixed this session. */
   private async fix(issues: readonly PageIssue[]): Promise<void> {
-    if (issues.length === 0 || this.callbacks.onFixIssues === undefined) return;
-    const outcome = await this.callbacks.onFixIssues(issues);
+    if (issues.length === 0 || this.callbacks.onFixIssues === undefined || this.fixing) return;
+    // One run at a time: a second press while fixes are still applying does nothing.
+    this.fixing = true;
+    let outcome: FixOutcome | null;
+    try {
+      outcome = await this.callbacks.onFixIssues(issues);
+    } finally {
+      this.fixing = false;
+    }
     if (outcome === null) return;
     for (const item of outcome.items) {
       const issue = issues.find((candidate) => candidate.id === item.id);

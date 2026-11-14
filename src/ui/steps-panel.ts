@@ -19,6 +19,8 @@ export interface StepsPanelEntry {
   baked?: boolean;
   /** Optional batch membership; consecutive entries with the same id collapse. */
   group?: { id: string; label: string; detail?: string };
+  /** Applied as its own step (a Data Quality fix): never folded into an "apply to all columns" batch. */
+  single?: boolean;
 }
 
 export interface StepsGroup {
@@ -87,7 +89,7 @@ export function groupSteps(entries: readonly StepsPanelEntry[]): StepsGroup[] {
       continue;
     }
 
-    if (entry.kind === "clean") {
+    if (entry.kind === "clean" && entry.single !== true) {
       const blockStart = index;
       const perColumn = entry.groupSize;
       const detailKey = JSON.stringify(
@@ -100,6 +102,7 @@ export function groupSteps(entries: readonly StepsPanelEntry[]): StepsGroup[] {
         if (
           current.kind !== "clean" ||
           current.group !== undefined ||
+          current.single === true ||
           current.groupSize !== perColumn
         ) {
           break;
