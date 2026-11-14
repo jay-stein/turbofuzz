@@ -16,6 +16,8 @@ export interface FixedEntry {
 export interface RowsAffectedTile {
   count: number;
   total: number;
+  /** Set when the share of failing rows is what holds the headline down: the tile says so. */
+  scoreCeiling?: number;
 }
 
 export interface HeroInput {
@@ -164,7 +166,9 @@ export function buildTiles(
           "tile-rows",
           `${n(input.rows.count)} of ${n(input.rows.total)}`,
           "Rows affected",
-          `${percentLabel(input.rows.count, input.rows.total)} · fail at least one check`,
+          `${percentLabel(input.rows.count, input.rows.total)} · fail at least one check${
+            input.rows.scoreCeiling === undefined ? "" : ` · holds the score to ${input.rows.scoreCeiling.toFixed(1)}`
+          }`,
           input.rows.count > 0 ? actions.showAffected : null,
           "Filter the table to the rows that fail a check",
         ),

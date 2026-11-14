@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { collectExceptions } from "../../src/data/dq-exceptions.js";
+import { computeRowsAffected } from "../../src/data/dq-rows.js";
 import { evaluateRule, parseRulesFile, ruleToCheck, type Rule, type RuleResult } from "../../src/data/rules.js";
 import { computeDQScore, type DQScore } from "../../src/data/score.js";
 import { columnVariants } from "../../src/data/variants.js";
@@ -55,12 +56,20 @@ export async function runCheck(path: string, options: CheckOptions = {}): Promis
   const checks = ruleResults.map(({ rule, result }) =>
     ruleToCheck(rule, result, metas.findIndex((meta) => meta.name === rule.column)),
   );
-  const score: DQScore = computeDQScore(metas, dataset.stats, dataset.rowCount, {}, checks);
-
   const variantSources = dataset.columns.map((column) => {
     const variants = columnVariants(column);
     return variants === null || variants.mappings.length === 0 ? null : new Set(variants.mappings.map((pair) => pair.from));
   });
+  // The same rows-affected count the page uses, so the headless score is the page score.
+  const affected = computeRowsAffected(dataset.columns, dataset.rowCount, dataset.patternColumnBits, variantSources);
+  const score: DQScore = computeDQScore(
+    metas,
+    dataset.stats,
+    dataset.rowCount,
+    { rowsAffected: { count: affected.count, total: affected.total } },
+    checks,
+  );
+
   // Flagged columns are masked unless the caller overrides; headless has no sensitive scan
   // result to hide behind, so it masks every column the sensitivity engine raised.
   const masked = new Set(profile.sensitive.map((finding) => finding.column));

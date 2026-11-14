@@ -76,6 +76,22 @@ export interface DQScore {
   optionalColumns: number[];
   /** Why the band is lower than the number alone suggests; null when it is not capped. */
   bandCap: BandCap | null;
+  /** The share of rows failing a check, and the ceiling it puts on the headline; null until the rows are counted. */
+  rowLimit: RowLimit | null;
+  /** One honest sentence for the band ("Fair because 10% of rows fail at least one check"); null when the band is just the number. */
+  bandReason: string | null;
+  /** Ids of the checks the analyst reviewed and set aside, so the rows-affected pass can leave them out too. */
+  setAside?: string[];
+}
+
+/** Rows failing at least one deterministic check, and what that does to the headline. */
+export interface RowLimit {
+  count: number;
+  total: number;
+  /** The most the headline can be given this share of rows: 100 × (share of clean rows)². */
+  ceiling: number;
+  /** The ceiling is what holds the headline below the weighted dimensions. */
+  limiting: boolean;
 }
 
 /** The band a column problem holds the dataset to, with a plain-English reason. */
@@ -103,6 +119,27 @@ export interface DQScoreConfig {
   reviewed?: Record<string, number>;
   /** false keeps the plain number-only band (the pre-cap behaviour). */
   capBand?: boolean;
+  /** Distinct rows failing at least one check; counted separately (one pass in the worker). Absent: no row limit yet. */
+  rowsAffected?: { count: number; total: number } | null;
+}
+
+/**
+ * The headline cannot exceed this for a share of failing rows: a table where 1 row in 20 fails a check is "good"
+ * at most, 1 in 10 is "fair", whatever the per-column averages say. The per-dimension scores stay cell-based.
+ */
+export function rowCeiling(failingShare: number): number {
+  const clean = 1 - Math.min(1, Math.max(0, failingShare));
+  return 100 * clean * clean;
+}
+
+function sentenceCase(word: string): string {
+  return word.replace(/^./, (c) => c.toUpperCase());
+}
+
+function rowsReason(band: string, count: number, total: number): string {
+  const share = (count / total) * 100;
+  const label = share < 1 ? "Under 1%" : `${Math.round(share)}%`;
+  return `${sentenceCase(band)} because ${label} of rows fail at least one check`;
 }
 
 export const DEFAULT_DQ_CONFIG: Required<{
@@ -402,10 +439,12 @@ export function computeDQScore(
   });
 
   const reviewed = config.reviewed ?? {};
+  const setAside: string[] = [];
   for (let i = 0; i < checks.length; i++) {
     const check = checks[i]!;
     const seen = reviewed[check.id];
     if (seen !== undefined && check.fail > 0 && check.fail <= seen) {
+      setAside.push(check.id);
       checks[i] = { ...check, pass: check.pass + check.fail, fail: 0, detail: `${check.detail} · reviewed and set aside` };
     }
   }
@@ -465,9 +504,24 @@ export function computeDQScore(
     weightSum += dimension.weight;
     weighted += dimension.weight * dimension.score;
   }
-  const overall = weightSum === 0 ? null : weighted / weightSum;
-  const numberBand: DQScore["band"] =
-    overall === null ? null : overall >= bandGood ? "good" : overall >= bandFair ? "fair" : "poor";
+  const weightedMean = weightSum === 0 ? null : weighted / weightSum;
+  const bandOf = (value: number | null): DQScore["band"] =>
+    value === null ? null : value >= bandGood ? "good" : value >= bandFair ? "fair" : "poor";
+  // Rows: the dimensions average cells, so a defect confined to a few columns or a few percent of rows barely moves
+  // them. The headline is also held to what the share of clean rows allows.
+  const affected = config.rowsAffected;
+  const counted = affected !== undefined && affected !== null && affected.total === rowCount && rowCount > 0;
+  const ceiling = counted ? rowCeiling(affected.count / affected.total) : 100;
+  const overall = weightedMean === null ? null : Math.min(weightedMean, ceiling);
+  const rowLimit: RowLimit | null = counted
+    ? {
+        count: affected.count,
+        total: affected.total,
+        ceiling,
+        limiting: weightedMean !== null && ceiling < weightedMean,
+      }
+    : null;
+  const numberBand = bandOf(overall);
   const bandCap =
     config.capBand === false
       ? null
@@ -478,9 +532,22 @@ export function computeDQScore(
       ? bandCap.band
       : numberBand;
 
+  const rowBand = bandOf(weightedMean);
+  const bandReason =
+    band === null
+      ? null
+      : bandCap !== null && band !== numberBand
+        ? `${sentenceCase(band)} because ${bandCap.reason}`
+        : rowLimit !== null && rowLimit.limiting && band !== rowBand
+          ? rowsReason(band, rowLimit.count, rowLimit.total)
+          : null;
+
   return {
     overall,
     band,
+    rowLimit,
+    bandReason,
+    setAside,
     dimensions,
     emptyColumns,
     optionalColumns: [...optionalSet].sort((a, b) => a - b),

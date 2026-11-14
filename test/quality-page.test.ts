@@ -4,6 +4,9 @@ import { Window } from "happy-dom";
 import { computeDQScore } from "../src/data/score.js";
 import { QualityPage } from "../src/ui/quality-page.js";
 import { buildIssues } from "../src/data/dq-issues.js";
+import { computeRowsAffected } from "../src/data/dq-rows.js";
+import { BitSet } from "../src/search/bitset.js";
+import type { ColumnData } from "../src/data/column.js";
 import type { DatasetStats } from "../src/data/stats.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
 
@@ -497,4 +500,51 @@ test("Apply all safe fixes runs once per press: a second press while it runs doe
   finish();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(host.querySelectorAll(".qp-fixed-row").length, 2);
+});
+
+test("the hero reason and the Rows affected tile tell the same story when rows hold the score down", () => {
+  const window = setupDom();
+  const columns = [meta({ name: "city" })];
+  const score = computeDQScore(columns, stats(), 100, { rowsAffected: { count: 10, total: 100 } });
+  const host = window.document.createElement("div");
+  const page = new QualityPage(host as unknown as HTMLElement, {
+    onFilter: () => undefined,
+    onExport: () => Promise.resolve(true),
+  });
+  page.render({ score, rowCount: 100, stats: stats(), columnNames: ["city"], rowsAffected: { count: 10, total: 100 } });
+  assert.equal(host.querySelector(".qp-ring-value")?.textContent, "81.0");
+  assert.equal(host.querySelector(".qp-hero-reason")?.textContent, "Fair because 10% of rows fail at least one check");
+  const tile = host.querySelector(".tile-rows")?.textContent ?? "";
+  assert.match(tile, /10 of 100/);
+  assert.match(tile, /holds the score to 81\.0/);
+});
+
+test("setting aside the issue that limits the headline raises the ring and clears the rows tile", () => {
+  const window = setupDom();
+  const variants = { groups: 1, minorityRows: 10, examples: [{ spellings: [{ value: "Active", count: 90 }, { value: "active", count: 10 }] }], mappings: [{ from: "active", to: "Active", count: 10 }] };
+  const columns = [meta({ name: "status", variants })];
+  const raw = Array.from({ length: 100 }, (_, row) => (row < 10 ? "active" : "Active"));
+  const data = [{ role: null, raw, nullMask: new BitSet(100), nullTokens: [], conformance: null, numberLocale: "dot", dateOrder: "dmy" }] as unknown as ColumnData[];
+  const host = window.document.createElement("div");
+  const page = new QualityPage(host as unknown as HTMLElement, { onFilter: () => undefined, onExport: () => Promise.resolve(true) });
+  // The app's order: score, count the rows with the set-aside checks left out, score again, render.
+  const show = (reviewed: Record<string, number>) => {
+    const first = computeDQScore(columns, stats(), 100, { reviewed });
+    const counted = computeRowsAffected(data, 100, [null], [new Set(["active"])], new Set(first.setAside));
+    const rowsAffected = { count: counted.count, total: counted.total };
+    const score = computeDQScore(columns, stats(), 100, { reviewed, rowsAffected });
+    page.render({ score, rowCount: 100, stats: stats(), columnNames: ["status"], rowsAffected });
+    return score;
+  };
+  const before = show({});
+  assert.equal(host.querySelector(".qp-ring-value")?.textContent, "81.0");
+  assert.match(host.querySelector(".qp-hero-reason")?.textContent ?? "", /10% of rows/);
+  assert.match(host.querySelector(".tile-rows")?.textContent ?? "", /10 of 100/);
+  const after = show({ "consistency.variants.0": 10 });
+  assert.ok((after.overall ?? 0) > (before.overall ?? 0));
+  assert.equal(host.querySelector(".qp-ring-value")?.textContent, "100.0");
+  assert.equal(host.querySelector(".qp-hero-reason"), null);
+  const tile = host.querySelector(".tile-rows")?.textContent ?? "";
+  assert.match(tile, /0 of 100/);
+  assert.doesNotMatch(tile, /holds the score/);
 });

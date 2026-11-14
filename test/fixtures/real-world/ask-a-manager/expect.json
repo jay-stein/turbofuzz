@@ -3,8 +3,8 @@
   "rows": 298,
   "columns": 18,
   "band": {
-    "min": 90,
-    "max": 100
+    "min": 30,
+    "max": 45
   },
   "types": {
     "Timestamp": "datetime"

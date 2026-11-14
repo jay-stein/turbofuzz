@@ -1,6 +1,7 @@
 import { listLegacySheets, readLegacySheet } from "../../src/parse/xls.js";
 import { ingestDataset } from "../../src/worker/ingest.js";
 import { computeDQScore, type DQScore } from "../../src/data/score.js";
+import { computeRowsAffected } from "../../src/data/dq-rows.js";
 import { columnVariants } from "../../src/data/variants.js";
 import { scoreSensitivity, type SensitiveFinding } from "../../src/data/sensitivity.js";
 import { embeddedShapes, textProfile } from "../../src/data/text-profile.js";
@@ -74,7 +75,15 @@ export async function profileBuffer(
             },
     };
   });
-  const score = computeDQScore(metas, dataset.stats, dataset.rowCount);
+  // The same rows-affected count the app's worker makes, so the headline here is the headline on the page.
+  const variantSources = dataset.columns.map((column) => {
+    const variants = columnVariants(column);
+    return variants === null || variants.mappings.length === 0 ? null : new Set(variants.mappings.map((pair) => pair.from));
+  });
+  const affected = computeRowsAffected(dataset.columns, dataset.rowCount, dataset.patternColumnBits, variantSources);
+  const score = computeDQScore(metas, dataset.stats, dataset.rowCount, {
+    rowsAffected: { count: affected.count, total: affected.total },
+  });
   const sensitive = scoreSensitivity(
     dataset.columns.map((column, index) => {
       const textual = column.type === "string" || column.type === "category" || column.type === "identifier";

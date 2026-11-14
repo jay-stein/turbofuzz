@@ -245,10 +245,7 @@ export class QualityPage {
           overall: score.overall === null ? null : Math.round(score.overall * 10) / 10,
           band: score.band,
           bandWord: bandWord(score.band),
-          bandReason:
-            score.bandCap === null
-              ? null
-              : `${bandWord(score.band).replace(/^./, (c) => c.toUpperCase())} because ${score.bandCap.reason}`,
+          bandReason: score.bandReason,
           rowCount,
           columnCount: columnNames.length,
           checkCount,
@@ -282,7 +279,13 @@ export class QualityPage {
           fix: fixIssues.length,
           review: reviewIssues.length,
           sensitive: scanned ? liveCards.length : null,
-          rows: input.rowsAffected === undefined ? null : input.rowsAffected,
+          rows:
+            input.rowsAffected === undefined || input.rowsAffected === null
+              ? null
+              : {
+                  ...input.rowsAffected,
+                  ...(score.rowLimit?.limiting === true ? { scoreCeiling: score.rowLimit.ceiling } : {}),
+                },
         },
         {
           openIssues: () => this.select("issues"),

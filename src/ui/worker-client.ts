@@ -555,8 +555,8 @@ export class SearchWorkerClient {
     return this.request<ExceptionsMessage>({ type: "getExceptions", maskColumns, includeRaw, optional, checkId });
   }
 
-  getRowsAffected(): Promise<RowsAffectedMessage> {
-    return this.request<RowsAffectedMessage>({ type: "getRowsAffected" });
+  getRowsAffected(setAside: readonly string[] = []): Promise<RowsAffectedMessage> {
+    return this.request<RowsAffectedMessage>({ type: "getRowsAffected", setAside: [...setAside] });
   }
 
   /** The column's distinct values that best fit what was typed, best first. */

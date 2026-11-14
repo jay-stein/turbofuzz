@@ -227,3 +227,68 @@ test("a range check the analyst reviewed stops counting, and comes back when mor
   assert.equal(rangeCheck({ reviewed: { "validity.range.0": 9 } }, 4)?.fail, 0);
   assert.equal(rangeCheck({ reviewed: { "validity.range.0": 9 } }, 12)?.fail, 12);
 });
+
+// A 100,000-row table whose cells are almost all fine (weighted dimensions near 99) but 10% of rows fail a check.
+function orders(): { columns: ColumnMeta[]; rows: number } {
+  const rows = 100000;
+  const columns = Array.from({ length: 30 }, (_, i) => meta({ name: `c${i}` }));
+  columns[0] = meta({ name: "email", stats: { ...meta().stats, nulls: 20000 } });
+  return { columns, rows };
+}
+
+test("the headline is held to the share of clean rows, so 10% failing rows is not good", () => {
+  const { columns, rows } = orders();
+  const cellsOnly = computeDQScore(columns, stats({ totalCells: rows * 30 }), rows);
+  assert.ok((cellsOnly.overall ?? 0) > 99, "the cell average alone reads as nearly perfect");
+  assert.equal(cellsOnly.rowLimit, null, "no limit until the rows are counted");
+  const limited = computeDQScore(columns, stats({ totalCells: rows * 30 }), rows, {
+    rowsAffected: { count: 10114, total: rows },
+  });
+  assert.ok(Math.abs((limited.overall ?? 0) - 80.8) < 0.1, `100 × 0.8989² ≈ 80.8; got ${limited.overall}`);
+  assert.equal(limited.band, "fair");
+  assert.equal(limited.bandReason, "Fair because 10% of rows fail at least one check");
+  assert.equal(limited.rowLimit?.limiting, true);
+  // Per-dimension scores are untouched.
+  assert.equal(limited.dimensions[0]?.score, cellsOnly.dimensions[0]?.score);
+});
+
+test("fixing rows moves the headline: 1% reads about 98, a clean table 100", () => {
+  const { columns, rows } = orders();
+  const at = (count: number) =>
+    computeDQScore(columns.map((c) => meta({ name: c.name })), stats({ totalCells: rows * 30 }), rows, {
+      rowsAffected: { count, total: rows },
+    });
+  assert.equal(at(0).overall, 100);
+  assert.equal(at(0).bandReason, null);
+  assert.ok(Math.abs((at(1000).overall ?? 0) - 98.01) < 0.01);
+  assert.equal(at(1000).band, "good");
+  assert.equal(at(1000).bandReason, null, "the number alone, no row reason when the band is unchanged");
+  assert.ok((at(5000).overall ?? 0) > 90 && (at(10000).overall ?? 0) < 90);
+});
+
+test("a stale row count, from another table size, is ignored", () => {
+  const columns = [meta({ name: "a" })];
+  const score = computeDQScore(columns, stats(), 100, { rowsAffected: { count: 50, total: 80 } });
+  assert.equal(score.overall, 100);
+  assert.equal(score.rowLimit, null);
+});
+
+test("user weights keep their meaning: the row ceiling only ever lowers the weighted mean", () => {
+  const columns = [
+    meta({ name: "a", stats: { ...meta().stats, nulls: 50 } }),
+    meta({ name: "b", stats: { ...meta().stats, nulls: 50 } }),
+  ];
+  const heavy = { weights: { completeness: 100, validity: 0, uniqueness: 0, consistency: 0, timeliness: 0 } };
+  const noRows = computeDQScore(columns, stats(), 100, heavy);
+  assert.equal(noRows.overall, 50);
+  const rows = computeDQScore(columns, stats(), 100, { ...heavy, rowsAffected: { count: 5, total: 100 } });
+  assert.equal(rows.overall, 50, "a ceiling of 90.25 does not lift a 50");
+  assert.equal(rows.rowLimit?.limiting, false);
+});
+
+test("a column cap keeps its own reason when it is what lowers the band", () => {
+  const columns = [meta({ name: "Region", stats: { ...meta().stats, nulls: 60 } }), meta({ name: "b", stats: { ...meta().stats, nulls: 10 } }), ...Array.from({ length: 12 }, (_, i) => meta({ name: `x${i}` }))];
+  const score = computeDQScore(columns, stats(), 100, { rowsAffected: { count: 5, total: 100 } });
+  assert.equal(score.band, "fair");
+  assert.match(score.bandReason ?? "", /^Fair because “Region” is 60% empty/);
+});

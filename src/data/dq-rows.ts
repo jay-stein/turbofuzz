@@ -4,6 +4,8 @@ import { rowFitsIntended } from "./conformance.js";
 import { dateShapeKey } from "./date-formats.js";
 import { hasNumberSymbol } from "./number-symbols.js";
 
+const NONE: ReadonlySet<string> = new Set();
+
 export interface RowsAffected {
   /** Distinct rows that fail at least one deterministic check. */
   count: number;
@@ -23,19 +25,25 @@ export function computeRowsAffected(
   rowCount: number,
   patternBits: readonly (BitSet | null)[],
   variantSources: readonly (ReadonlySet<string> | null)[],
+  setAside: ReadonlySet<string> = NONE,
 ): RowsAffected {
   const bits = new BitSet(rowCount);
   columns.forEach((column, index) => {
     if (column.role === "provenance") return;
+    // A check the analyst set aside (the score's check ids) stops counting its rows; the rest still do.
+    // Empty cells are never counted here, so an optional column needs no special case.
+    const aside = (id: string): boolean => setAside.has(`${id}.${index}`);
     const off = patternBits[index];
-    if (off !== null && off !== undefined) {
+    if (off !== null && off !== undefined && !aside("validity")) {
       for (let row = 0; row < rowCount; row++) if (off.get(row)) bits.set(row);
     }
-    const minority = variantSources[index] ?? null;
-    const tokens = new Set(column.nullTokens.filter((t) => t.label.trim() !== "").map((t) => t.label));
-    const conformance = column.conformance;
-    const dateFormats = column.dateFormats ?? null;
-    const symbols = column.numberSymbols ?? null;
+    const minority = aside("consistency.variants") ? null : (variantSources[index] ?? null);
+    const tokens = aside("completeness")
+      ? new Set<string>()
+      : new Set(column.nullTokens.filter((t) => t.label.trim() !== "").map((t) => t.label));
+    const conformance = aside("validity") ? null : column.conformance;
+    const dateFormats = aside("validity.dateformat") ? null : (column.dateFormats ?? null);
+    const symbols = aside("validity.symbols") ? null : (column.numberSymbols ?? null);
     if (minority === null && tokens.size === 0 && conformance === null && dateFormats === null && symbols === null) return;
     for (let row = 0; row < rowCount; row++) {
       if (bits.get(row)) continue;

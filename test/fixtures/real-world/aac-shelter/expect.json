@@ -3,8 +3,8 @@
   "rows": 299,
   "columns": 12,
   "band": {
-    "min": 90,
-    "max": 100
+    "min": 80,
+    "max": 90
   },
   "types": {},
   "must_flag": [

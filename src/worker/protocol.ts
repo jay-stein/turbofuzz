@@ -968,7 +968,12 @@ export type ScanSensitiveRequest = {
 
 /** Stops a running scan at its next column boundary. Fire-and-forget. */
 /** Counts the distinct rows failing a deterministic check and arms the "affectedRows" filter. */
-export type GetRowsAffectedRequest = { type: "getRowsAffected"; requestId: number };
+export type GetRowsAffectedRequest = {
+  type: "getRowsAffected";
+  requestId: number;
+  /** Check ids the analyst reviewed and set aside; their rows stop counting. */
+  setAside?: string[];
+};
 
 /** Builds exceptions.csv: one row per failing cell. */
 export type GetExceptionsRequest = {

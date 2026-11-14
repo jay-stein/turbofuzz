@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-07 — Quality: the headline score is held to the share of clean rows, and issues set aside no longer count
+
+- **Status:** Verified (unit tests; headless-check and real-world corpus pass)
+- **Related issue / decision:** DEC-2026-11-14-02 (row ceiling on the headline score). A table with 10% failing rows read 99.3 "good".
+- **What changed:** Headline = min(weighted mean, 100 × (1 − failing-row share)²). The table above now reads about 81 "fair", with the reason "Fair because 10% of rows fail at least one check", and the Rows affected tile states the limit. Per-dimension and per-column scores are unchanged. Setting an issue aside takes its rows out of the count and lifts the ceiling; the count refreshes after every applied fix. Corpus bands moved for aac-shelter (85.2), ask-a-manager (37.7) and bank-churners (52.6); reviewed. Risk: legitimate "Unknown" categories count as failing rows.
+- **Files / components changed:** src/data/score.ts, src/data/dq-rows.ts, src/ui/quality-layout.ts, src/ui/quality-page.ts, src/ui/app.ts, src/ui/worker-client.ts, src/worker/protocol.ts, src/worker/search.worker.ts; scripts/lib/profile.ts, check.ts; test/score.test.ts, test/dq-rows-set-aside.test.ts (new), test/quality-page.test.ts; test/fixtures/real-world/{aac-shelter,ask-a-manager,bank-churners}/expect.json
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-06 — Quality: yes/no spellings, fraction columns with percentages, -999 codes and long state names are reviewed; coordinates and product names are no longer flagged
 
 - **Status:** Verified (unit: 51 tests, wider run 896; bench:dq within budget; pii-benchmark passes)

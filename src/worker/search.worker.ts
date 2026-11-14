@@ -2427,6 +2427,7 @@ function handleGetRowsAffected(message: GetRowsAffectedRequest): void {
     dataset.rowCount,
     dataset.patternColumnBits,
     variantSources,
+    new Set(message.setAside ?? []),
   );
   dataset.affectedRowBits = result.bits;
   post({

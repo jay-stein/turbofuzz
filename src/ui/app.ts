@@ -854,6 +854,10 @@ export class App {
   /** Distinct rows failing a deterministic check; undefined while counting. */
   private rowsAffected: { count: number; total: number } | null | undefined = undefined;
   private rowsAffectedKey = "";
+  private rowsAffectedBase = "";
+  private rowsAffectedTable = "";
+  /** Bumps on every worker stats update, so a fix that changes no null or type still recounts the rows. */
+  private statsVersion = 0;
   private nearDuplicate: Finding | null = null;
   private nearDuplicateKey = "";
   private suggestedPairsKey = "";
@@ -5156,6 +5160,7 @@ export class App {
   /** Refreshes the health group and dataset stats after a worker update. */
   private applyDatasetStats(stats: DatasetStats): void {
     this.latestStats = stats;
+    this.statsVersion++;
     this.refreshScore();
     this.renderHealthGroup();
     this.overview?.updateHealth(this.metas, stats);
@@ -5199,7 +5204,7 @@ export class App {
       this.metas,
       stats,
       this.rowCount,
-      { ...this.dqConfig, optional: getOptionalMarks(), reviewed: this.reviewedRows() },
+      { ...this.dqConfig, optional: getOptionalMarks(), reviewed: this.reviewedRows(), rowsAffected: this.rowsAffected },
       this.dqUserChecks,
     );
     this.dqScore = score;
@@ -5486,23 +5491,33 @@ export class App {
 
   /** Counts the distinct rows that fail a check (worker pass) and shows them on the tile. */
   private async refreshRowsAffected(): Promise<void> {
-    const key = `${this.generation}:${this.rowCount}:${this.metas.map((meta) => `${meta.name}:${meta.stats.nulls}:${meta.type}`).join("|")}`;
+    const base = `${this.generation}:${this.rowCount}:${this.metas.map((meta) => `${meta.name}:${meta.stats.nulls}:${meta.type}`).join("|")}`;
+    // Checks set aside leave the count too; the data version moves with every applied fix.
+    const setAside = this.dqScore?.setAside ?? [];
+    const key = `${base}#${this.statsVersion}#${setAside.join(",")}`;
     if (key === this.rowsAffectedKey) return;
+    const fresh = base !== this.rowsAffectedBase;
+    // Same table, new decision or fix: keep the last count until the new one lands, so the ring does not jump.
+    if (this.rowsAffectedTable !== `${this.datasetName}:${this.generation}:${this.rowCount}`) this.rowsAffected = undefined;
+    this.rowsAffectedTable = `${this.datasetName}:${this.generation}:${this.rowCount}`;
+    this.rowsAffectedBase = base;
     this.rowsAffectedKey = key;
-    this.rowsAffected = undefined;
-    void this.refreshNearDuplicates();
-    void this.refreshSuggestedPairs();
-    void this.refreshRules();
-    void this.refreshAccuracy();
-    void this.recordHistory();
+    if (fresh) {
+      void this.refreshNearDuplicates();
+      void this.refreshSuggestedPairs();
+      void this.refreshRules();
+      void this.refreshAccuracy();
+      void this.recordHistory();
+    }
     try {
-      const message = await this.client.getRowsAffected();
+      const message = await this.client.getRowsAffected(setAside);
       if (key !== this.rowsAffectedKey) return;
       this.rowsAffected = { count: message.count, total: message.total };
     } catch {
       if (key === this.rowsAffectedKey) this.rowsAffected = null;
     }
-    this.renderQualityPage();
+    // The headline is held to the share of clean rows, so it is rescored now the count is in. The first count of a load is not a change.
+    this.refreshScore(this.dqScore?.rowLimit == null);
   }
 
   /** Filters the table to the rows counted by the Rows affected tile. */
@@ -6303,7 +6318,7 @@ export class App {
       this.metas.length,
       new Date().toISOString(),
       {
-        bandReason: score.bandCap === null ? null : `${score.bandCap.band} because ${score.bandCap.reason}`,
+        bandReason: score.bandReason,
         sensitiveColumns: flagged,
         ...(provenance === undefined ? {} : { provenance }),
         issues: issues.map((issue) => ({
