@@ -577,6 +577,17 @@ export type GetCsvRequest = {
   options?: ExportOptions;
 };
 
+/** A typed .xlsx workbook of rows start..end of the export started by startExport. */
+export type GetXlsxRequest = {
+  type: "getXlsx";
+  requestId: number;
+  start: number;
+  end: number;
+  /** Sheet name base (the dataset name). */
+  title: string;
+  options?: ExportOptions;
+};
+
 export type RenameHeadersRequest = {
   type: "renameHeaders";
   requestId: number;
@@ -1519,6 +1530,7 @@ export type WorkerRequest =
   | StartExportRequest
   | GetChartGroupsRequest
   | GetCsvRequest
+  | GetXlsxRequest
   | RenameHeadersRequest
   | CleanColumnsRequest
   | TransformRequest
@@ -1713,6 +1725,16 @@ export interface CsvChunkMessage {
   text: string;
 }
 
+export interface XlsxMessage {
+  type: "xlsx";
+  requestId: number;
+  bytes: ArrayBuffer;
+  rows: number;
+  sheets: number;
+  /** Cells cut to Excel's 32,767-character limit. */
+  truncated: number;
+}
+
 export interface HeadersRenamedMessage {
   type: "headersRenamed";
   requestId: number;
@@ -1846,6 +1868,7 @@ export type WorkerResponse =
   | ExportStartedMessage
   | ChartGroupsMessage
   | CsvChunkMessage
+  | XlsxMessage
   | HeadersRenamedMessage
   | CleanedMessage
   | TransformPreviewMessage

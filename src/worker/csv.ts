@@ -30,7 +30,7 @@ export function csvEscape(value: string): string {
  * Only recognised missing markers become blank, and only when nullAsBlank is on.
  */
 /** The original text of a typed cell that did not parse; blank only for missing markers. */
-function unparsedCell(column: ColumnData, row: number, nullAsBlank: boolean): string {
+export function unparsedCell(column: ColumnData, row: number, nullAsBlank: boolean): string {
   const raw = column.raw[row] ?? "";
   if (raw.trim() === "") return "";
   return nullAsBlank && column.isNull(raw) ? "" : raw;

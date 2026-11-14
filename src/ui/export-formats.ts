@@ -1,4 +1,6 @@
-export type ExportFormat = "csv" | "csv-semicolon" | "tsv" | "json" | "jsonl";
+export type ExportFormat = "csv" | "csv-semicolon" | "tsv" | "json" | "jsonl" | "xlsx";
+/** Formats built from the CSV text on the main thread; xlsx is built typed, in the worker. */
+export type TextExportFormat = Exclude<ExportFormat, "xlsx">;
 export type ExportCompression = "none" | "gzip" | "zip";
 
 export interface ExportFormatInfo {
@@ -45,7 +47,31 @@ export const EXPORT_FORMATS: readonly ExportFormatInfo[] = [
     ext: ".jsonl",
     mime: "application/x-ndjson",
   },
+  {
+    value: "xlsx",
+    label: "Excel workbook (.xlsx)",
+    hint: "Numbers, dates and true/false stay typed and ids stay text, with a frozen, filterable header row. Text is never run as a formula.",
+    ext: ".xlsx",
+    mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  },
 ];
+
+/** Excel's limit: 1,048,576 rows per sheet, header included. Longer exports continue on numbered sheets. */
+export const XLSX_ROWS_PER_SHEET = 1_048_575;
+/** Cells (rows x columns) above which a workbook takes a long while to build and is heavy for Excel to open. */
+export const XLSX_WARN_CELLS = 8_000_000;
+
+/** A plain warning when a workbook of this size will be slow or heavy; null when it should be quick. */
+export function xlsxSizeWarning(rows: number, columns: number): string | null {
+  const cells = rows * columns;
+  if (cells <= XLSX_WARN_CELLS) return null;
+  const sheets = Math.ceil(rows / XLSX_ROWS_PER_SHEET);
+  return (
+    `This workbook has about ${cells.toLocaleString()} cells (${rows.toLocaleString()} rows × ${columns.toLocaleString()} columns). ` +
+    `It will take a while to build${sheets > 1 ? `, and Excel holds ${XLSX_ROWS_PER_SHEET.toLocaleString()} data rows per sheet, so it continues on ${sheets} sheets` : ""}, and Excel may struggle to open it. ` +
+    "CSV handles any size. Build the workbook anyway?"
+  );
+}
 
 export const EXPORT_COMPRESSIONS: readonly { value: ExportCompression; label: string; ext: string }[] =
   [
@@ -72,7 +98,7 @@ export function timestampString(now: Date = new Date()): string {
   );
 }
 
-const KNOWN_EXTENSION = /\.(csv|tsv|json|jsonl|ndjson|gz|zip)$/i;
+const KNOWN_EXTENSION = /\.(csv|tsv|json|jsonl|ndjson|xlsx|gz|zip)$/i;
 
 /** Drops any export extension the user typed so the format chooses it. */
 export function stripExportExtension(name: string): string {
@@ -97,7 +123,8 @@ export function buildExportFileName(
   const base = (typed === "" ? stripExportExtension(fallback) : typed)
     .replace(/[\/:*?"<>|]+/g, "-")
     .trim();
-  const compressionExt = EXPORT_COMPRESSIONS.find((entry) => entry.value === compression)?.ext ?? "";
+  // A workbook is already a zip: it is never compressed again.
+  const compressionExt = format === "xlsx" ? "" : (EXPORT_COMPRESSIONS.find((entry) => entry.value === compression)?.ext ?? "");
   const prefix = datePrefix ? `${timestampString(now)}_` : "";
   return `${prefix}${base === "" ? "export" : base}${formatInfo(format).ext}${compressionExt}`;
 }
@@ -148,7 +175,7 @@ export interface EncodedExport {
  */
 export async function encodeExport(
   csvText: string,
-  format: ExportFormat,
+  format: TextExportFormat,
   compression: ExportCompression,
   innerFileName: string,
 ): Promise<EncodedExport> {

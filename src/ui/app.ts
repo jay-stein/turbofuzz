@@ -129,6 +129,9 @@ import {
   EXPORT_COMPRESSIONS,
   encodeExport,
   formatInfo,
+  XLSX_ROWS_PER_SHEET,
+  xlsxSizeWarning,
+  type TextExportFormat,
   type ExportCompression,
   type ExportFormat,
 } from "./export-formats.js";
@@ -4445,10 +4448,16 @@ export class App {
         : this.exportSensitiveColumns().map((card) => ({ column: card.column, mode: sensitiveMode }));
     try {
       const info = formatInfo(format);
+      if (format === "xlsx") {
+        const estimate = scope === "all" ? Math.max(0, this.rowCount - this.excludedRowCount) : this.resultCount;
+        const rows = limit === null ? estimate : Math.min(estimate, limit);
+        const warning = xlsxSizeWarning(rows, Math.max(1, this.metas.length - columnHandling.filter((entry) => entry.mode === "exclude").length));
+        if (warning !== null && !window.confirm(warning)) return;
+      }
       const csvFamily = format === "csv" || format === "csv-semicolon" || format === "tsv";
       const compressionExt = EXPORT_COMPRESSIONS.find((entry) => entry.value === compression)?.ext ?? "";
       const pickerType: { description: string; accept: Record<string, string[]> } =
-        compression === "none"
+        compression === "none" || format === "xlsx"
           ? { description: `${info.label} file`, accept: { [info.mime]: [info.ext] } }
           : compression === "gzip"
             ? { description: "Gzip archive", accept: { "application/gzip": [compressionExt] } }
@@ -4476,19 +4485,30 @@ export class App {
       }
       const take = limit === null ? total : Math.min(total, Math.max(1, Math.floor(limit)));
 
-      const parts: string[] = [];
-      for (let start = 0; start < take; start += EXPORT_CHUNK_ROWS) {
-        this.actionEl.textContent = `Exporting… ${Math.round((start / take) * 100)}%`;
-        const end = Math.min(start + EXPORT_CHUNK_ROWS, take);
-        const chunk = await this.client.getCsv(start, end, {
-          nullAsBlank,
-          escapeFormulas: csvFamily && escapeFormulas,
-          ...(columnHandling.length > 0 ? { columnHandling } : {}),
-        });
-        parts.push(chunk.text);
+      const exportOptions = {
+        nullAsBlank,
+        escapeFormulas: csvFamily && escapeFormulas,
+        ...(columnHandling.length > 0 ? { columnHandling } : {}),
+      };
+      let blob: Blob;
+      let workbookNote = "";
+      if (format === "xlsx") {
+        // Typed cells come straight from the column data, so the workbook is built whole in the worker.
+        this.actionEl.textContent = `Building ${info.label}…`;
+        const built = await this.client.getXlsx(0, take, this.datasetName, exportOptions);
+        blob = new Blob([built.bytes], { type: info.mime });
+        if (built.sheets > 1) workbookNote = ` across ${built.sheets} sheets (Excel holds ${XLSX_ROWS_PER_SHEET.toLocaleString()} rows per sheet)`;
+        if (built.truncated > 0) workbookNote += `; ${built.truncated.toLocaleString()} cells were cut to Excel's 32,767-character limit`;
+      } else {
+        const parts: string[] = [];
+        for (let start = 0; start < take; start += EXPORT_CHUNK_ROWS) {
+          this.actionEl.textContent = `Exporting… ${Math.round((start / take) * 100)}%`;
+          const end = Math.min(start + EXPORT_CHUNK_ROWS, take);
+          parts.push((await this.client.getCsv(start, end, exportOptions)).text);
+        }
+        this.actionEl.textContent = `Encoding ${info.label}…`;
+        ({ blob } = await encodeExport(parts.join(""), format as TextExportFormat, compression, fileName));
       }
-      this.actionEl.textContent = `Encoding ${info.label}…`;
-      const { blob } = await encodeExport(parts.join(""), format, compression, fileName);
 
       if (handle !== null) {
         const writable = await handle.createWritable();
@@ -4505,7 +4525,7 @@ export class App {
         URL.revokeObjectURL(url);
       }
       const subset = take < total ? ` (first ${take.toLocaleString()} of ${total.toLocaleString()})` : "";
-      this.setAction(`Exported ${take.toLocaleString()} rows${subset} to ${fileName}`);
+      this.setAction(`Exported ${take.toLocaleString()} rows${subset} to ${fileName}${workbookNote}`);
     } catch (error) {
       this.showError(error);
     }

@@ -4,6 +4,7 @@ import { gunzipSync, unzipSync } from "fflate";
 import {
   buildExportFileName,
   encodeExport,
+  xlsxSizeWarning,
   stripExportExtension,
   timestampString,
 } from "../src/ui/export-formats.js";
@@ -57,4 +58,11 @@ test("gzip and zip wrap the encoded file", async () => {
   const zip = await encodeExport(CSV, "tsv", "zip", "x.tsv.zip");
   const files = unzipSync(new Uint8Array(await zip.blob.arrayBuffer()));
   assert.deepEqual(Object.keys(files), ["x.tsv"]);
+});
+
+test("a workbook is never given a compression extension; the size warning only fires for huge exports", () => {
+  assert.equal(buildExportFileName("a", "x", "xlsx", "gzip", false), "a.xlsx");
+  assert.equal(stripExportExtension("a.xlsx"), "a");
+  assert.equal(xlsxSizeWarning(100_000, 30), null);
+  assert.match(xlsxSizeWarning(2_000_000, 30) ?? "", /3 sheets|2 sheets/);
 });

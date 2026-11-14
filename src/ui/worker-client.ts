@@ -53,6 +53,7 @@ import type {
   ExportOptions,
   ExportScope,
   ExportStartedMessage,
+  XlsxMessage,
   ChartGroupsMessage,
   GroupAnomaliesMessage,
   OutlierAnalysisMessage,
@@ -743,6 +744,10 @@ export class SearchWorkerClient {
 
   getCsv(start: number, end: number, options?: ExportOptions): Promise<CsvChunkMessage> {
     return this.request<CsvChunkMessage>({ type: "getCsv", start, end, options });
+  }
+
+  getXlsx(start: number, end: number, title: string, options?: ExportOptions): Promise<XlsxMessage> {
+    return this.request<XlsxMessage>({ type: "getXlsx", start, end, title, options });
   }
 
   dispose(): void {

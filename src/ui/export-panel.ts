@@ -287,7 +287,7 @@ export function openExportPanel(
     syncLimit();
     callbacks.onSave(fileName, {
       format,
-      compression,
+      compression: format === "xlsx" ? "none" : compression,
       datePrefix: prefixInput.checked,
       nullAsBlank: nullInput.checked,
       escapeFormulas: formulaInput.checked,
@@ -316,6 +316,8 @@ export function openExportPanel(
   const syncOptions = (): void => {
     const csvFamily = format === "csv" || format === "csv-semicolon" || format === "tsv";
     formulaRow.classList.toggle("hidden", !csvFamily);
+    // A workbook is already a zip, and its text cells are never formulas.
+    compressionRow.classList.toggle("hidden", format === "xlsx");
     optionsRow.classList.toggle("hidden", format === "json" || format === "jsonl");
   };
   formatSelect.addEventListener("change", syncOptions);

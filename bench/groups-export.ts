@@ -1,4 +1,6 @@
 import { ColumnData } from "../src/data/column.js";
+import { buildDataset } from "../src/data/build.js";
+import { buildXlsxWorkbook } from "../src/worker/xlsx-export.js";
 import { encodeExport } from "../src/ui/export-formats.js";
 import { measure, ms } from "./bench-utils.js";
 
@@ -10,6 +12,8 @@ const EXPORT_ROWS = 100_000;
 const GROUP_BUDGET_MS = 250;
 const CSV_BUDGET_MS = 50;
 const CONVERT_BUDGET_MS = 1500;
+// Measured 2.8-4.9 s for 100,000 x 30 (about 1 us per cell); 8 s leaves headroom for a slower machine.
+const XLSX_BUDGET_MS = 8000;
 
 let failed = false;
 function report(label: string, p95: number, budget: number, detail = ""): void {
@@ -67,6 +71,37 @@ for (const [format, budget] of [
   }
   times.sort((a, b) => a - b);
   report(`export ${format}, ${EXPORT_ROWS.toLocaleString()} rows`, times[times.length - 1]!, budget);
+}
+
+// Typed workbook: 100,000 rows x 30 columns (numbers, dates, datetimes, booleans, ids, text).
+{
+  const COLS = 30;
+  const kinds = ["int", "num", "date", "datetime", "bool", "postcode", "text"] as const;
+  const names = Array.from({ length: COLS }, (_, c) => `${kinds[c % kinds.length]}_${c}`);
+  const cell = (kind: (typeof kinds)[number], i: number): string => {
+    const day = String((i % 28) + 1).padStart(2, "0");
+    switch (kind) {
+      case "int": return String(i);
+      case "num": return `${i}.25`;
+      case "date": return `2026-03-${day}`;
+      case "datetime": return `2026-03-${day}T13:45:30Z`;
+      case "bool": return i % 2 === 0 ? "true" : "false";
+      case "postcode": return `0${800 + (i % 90)}`;
+      case "text": return `note ${i % 500}`;
+    }
+  };
+  const rows = Array.from({ length: EXPORT_ROWS }, (_, i) => names.map((_n, c) => cell(kinds[c % kinds.length], i)));
+  const dataset = buildDataset("bench", names, rows);
+  const ids = Uint32Array.from({ length: EXPORT_ROWS }, (_, i) => i);
+  const times: number[] = [];
+  let bytes = 0;
+  for (let i = 0; i < 3; i++) {
+    const start = performance.now();
+    bytes = (await buildXlsxWorkbook(dataset, ids, 0, EXPORT_ROWS, "bench")).bytes.length;
+    times.push(performance.now() - start);
+  }
+  times.sort((a, b) => a - b);
+  report(`export xlsx, ${EXPORT_ROWS.toLocaleString()} rows x ${COLS} columns`, times[times.length - 1]!, XLSX_BUDGET_MS, `(${(bytes / 1e6).toFixed(1)} MB, best ${ms(times[0]!)} ms)`);
 }
 
 if (failed) {

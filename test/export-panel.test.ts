@@ -159,7 +159,7 @@ test("export panel offers several formats and builds the file name from them", (
   const formats = document.querySelectorAll(".export-modal select[aria-label='Export format'] option");
   assert.deepEqual(
     [...formats].map((option) => option.getAttribute("value")),
-    ["csv", "csv-semicolon", "tsv", "json", "jsonl"],
+    ["csv", "csv-semicolon", "tsv", "json", "jsonl", "xlsx"],
   );
   const select = document.querySelector(
     ".export-modal select[aria-label='Export format']",
@@ -170,6 +170,25 @@ test("export panel offers several formats and builds the file name from them", (
 
   (document.querySelector(".export-modal .primary") as unknown as { click(): void }).click();
   assert.deepEqual(saved, { name: "data.json", format: "json", compression: "none" });
+});
+
+test("choosing Excel hides compression and the formula escape, and names the file .xlsx", () => {
+  setupDom();
+  let saved: { name: string; compression?: string } | null = null;
+  openExportPanel(
+    "data",
+    { nullAsBlank: true, escapeFormulas: true, scope: "all", limit: null, datePrefix: false, compression: "gzip" },
+    { allRows: 10, filteredRows: 10, filtersActive: false },
+    { onSave: (name, settings) => { saved = { name, compression: settings.compression }; }, onClose: () => {} },
+  );
+  const document = (globalThis as Record<string, unknown>).document as Window["document"];
+  const select = document.querySelector(".export-modal select[aria-label='Export format']") as unknown as { value: string; dispatchEvent(event: unknown): void };
+  select.value = "xlsx";
+  select.dispatchEvent(new (document.defaultView as unknown as { Event: typeof Event }).Event("change"));
+  assert.match(document.querySelector(".export-preview")?.textContent ?? "", /Will save as data\.xlsx$/);
+  assert.ok(document.querySelector(".export-compression")?.classList.contains("hidden"));
+  (document.querySelector(".export-modal .primary") as unknown as { click(): void }).click();
+  assert.deepEqual(saved, { name: "data.xlsx", compression: "none" });
 });
 
 test("export panel offers the Excel formula escape on by default", () => {

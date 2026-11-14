@@ -93,6 +93,7 @@ import {
 } from "../search/query-engine.js";
 import { isNumericLikeType, type ColumnType } from "../types.js";
 import { buildCsv } from "./csv.js";
+import { buildXlsxWorkbook } from "./xlsx-export.js";
 import {
   ingestDataset,
   ingestDatasetAsync,
@@ -596,6 +597,16 @@ async function handle(message: WorkerRequest): Promise<void> {
         }
       }
       post({ type: "chartGroups", requestId: message.requestId, groups });
+      break;
+    }
+    case "getXlsx": {
+      const { dataset } = state();
+      const ids = exportIds ?? sortedIds;
+      const start = Math.max(0, message.start);
+      const end = Math.min(message.end, ids.length);
+      const built = await buildXlsxWorkbook(dataset, ids, start, end, message.title, message.options);
+      const bytes = built.bytes.buffer.slice(built.bytes.byteOffset, built.bytes.byteOffset + built.bytes.byteLength) as ArrayBuffer;
+      post({ type: "xlsx", requestId: message.requestId, bytes, rows: built.rows, sheets: built.sheets, truncated: built.truncated }, [bytes]);
       break;
     }
     case "getCsv": {

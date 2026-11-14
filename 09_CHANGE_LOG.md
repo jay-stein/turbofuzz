@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-04 — Export: Excel workbook (.xlsx) with typed cells, text ids and a frozen filter header
+
+- **Status:** Verified (unit tests; browser spec export-xlsx passed; bench:groups-export about 3 s for 100,000 rows × 30 columns, budget 8 s). Not yet opened in real Excel or LibreOffice.
+- **Related issue / decision:** reverses the 2026-10-30 "XLSX export removed" decision (that version wrote every cell as text).
+- **What changed:** Excel (.xlsx) in the Export dialog. Numbers, dates (real Excel dates with a date format) and booleans are typed cells; identifier and text columns stay text (0800, long ids); text is never written as a formula. The header row is bold, frozen and has an autofilter; column widths come from the first 200 rows; the sheet is named after the file without its extension; more than 1,048,575 rows continue on numbered sheets. The workbook is built in the worker with direct XML and fflate (SheetJS took 10–30 s per 3M cells to write).
+- **Files / components changed:** src/worker/xlsx-export.ts (new), src/worker/csv.ts, src/worker/protocol.ts, src/worker/search.worker.ts, src/ui/worker-client.ts, src/ui/export-formats.ts, src/ui/export-panel.ts, src/ui/app.ts; bench/groups-export.ts; test/export-xlsx.test.ts, test/export-formats.test.ts, test/export-panel.test.ts, test/e2e/export-xlsx.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-03 — Quality: Apply all safe fixes applies every ticked fix as its own Recipe step; Undo all reverts every step
 
 - **Status:** Verified (unit: 12 + 19 tests; browser specs dq-apply-all, undo, dq-reviewed and dq-provenance passed)
