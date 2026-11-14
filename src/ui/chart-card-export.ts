@@ -59,6 +59,9 @@ export function exportPng(card: ChartCard, width: number, height: number): void 
   const ctx = canvas.getContext("2d");
   if (ctx === null) return;
   card.drawChart(ctx, width, height, true);
+  card.drawReferenceLines(ctx);
+  // The export drew over the card's hit regions and axes at its own size: put the on-screen ones back.
+  card.render();
   if (typeof canvas.toBlob !== "function") return;
   const name = `${safeFileName(card.options.datasetName())}-${safeFileName(
     card.chartName(),

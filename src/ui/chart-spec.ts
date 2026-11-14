@@ -1,4 +1,5 @@
 import type { IntervalKind } from "../data/error-bars.js";
+import { markStylesFromSpec } from "./chart-mark-colors.js";
 import type { ChartBinOptions } from "../data/chart-bins.js";
 import type { TimeGrain } from "../data/aggregate.js";
 import type { ColumnMeta } from "../worker/protocol.js";
@@ -85,6 +86,10 @@ export interface ChartSpec {
     dotOpacity?: number;
     markerShape?: ChartCardConfig["markerShape"];
     refLines?: ChartCardConfig["refLines"];
+    /** Colours, highlight and labels given to single marks, by what they stand for (display only). */
+    markColors?: ChartCardConfig["markColors"];
+    markHighlight?: string;
+    markLabels?: string[];
     fitLine?: boolean;
     fitR2?: boolean;
     span: "auto" | "full";
@@ -227,6 +232,9 @@ export function chartSpecFromConfig(
       ...(config.dotOpacity === undefined ? {} : { dotOpacity: config.dotOpacity }),
       ...(config.markerShape === undefined ? {} : { markerShape: config.markerShape }),
       ...(config.refLines === undefined || config.refLines.length === 0 ? {} : { refLines: config.refLines }),
+      ...(config.markColors === undefined ? {} : { markColors: { ...config.markColors } }),
+      ...(config.markHighlight === undefined ? {} : { markHighlight: config.markHighlight }),
+      ...(config.markLabels === undefined ? {} : { markLabels: [...config.markLabels] }),
       ...(config.fitLine === undefined ? {} : { fitLine: config.fitLine }),
       ...(config.fitR2 === undefined ? {} : { fitR2: config.fitR2 }),
       span: config.span ?? "auto",
@@ -248,6 +256,21 @@ export function chartSpecFromConfig(
  * Compiles a spec back to the runtime config. Invalid fields collect issues;
  * callers must not apply a config when `issues` is non-empty.
  */
+/** The reference lines of a spec that read as lines; a hand-edited file can hold anything. */
+function refLinesFromSpec(raw: unknown): NonNullable<ChartCardConfig["refLines"]> {
+  if (!Array.isArray(raw)) return [];
+  const out: NonNullable<ChartCardConfig["refLines"]> = [];
+  for (const line of raw as unknown[]) {
+    if (!isRecord(line)) continue;
+    const axis = line.axis === "x" || line.axis === "y" ? line.axis : null;
+    const source = line.source === "value" || line.source === "mean" || line.source === "average" ? line.source : null;
+    if (axis === null || source === null) continue;
+    const value = typeof line.value === "number" && Number.isFinite(line.value) ? line.value : undefined;
+    out.push(value === undefined ? { axis, source } : { axis, source, value });
+  }
+  return out;
+}
+
 export function chartSpecToConfig(
   spec: ChartSpec,
   columns: readonly ColumnMeta[],
@@ -323,7 +346,14 @@ export function chartSpecToConfig(
   if (spec.presentation.dotScale !== undefined) config.dotScale = spec.presentation.dotScale;
   if (spec.presentation.dotOpacity !== undefined) config.dotOpacity = spec.presentation.dotOpacity;
   if (spec.presentation.markerShape !== undefined) config.markerShape = spec.presentation.markerShape;
-  if (spec.presentation.refLines !== undefined) config.refLines = spec.presentation.refLines;
+  if (spec.presentation.refLines !== undefined) {
+    const lines = refLinesFromSpec(spec.presentation.refLines);
+    if (lines.length > 0) config.refLines = lines;
+    if (lines.length < (Array.isArray(spec.presentation.refLines) ? spec.presentation.refLines.length : 1)) {
+      issues.push("Some reference lines in the spec are not readable: each needs axis x or y, and source value, mean or average.");
+    }
+  }
+  Object.assign(config, markStylesFromSpec(spec.presentation));
   if (spec.presentation.fitLine !== undefined) config.fitLine = spec.presentation.fitLine;
   if (spec.presentation.fitR2 !== undefined) config.fitR2 = spec.presentation.fitR2;
   config.span = spec.presentation.span;

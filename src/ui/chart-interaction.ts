@@ -11,6 +11,7 @@ import { addExclusion, describeRange, exclusionChips, removeChip, type ChartExcl
 import { barKindFor, COMMON_KINDS, fitChartKind, kindIcon, MORE_GROUPS } from "./chart-gallery.js";
 import { CHART_KIND_LABELS, describeStep, zoomPlotBounds } from "./chart-utils.js";
 import { clear, el } from "./dom.js";
+import { markButtons } from "./chart-mark-colors.js";
 import { openMenu, type MenuItem } from "./menu.js";
 import type { ChartCard } from "./chart-card.js";
 import type { ValueScale, BrushRange, BrushSpace, Frame } from "./chart-card-types.js";
@@ -75,9 +76,14 @@ export function openKindPicker(card: ChartCard): void {
   pop.querySelector<HTMLElement>(".chart-kind-option.active, .chart-kind-option:not([disabled])")?.focus();
 }
 
+/** Two regions are the same mark: by its colour key when it has one (labels can repeat across series), else by its name. */
+function sameMark(a: HitRegion, b: HitRegion): boolean {
+  return a.mark !== undefined || b.mark !== undefined ? a.mark === b.mark : a.lines[0] === b.lines[0];
+}
+
 /** The bar, bin or cell the person clicked: marked on the plot, with what can be done with it. */
 export function selectRegion(card: ChartCard, region: HitRegion): void {
-  const same = card.selectedRegion?.lines[0] === region.lines[0];
+  const same = card.selectedRegion !== null && sameMark(card.selectedRegion, region);
   card.clearSelection();
   card.hideTooltip();
   if (same) {
@@ -88,6 +94,8 @@ export function selectRegion(card: ChartCard, region: HitRegion): void {
   const bar = card.selectionBar;
   if (bar !== null) {
     const name = region.lines[0] ?? "Selection";
+    // A bar of a pivot view has nothing to filter by, but can still be recoloured.
+    const canFilter = region.actions.length > 0;
     const filter = el("button", { class: "primary small", type: "button", title: `Filter every page to ${name}` }, ["Filter to this"]);
     filter.addEventListener("click", () => {
       const actions = region.actions;
@@ -106,7 +114,8 @@ export function selectRegion(card: ChartCard, region: HitRegion): void {
       card.clearSelection();
       card.render();
     });
-    bar.replaceChildren(el("span", { class: "chart-selection-name", title: name }, [name]), filter, ...(card.options.onShowRows === undefined || rows.length === 0 ? [] : [show]), dismiss);
+    const marks = region.mark === undefined ? [] : markButtons(card, region.mark, bar, card.usesAggregate());
+    bar.replaceChildren(el("span", { class: "chart-selection-name", title: name }, [name]), ...(canFilter ? [filter] : []), ...(card.options.onShowRows === undefined || rows.length === 0 ? [] : [show]), ...marks, dismiss);
     bar.classList.remove("hidden");
   }
   card.render();
@@ -116,7 +125,7 @@ export function selectRegion(card: ChartCard, region: HitRegion): void {
 export function drawSelection(card: ChartCard, ctx: CanvasRenderingContext2D): void {
   const selected = card.selectedRegion;
   if (selected === null) return;
-  const region = card.hitRegions.find((candidate) => candidate.lines[0] === selected.lines[0]);
+  const region = card.hitRegions.find((candidate) => sameMark(candidate, selected));
   if (region === undefined) {
     card.clearSelection();
     return;
@@ -802,7 +811,7 @@ export function handleCanvasClick(card: ChartCard, event: MouseEvent): void {
   );
   if (card.options.docked === true) {
     // A click marks; filtering every page is a second, named step.
-    if (region === null || region.actions.length === 0) {
+    if (region === null || (region.actions.length === 0 && region.mark === undefined)) {
       if (card.selectedRegion !== null) {
         card.clearSelection();
         card.render();

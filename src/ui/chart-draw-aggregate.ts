@@ -13,6 +13,8 @@ import { axisKindFor, type AxisFormat, formatChartNumber, formatCompact, calenda
 import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
 import type { Frame } from "./chart-card-types.js";
+import { refAxisTop, setRefAxis, setRefX } from "./chart-ref-lines.js";
+import { markColor, markKey, markLabelled, openSeriesColours } from "./chart-mark-colors.js";
 import { RANKED_BARS_ABOVE, SPLIT_AXIS_LIMIT, GROUP_LINE_LIMIT, KDE_SIGMA_BINS } from "./chart-card-types.js";
 
 /** Wrapped message drawn inside the empty plot area. */
@@ -132,6 +134,10 @@ export function subtitle(card: ChartCard): string {
 export function drawChart(card: ChartCard, ctx: CanvasRenderingContext2D, width: number, height: number, forExport = false): void {
   ctx.clearRect(0, 0, width, height);
   card.splitLegend = null;
+  // An export draws on its own canvas: nothing from the last on-screen draw may place its lines.
+  card.refAxis = null;
+  card.brushSpace = null;
+  card.valueScale = null;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   card.hitRegions = [];
@@ -312,6 +318,8 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
     partial: Uint8Array;
     /** Where it first appeared: for a pivot chart, the pivot's own column order. */
     first: number;
+    /** The palette colour before any colour the person chose. */
+    base?: string;
   }
   const byGroup = new Map<string, SplitSeries>();
   for (let i = 0; i < n; i++) {
@@ -363,6 +371,11 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
     }
     shown = [...shown, other];
   }
+  // Lines and the legend take the series' own colour; a bar inside it starts from the palette colour.
+  for (const series of shown) {
+    series.base = series.color;
+    series.color = markColor(card, series.color, null, series.label);
+  }
   card.splitLegend = shown.map((series) => ({ label: series.label, color: series.color }));
   shown = shown.filter((series) => !card.hiddenSplit.has(series.label));
   if (shown.length === 0) {
@@ -411,7 +424,8 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
       }
     }
   }
-  const top = Math.max(1, max);
+  const top = refAxisTop(card, Math.max(1, max));
+  setRefAxis(card, frame, 0, top, shown.flatMap((series) => Array.from(series.values)));
 
   // Shared y grid and baseline (same shape as the single-series bars).
   const yTicks = niceTicks(0, top, 4).filter(
@@ -441,6 +455,8 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
 
   const slot = frame.plotW / Math.max(1, buckets.length);
   const lineCard = result.dimensionIsTime[0] === true;
+  // Each grouped or stacked bar, for its tooltip, its own colour and its single label.
+  const splitMarks: { x: number; y: number; w: number; h: number; bucket: string; series: string; value: number }[] = [];
   if (lineCard) {
     for (const series of shown) {
       ctx.strokeStyle = series.color;
@@ -520,16 +536,12 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
         const value = series.values[b] ?? Number.NaN;
         if (!Number.isFinite(value) || value <= 0) continue;
         const height = (value / top) * frame.plotH;
-        ctx.fillStyle = series.color;
+        ctx.fillStyle = markColor(card, series.base ?? series.color, buckets[b] ?? "", series.label);
         ctx.globalAlpha = 0.85;
-        card.fillTopRounded(
-          ctx,
-          frame.left + b * slot + slot * 0.1,
-          frame.top + frame.plotH - base - height,
-          Math.max(1, slot * 0.8),
-          height,
-          2 * ui,
-        );
+        const x = frame.left + b * slot + slot * 0.1;
+        const y = frame.top + frame.plotH - base - height;
+        card.fillTopRounded(ctx, x, y, Math.max(1, slot * 0.8), height, 2 * ui);
+        splitMarks.push({ x, y, w: Math.max(1, slot * 0.8), h: height, bucket: buckets[b] ?? "", series: series.label, value });
         base += height;
       }
       ctx.globalAlpha = 1;
@@ -537,20 +549,16 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
   } else {
     const barW = Math.max(1, (slot * 0.8) / shown.length);
     shown.forEach((series, s) => {
-      ctx.fillStyle = series.color;
       ctx.globalAlpha = 0.85;
       for (let b = 0; b < buckets.length; b++) {
         const value = series.values[b] ?? Number.NaN;
         if (!Number.isFinite(value) || value <= 0) continue;
         const height = (value / top) * frame.plotH;
-        card.fillTopRounded(
-          ctx,
-          frame.left + b * slot + slot * 0.1 + s * barW,
-          frame.top + frame.plotH - height,
-          Math.max(1, barW - 1),
-          height,
-          2 * ui,
-        );
+        ctx.fillStyle = markColor(card, series.base ?? series.color, buckets[b] ?? "", series.label);
+        const x = frame.left + b * slot + slot * 0.1 + s * barW;
+        const y = frame.top + frame.plotH - height;
+        card.fillTopRounded(ctx, x, y, Math.max(1, barW - 1), height, 2 * ui);
+        splitMarks.push({ x, y, w: Math.max(1, barW - 1), h: height, bucket: buckets[b] ?? "", series: series.label, value });
       }
       ctx.globalAlpha = 1;
     });
@@ -575,6 +583,17 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
     }
   }
   ctx.textAlign = "left";
+  const measureName = plainMeasureName(result.measureNames[0] ?? "measure");
+  for (const mark of splitMarks) {
+    card.hitRegions.push({ x: mark.x, y: mark.y, w: mark.w, h: mark.h, lines: [`${mark.bucket} · ${mark.series}`, `${measureName}: ${formatChartNumber(mark.value)}`], actions: [], mark: markKey(mark.bucket, mark.series) });
+    if (markLabelled(card, mark.bucket, mark.series)) {
+      card.font(ctx, ui, 10);
+      ctx.textAlign = "center";
+      ctx.fillStyle = frame.text;
+      ctx.fillText(formatCompact(mark.value), mark.x + mark.w / 2, Math.max(frame.top + 10 * ui, mark.y - 4 * ui));
+      ctx.textAlign = "left";
+    }
+  }
   if (bucketTimes !== null && lineCard && card.config.source === "") {
     card.brushSpace = card.timeSlotBrush(bucketTimes, card.config.column, frame);
   }
@@ -616,7 +635,7 @@ export function drawRankedBars(card: ChartCard, ctx: CanvasRenderingContext2D, f
   let top = 0;
   for (const row of rows) if (Number.isFinite(row.value)) top = Math.max(top, Math.abs(row.value));
   for (const row of rows) if (row.index >= 0) top = Math.max(top, card.errorBarAt(result, row.index)?.high ?? 0);
-  top = Math.max(top, 1e-12);
+  top = refAxisTop(card, Math.max(top, 1e-12));
   card.font(ctx, ui, 11);
   let widest = 0;
   for (const row of rows) widest = Math.max(widest, ctx.measureText(row.label).width);
@@ -626,13 +645,22 @@ export function drawRankedBars(card: ChartCard, ctx: CanvasRenderingContext2D, f
   const barsW = Math.max(10, frame.left + frame.plotW - left - valueW);
   const slot = frame.plotH / rows.length;
   const barH = Math.max(3, Math.min(slot * 0.72, 30 * ui));
+  // The bars lie on their side: the value axis runs left to right and a line on it runs up the plot.
+  card.refAxis = {
+    left,
+    top: frame.top,
+    plotW: barsW,
+    plotH: frame.plotH,
+    y: { min: 0, max: top, from: left, to: left + barsW, across: false },
+    values: rows.filter((row) => row.index >= 0).map((row) => row.value),
+  };
   const dimensionColumn = card.config.source === "" ? card.config.column : -1;
   const codes = card.meta(dimensionColumn)?.categories?.labels ?? [];
   card.hitRegions = [];
   rows.forEach((row, k) => {
     const y = frame.top + k * slot;
     const width = Number.isFinite(row.value) ? (Math.abs(row.value) / top) * barsW : 0;
-    ctx.fillStyle = row.index < 0 ? frame.dim : card.primaryColor();
+    ctx.fillStyle = row.index < 0 ? frame.dim : markColor(card, card.primaryColor(), result.labels[row.index] ?? "");
     ctx.globalAlpha = row.index < 0 ? 0.5 : 0.85;
     ctx.fillRect(left, y + (slot - barH) / 2, width, barH);
     ctx.globalAlpha = 1;
@@ -658,6 +686,7 @@ export function drawRankedBars(card: ChartCard, ctx: CanvasRenderingContext2D, f
       h: slot,
       lines: [row.label, `${measure}: ${Number.isFinite(row.value) ? formatChartNumber(row.value) : "—"}`, ...(row.index < 0 ? [] : card.errorBarLine(result, row.index))],
       actions: code >= 0 ? [{ kind: "values", column: dimensionColumn, code }] : [],
+      ...(row.index < 0 ? {} : { mark: markKey(result.labels[row.index] ?? "") }),
     });
   });
   ctx.textAlign = "left";
@@ -709,7 +738,8 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
   for (let i = 0; i < n; i++) max = Math.max(max, card.errorBarAt(result, i)?.high ?? 0);
   // Room above the tallest bar for its value label, clear of any whisker.
   const labelled = result.dimensionIsTime[0] !== true && n <= RANKED_BARS_ABOVE && card.options.docked === true;
-  const top = Math.max(1, labelled ? max * 1.1 : max);
+  const top = refAxisTop(card, Math.max(1, labelled ? max * 1.1 : max));
+  setRefAxis(card, frame, 0, top, values);
 
   const yTicks = niceTicks(0, top, 4).filter((value, index, all) => index === 0 || formatChartNumber(value) !== formatChartNumber(all[index - 1]));
   ctx.strokeStyle = frame.border;
@@ -853,7 +883,7 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
       const height = ((values[i] || 0) / top) * frame.plotH;
       if (height <= 0) continue;
       ctx.globalAlpha = 0.85;
-      ctx.fillStyle = card.primaryColor();
+      ctx.fillStyle = markColor(card, card.primaryColor(), result.labels[i] ?? "");
       card.fillTopRounded(ctx, frame.left + i * slot + inset, frame.top + frame.plotH - height, barW, height, 3 * ui);
       ctx.globalAlpha = 1;
       const bar = card.errorBarAt(result, i);
@@ -863,7 +893,7 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
         const x = frame.left + (i + 0.5) * slot;
         card.drawWhisker(ctx, frame, x, base - (Math.max(0, bar.low) / top) * frame.plotH, x, barTop);
       }
-      if (roomy) {
+      if (roomy || markLabelled(card, result.labels[i] ?? "")) {
         card.font(ctx, ui, 10);
         ctx.textAlign = "center";
         ctx.fillStyle = frame.text;
@@ -975,6 +1005,7 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
         ...card.errorBarLine(result, i),
       ],
       actions,
+      ...(isTime ? {} : { mark: markKey(label) }),
     });
   }
 
@@ -1050,7 +1081,7 @@ export function drawSeries(card: ChartCard, ctx: CanvasRenderingContext2D, frame
   const ui = frame.ui;
   const hasOverflow = custom !== null && custom.overflow > 0;
   const overflowCount = custom?.overflow ?? 0;
-  const maxCount = Math.max(1, ...bins, overflowCount);
+  const maxCount = refAxisTop(card, Math.max(1, ...bins, overflowCount));
   const slots = bins.length + (hasOverflow ? 1 : 0);
   const slotW = frame.plotW / slots;
   const barW = Math.max(1, slotW - 1);
@@ -1098,7 +1129,7 @@ export function drawSeries(card: ChartCard, ctx: CanvasRenderingContext2D, frame
     },
   );
 
-  card.drawCountAxis(ctx, frame, maxCount);
+  card.drawCountAxis(ctx, frame, maxCount, bins);
 
   if (kind === "line") {
     // Say what one point on the line counts: "Rows per day" and not just ticks.
@@ -1266,7 +1297,8 @@ export function drawSeries(card: ChartCard, ctx: CanvasRenderingContext2D, frame
 }
 
 /** Shared count-axis grid and baseline for histogram and line kinds. */
-export function drawCountAxis(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, maxCount: number): void {
+export function drawCountAxis(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, maxCount: number, values?: ArrayLike<number>): void {
+  setRefAxis(card, frame, 0, maxCount, values);
   const ui = frame.ui;
   const yTicks = niceTicks(0, maxCount, 4).filter((value, index, all) => index === 0 || formatCount(value) !== formatCount(all[index - 1]));
   ctx.strokeStyle = frame.border;
@@ -1369,6 +1401,9 @@ export function drawGroupedHistogram(card: ChartCard, ctx: CanvasRenderingContex
     }
   }
 
+  maxShare = refAxisTop(card, maxShare);
+  setRefAxis(card, frame, 0, maxShare);
+  setRefX(card, frame, min, max, card.config.binOptions == null && automatic.symlog);
   // Y axis in percent of the group (share), not counts.
   const yTicks = niceTicks(0, maxShare, 4).filter((value, index, all) => index === 0 || `${Math.round(value * 100)}%` !== `${Math.round(all[index - 1] * 100)}%`);
   ctx.strokeStyle = frame.border;
@@ -1460,8 +1495,10 @@ export function drawGroupedLines(card: ChartCard, ctx: CanvasRenderingContext2D,
   for (const entry of visible) {
     for (const value of entry.bins) if (value > maxCount) maxCount = value;
   }
+  maxCount = refAxisTop(card, maxCount);
 
   card.drawCountAxis(ctx, frame, maxCount);
+  setRefX(card, frame, min, max, false);
 
   for (const entry of visible) {
     ctx.beginPath();
@@ -1551,16 +1588,17 @@ export function syncLegend(card: ChartCard): void {
         { class: "chart-legend-item", type: "button", "aria-pressed": off ? "false" : "true", title: off ? `Show ${label}` : `Hide ${label}` },
         [label],
       ) as HTMLButtonElement;
-      const swatch = el("span", { class: "chart-legend-swatch" });
+      // The swatch is its own button: it picks the series' colour, the name shows or hides it.
+      const swatch = el("button", { class: "chart-legend-swatch chart-legend-colour", type: "button", title: `Colour of ${label}`, "aria-label": `Colour of ${label}` }) as HTMLButtonElement;
       swatch.style.background = color;
-      item.prepend(swatch);
+      swatch.addEventListener("click", () => openSeriesColours(card, label));
       item.classList.toggle("off", off);
       item.addEventListener("click", () => {
         if (card.hiddenSplit.has(label)) card.hiddenSplit.delete(label);
         else card.hiddenSplit.add(label);
         card.render();
       });
-      card.legendEl.append(item);
+      card.legendEl.append(el("span", { class: "chart-legend-entry" }, [swatch, item]));
     }
     return;
   }

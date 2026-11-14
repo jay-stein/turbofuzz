@@ -1,5 +1,5 @@
 /**
- * Charts of categories: bars, box plots, treemap, word terms, the KPI tile, axes and axis titles, and reference lines.
+ * Charts of categories: bars, box plots, treemap, word terms, the KPI tile, axes and axis titles.
  *
  * Moved out of chart-card.ts: each function takes the card it works on, and the card keeps a
  * one-line method of the same name that calls it.
@@ -14,9 +14,10 @@ import { isNumericLikeType } from "../types.js";
 import { drawDotPlot, drawSlopegraph, drawSmallMultiples, drawStacked100, drawWaterfall, type Painter } from "./chart-extra-draw.js";
 import type { AggregateMessage } from "../worker/protocol.js";
 import { axisKindFor, type AxisFormat, type CategoryBar, CHART_KIND_LABELS, formatChartNumber, formatCount, formatTick, darkerColor, isGroupable, isNumericType, niceTicks, plainMeasureName, GROUP_REQUIRED_KINDS } from "./chart-utils.js";
-import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
-import type { RefLine, Frame } from "./chart-card-types.js";
+import type { Frame } from "./chart-card-types.js";
+import { refAxisRange, refAxisTop, setRefAxis } from "./chart-ref-lines.js";
+import { markColor } from "./chart-mark-colors.js";
 import { BORDER_DARKER, BORDER_ALPHA, addMarkerPath, DEFAULT_BIN_COUNT, POINT_LIMIT, GROUP_LINE_LIMIT } from "./chart-card-types.js";
 
 /** Every category bar sorted by count; the bar window pans across this. */
@@ -727,138 +728,6 @@ export function drawExtraKind(card: ChartCard, ctx: CanvasRenderingContext2D, fr
   return true;
 }
 
-/** The reference lines' rows in the sidebar, rebuilt only when the chart's columns or the lines themselves change. */
-export function syncRefLines(card: ChartCard): void {
-  const lines = card.config.refLines ?? [];
-  const key = JSON.stringify([card.config.kind, card.config.x, card.config.y, card.config.column, card.config.valueColumn, lines.map((line) => [line.axis, line.source])]);
-  const supported = card.config.kind !== "map" && (card.hasValueAxis() || card.config.kind === "histogram");
-  card.refSection.parentElement?.classList.toggle("hidden", !supported);
-  if (!supported || key === card.refKey) return;
-  card.refKey = key;
-  card.refRows.replaceChildren();
-  lines.forEach((line, index) => {
-    const axisSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Line direction" }) as HTMLSelectElement;
-    const options: [string, string][] = [];
-    if (card.hasValueAxis()) options.push(["y", "Horizontal"]);
-    if (card.config.kind !== "bar" && card.config.kind !== "barplot") options.push(["x", "Vertical"]);
-    for (const [value, label] of options) axisSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-    axisSelect.value = line.axis;
-    const sourceSelect = el("select", { class: "chart-picker chart-picker-small", "aria-label": "Where the line sits" }) as HTMLSelectElement;
-    const column = card.refAxisColumn(line.axis);
-    const name = card.meta(column)?.name ?? "";
-    sourceSelect.append(el("option", { value: "value" }, ["At a value"]) as HTMLOptionElement);
-    if (column >= 0) {
-      sourceSelect.append(el("option", { value: "mean" }, [`Mean of ${name}`]) as HTMLOptionElement);
-    }
-    sourceSelect.value = column >= 0 || line.source === "value" ? line.source : "value";
-    const isDate = card.meta(column)?.type === "date" || card.meta(column)?.type === "datetime";
-    const input = el("input", {
-      class: "chart-number chart-ref-value",
-      type: "text",
-      inputmode: "decimal",
-      placeholder: isDate ? "e.g. 2021-03-01" : "e.g. 10.8",
-      "aria-label": "Value of the line",
-      spellcheck: "false",
-    }) as HTMLInputElement;
-    if (line.value !== undefined) input.value = isDate ? new Date(line.value).toISOString().slice(0, 10) : String(line.value);
-    input.classList.toggle("hidden", line.source !== "value");
-    const remove = el("button", { class: "icon-btn", type: "button", title: "Remove this line", "aria-label": "Remove this line" }, ["×"]) as HTMLButtonElement;
-    const update = (patch: Partial<RefLine>): void => {
-      const next = [...(card.config.refLines ?? [])];
-      next[index] = { ...next[index]!, ...patch };
-      card.config.refLines = next;
-    };
-    axisSelect.addEventListener("change", () => {
-      update({ axis: axisSelect.value as "x" | "y", source: "value" });
-      card.refKey = "";
-      card.syncRefLines();
-      card.render();
-    });
-    sourceSelect.addEventListener("change", () => {
-      update({ source: sourceSelect.value as RefLine["source"] });
-      card.refKey = "";
-      card.syncRefLines();
-      card.render();
-    });
-    input.addEventListener("input", () => {
-      const text = input.value.trim().replace(/,/g, "");
-      const value = isDate ? Date.parse(text.length === 10 ? `${text}T00:00:00Z` : text) : text === "" ? Number.NaN : Number(text);
-      const next = [...(card.config.refLines ?? [])];
-      next[index] = { ...next[index]!, value: Number.isFinite(value) ? value : undefined };
-      card.config.refLines = next;
-      card.render();
-    });
-    remove.addEventListener("click", () => {
-      card.config.refLines = (card.config.refLines ?? []).filter((_, i) => i !== index);
-      card.refKey = "";
-      card.syncRefLines();
-      card.render();
-    });
-    card.refRows.append(el("div", { class: "chart-ref-row" }, [axisSelect, sourceSelect, input, remove]));
-  });
-}
-
-/** Draws the reference lines over the plot, on whichever numeric axes this chart recorded. */
-export function drawReferenceLines(card: ChartCard, ctx: CanvasRenderingContext2D): void {
-  const lines = card.config.refLines ?? [];
-  if (lines.length === 0) return;
-  const space = card.brushSpace;
-  const scale = card.valueScale;
-  const isDateAxis = (axis: "x" | "y"): boolean => {
-    const type = card.meta(card.refAxisColumn(axis))?.type;
-    return type === "date" || type === "datetime";
-  };
-  const ink = getComputedStyle(card.canvas).color || "#444";
-  ctx.save();
-  ctx.setLineDash([6, 4]);
-  ctx.lineWidth = 1.5;
-  ctx.strokeStyle = ink;
-  ctx.fillStyle = ink;
-  ctx.font = "600 11px system-ui, sans-serif";
-  for (const line of lines) {
-    const value = card.refValue(line);
-    if (value === null) continue;
-    const label = `${line.source === "value" ? "" : `${line.source} `}${isDateAxis(line.axis) ? new Date(value).toISOString().slice(0, 10) : formatChartNumber(value)}`;
-    if (line.axis === "y") {
-      let y: number | null = null;
-      let left = 0;
-      let width = 0;
-      if (space !== null && space.yMin !== undefined && space.yMax !== undefined && space.yMax > space.yMin) {
-        y = space.top + space.plotH - ((value - space.yMin) / (space.yMax - space.yMin)) * space.plotH;
-        ({ left, plotW: width } = space);
-        if (value < space.yMin || value > space.yMax) y = null;
-      } else if (scale !== null && scale.yMax > 0 && space !== null) {
-        y = scale.top + scale.plotH - (value / scale.yMax) * scale.plotH;
-        ({ left, plotW: width } = space);
-        if (value < 0 || value > scale.yMax) y = null;
-      } else if (scale !== null && scale.yMax > 0 && card.hitRegions.length > 0) {
-        const first = card.hitRegions[0]!;
-        const last = card.hitRegions[card.hitRegions.length - 1]!;
-        y = scale.top + scale.plotH - (value / scale.yMax) * scale.plotH;
-        left = Math.min(first.x, last.x) - 4;
-        width = Math.max(first.x + first.w, last.x + last.w) - left + 4;
-        if (value < 0 || value > scale.yMax) y = null;
-      }
-      if (y === null) continue;
-      ctx.beginPath();
-      ctx.moveTo(left, y);
-      ctx.lineTo(left + width, y);
-      ctx.stroke();
-      ctx.textAlign = "right";
-      ctx.fillText(label, left + width - 4, y - 4);
-    } else if (space !== null && space.xMax > space.xMin && value >= space.xMin && value <= space.xMax) {
-      const x = space.left + ((value - space.xMin) / (space.xMax - space.xMin)) * space.plotW * space.xFraction;
-      ctx.beginPath();
-      ctx.moveTo(x, space.top);
-      ctx.lineTo(x, space.top + space.plotH);
-      ctx.stroke();
-      ctx.textAlign = x > space.left + space.plotW * 0.8 ? "right" : "left";
-      ctx.fillText(label, x + (ctx.textAlign === "right" ? -4 : 4), space.top + 12);
-    }
-  }
-  ctx.restore();
-}
-
 /**
  * Column names for the axes of the current chart, or null where a title
  * would be noise (treemaps label their tiles, correlation its cells).
@@ -997,7 +866,8 @@ export function drawBars(card: ChartCard, ctx: CanvasRenderingContext2D, frame: 
   }
   const ui = frame.ui;
   // Headroom above the tallest bar, so its count and share sit on the page, not on the bar.
-  const maxCount = Math.max(1, ...bars.map((bar) => bar.count)) * 1.12;
+  const maxCount = refAxisTop(card, Math.max(1, ...bars.map((bar) => bar.count)) * 1.12);
+  setRefAxis(card, frame, 0, maxCount, bars.filter((bar) => bar.other !== true).map((bar) => bar.count));
   const slotW = frame.plotW / bars.length;
   const barW = Math.max(4, slotW - Math.min(18 * ui, slotW * 0.25));
   const labels = meta.categories?.labels ?? [];
@@ -1052,9 +922,7 @@ export function drawBars(card: ChartCard, ctx: CanvasRenderingContext2D, frame: 
     ctx.fillStyle =
       bar.other === true
         ? frame.dim
-        : card.config.multiColor
-          ? card.paletteColor(index)
-          : card.primaryColor();
+        : markColor(card, card.config.multiColor ? card.paletteColor(index) : card.primaryColor(), bar.label);
     ctx.globalAlpha = bar.other === true ? 0.5 : 0.9;
     card.fillTopRounded(ctx, x, frame.top + frame.plotH - h, barW, h, 4 * ui);
     ctx.globalAlpha = 1;
@@ -1221,7 +1089,10 @@ export function drawBox(card: ChartCard, ctx: CanvasRenderingContext2D, frame: F
   if (card.boxY !== null) {
     yMin = card.boxY.min;
     yMax = card.boxY.max;
+  } else {
+    ({ min: yMin, max: yMax } = refAxisRange(card, "y", yMin, yMax));
   }
+  setRefAxis(card, frame, yMin, yMax, undefined, card.boxY !== null);
   const yOf = (value: number): number =>
     frame.top + frame.plotH - ((value - yMin) / (yMax - yMin)) * frame.plotH;
 

@@ -7431,6 +7431,11 @@ tr.views-drop-after > td {
   flex: none;
 }
 
+/* A split chart's legend: the swatch picks the series colour, the name shows or hides it. */
+.chart-legend-entry { display: inline-flex; align-items: center; gap: 2px; }
+.chart-legend-colour { padding: 0; border: 1px solid transparent; cursor: pointer; }
+.chart-legend-colour:hover, .chart-legend-colour:focus-visible { border-color: var(--text); }
+
 .chart-settings {
   display: flex;
   flex-wrap: wrap;
@@ -8003,6 +8008,10 @@ select.chart-number {
   box-shadow: var(--shadow-pop);
   font-size: var(--fs-sm);
 }
+
+/* Colour… opens the swatch row under the selection's buttons. */
+.chart-selection.picking { flex-wrap: wrap; }
+.chart-selection .chart-mark-colors { flex-basis: 100%; }
 
 .chart-selection-name {
   min-width: 0;

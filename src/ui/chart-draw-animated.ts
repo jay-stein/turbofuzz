@@ -16,6 +16,7 @@ import { el } from "./dom.js";
 import { openPrompt } from "./dialog.js";
 import type { ChartCard } from "./chart-card.js";
 import type { Frame } from "./chart-card-types.js";
+import { refAxisTop, setRefAxis } from "./chart-ref-lines.js";
 import { POINT_LIMIT, ANIMATED_KINDS } from "./chart-card-types.js";
 
 /** Columns to animate over: dates, then numbers (shaded regions step through dates only). */
@@ -376,6 +377,7 @@ export async function renderAnimationFrames(card: ChartCard): Promise<
       card.animationFrame = index;
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
       card.drawChart(ctx, cssWidth, cssHeight, true);
+      card.drawReferenceLines(ctx);
       // Opaque background: paint behind the chart (drawChart clears first),
       // because a transparent frame reads as black in many viewers.
       ctx.globalCompositeOperation = "destination-over";
@@ -548,7 +550,8 @@ export function drawAnimatedHistogram(card: ChartCard, ctx: CanvasRenderingConte
   const bins = hist.bins;
   const offset = frameIndex * bins;
   const ui = frame.ui;
-  const maxCount = Math.max(1, result.maxCount);
+  const maxCount = refAxisTop(card, Math.max(1, result.maxCount));
+  setRefAxis(card, frame, 0, maxCount);
   const slotW = frame.plotW / bins;
   const barW = Math.max(1, slotW - 1);
 
@@ -775,7 +778,8 @@ export function drawAnimatedBars(card: ChartCard, ctx: CanvasRenderingContext2D,
   const ui = frame.ui;
   // Every frame scales to the global maximum, so growth and decline over
   // time are visible instead of each frame refilling the plot.
-  const maxCount = Math.max(1, result.maxCount);
+  const maxCount = refAxisTop(card, Math.max(1, result.maxCount));
+  setRefAxis(card, frame, 0, maxCount);
   const slotW = frame.plotW / width;
   const barW = Math.max(4, slotW - Math.min(18 * ui, slotW * 0.25));
 

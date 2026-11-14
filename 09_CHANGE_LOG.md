@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-08 — Charts: reference lines draw on every chart with a value axis; a single bar or series can be recoloured, highlighted or labelled
+
+- **Status:** Verified (unit: 175 chart tests; browser specs chart-reference-line and chart-mark-colour passed)
+- **Related issue / decision:** owner: "horizontal lines sometimes don't work"; per-bar colour and highlight requests.
+- **What changed:** Cause: a reference line was drawn only where the draw path had recorded its axis, so charts of pivot views, grouped and stacked bars, median and percent axes, many bars and box plots silently drew none. Now they all draw; a line beyond the data stretches the axis, and one that cannot be drawn says why. Values such as 1,000, 1.5k, 3M and 15% are understood, and `1,5` is refused (never guessed as 15). PNG, GIF and MP4 exports include the lines. A column mean is not drawn on a Sum axis ("Average of the bars" added). Per-mark colours: click a bar for Colour… (palette, grey, hex, Reset), Highlight (grey the rest) and Label; click a legend swatch to recolour a series; Reset colours. Overrides are display-only, keyed by category value and saved in the chart spec.
+- **Not covered yet:** histogram bins, scatter points, treemap and heatmap cells, box plots (per-mark colours).
+- **Files / components changed:** src/ui/chart-*.ts, src/ui/chart-ref-lines.ts (new), src/ui/chart-mark-colors.ts (new), src/styles.css; test/chart-reference-lines.test.ts, test/chart-mark-colors.test.ts, test/e2e/chart-reference-line.spec.ts, test/e2e/chart-mark-colour.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-07 — Quality: the headline score is held to the share of clean rows, and issues set aside no longer count
 
 - **Status:** Verified (unit tests; headless-check and real-world corpus pass)

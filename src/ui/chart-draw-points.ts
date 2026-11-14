@@ -16,6 +16,7 @@ import { axisKindFor, correlationCell, formatChartNumber, formatCompact, formatT
 import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
 import type { BubbleLayer, Frame } from "./chart-card-types.js";
+import { refAxisRange } from "./chart-ref-lines.js";
 import { BORDER_DARKER, BORDER_ALPHA, addMarkerPath, leastSquares, cropDensityGrid } from "./chart-card-types.js";
 
 export function refreshCrosstab(card: ChartCard): void {
@@ -367,10 +368,20 @@ export function drawScatterLike(card: ChartCard, ctx: CanvasRenderingContext2D, 
     card.drawPoints(
       ctx,
       frame,
-      card.plotView === null ? result : { ...result, ...card.plotView },
+      card.plotView === null ? withRefLines(card, result) : { ...result, ...card.plotView },
       xMeta,
       yMeta,
     );
+}
+
+/** Points keep their data range unless a reference line lies beyond it; then the axes widen to show the line. */
+function withRefLines(card: ChartCard, result: SeriesPoints): SeriesPoints {
+  if ((card.config.refLines ?? []).length === 0) return result;
+  const x = refAxisRange(card, "x", result.xMin, result.xMax);
+  const y = refAxisRange(card, "y", result.yMin, result.yMax);
+  return x.min === result.xMin && x.max === result.xMax && y.min === result.yMin && y.max === result.yMax
+    ? result
+    : { ...result, xMin: x.min, xMax: x.max, yMin: y.min, yMax: y.max };
 }
 
 export function pointSizes(card: ChartCard, result: SeriesPoints, ui: number): Float64Array | null {

@@ -5,9 +5,11 @@ import { dataDrawerRows, undo, setColumns, setSources, refreshView, aggregateRes
 import { groupSettings, dock, fieldSlots, toggleSidebar, bindSettingsDismiss, renderSourceOptions, syncSourceControls, syncFieldVisibility, toggleExtraValue, syncExtraValues, setViewShape, pivotRailItems, syncViewShapeOptions, syncPivotOptions, allowsPrimary, syncValueAggOptions, syncOptions, syncChartFilterControls, fillColumnSelect, renderControls, fillPaletteOptions, syncPalette, applyPalette, forgetSettingsDisclosure } from "./chart-card-settings.js";
 import { importChartSpecFile, exportPng, openStats, chartExtract, drawnBins, histogramExtract, exportCsv, chartCsvRows, gridCsvRows, syncDeepDive, openCardMenu, toggleFocus, closeFocus, openExportMenu, downloadChartSpec, downloadChartCode, downloadBlob } from "./chart-card-export.js";
 import { openKindPicker, selectRegion, drawSelection, queuePointer, showTooltipAtPointer, emitHighlight, setLinkedHighlight, cancelSliceFetch, sliceRegions, sliceEntries, scheduleSliceFetch, scheduleSlicePoints, drawSlicePoints, drawLinkedOverlay, drawSliceShare, handleCanvasClick, finishBrush, timeSlotBrush, drawBrushOverlay, onWheel, withoutExcludedBins, syncExclusions, handleCanvasContextMenu, dataPointAt, openExclusionMenu, excludeFromTable, applyHitAction } from "./chart-interaction.js";
-import { allCategoryBars, refreshSeries, refreshTreemap, drawTreemap, refreshText, drawTerms, refreshBox, refreshGroupedBins, widestYLabel, fillTopRounded, drawKpi, drawExtraKind, syncRefLines, drawReferenceLines, axisLabels, drawAxisTitles, drawBars, drawAxes, drawBox } from "./chart-draw-bars.js";
+import { allCategoryBars, refreshSeries, refreshTreemap, drawTreemap, refreshText, drawTerms, refreshBox, refreshGroupedBins, widestYLabel, fillTopRounded, drawKpi, drawExtraKind, axisLabels, drawAxisTitles, drawBars, drawAxes, drawBox } from "./chart-draw-bars.js";
 import { refreshCrosstab, refreshBubble, refreshCorrelation, drawBubble, bubbleFraction, drawBubbleGrid, drawScatterLike, pointSizes, colorBuckets, drawColorBar, colorNote, drawPoints, drawDensity, paintDensityHeat, paintDensityBands, paintContourLines, drawCorrelationNote, pivotHeatmapData, drawPivotHeatmap, drawHeatmap, drawCorrelation } from "./chart-draw-points.js";
 import { syncAnimationOptions, frameWidths, syncFrameOptions, refreshAnimation, animationBlock, setAnimationTime, toggleAnimationSetup, toggleAnimation, setAnimationSpeed, promptAnimationSpeed, playAnimation, stopAnimation, syncAnimationBar, renderAnimationFrames, exportAnimationGif, exportAnimationVideo, drawAnimatedHistogram, drawAnimatedTreemap, drawAnimatedDensity, drawAnimatedBars } from "./chart-draw-animated.js";
+import { drawReferenceLines, syncRefLines, type RefAxis } from "./chart-ref-lines.js";
+import { syncMarkReset } from "./chart-mark-colors.js";
 import { drawPlotMessage, emptySeriesMessage, subtitle, drawChart, drawSplitAggregate, drawRankedBars, drawViewAggregate, drawSeries, drawCountAxis, lineUnitLabel, drawGroupedHistogram, drawGroupedLines, syncLegend } from "./chart-draw-aggregate.js";
 import { mapExtract, regionOptions, setMapMode, syncRegionAxes, refreshMapGrid, placeFrame, beginMapBrush, endMapBrush, zoomMap, exportMapHtml, mapHtmlPayload, mapViewShown, mapViewOrAuto, dataViewOrNull, resetMapZoom, fitMapAll, markerBox, frameBox, drawMap, drawMapLayers, drawMapClusters, drawMapBody, syncDotControls, mapLabelColumn, mapDotLines, drawMapSizeLegend, mapRadii } from "./chart-map-draw.js";
 import { errorBarExtract, errorBarBlock, syncErrorBarControls, refreshErrorBars, cancelErrorBars, showErrorBarProgress, hideErrorBarProgress, errorBarAt, drawWhisker, appendErrorBarNote } from "./chart-error-bars.js";
@@ -41,7 +43,7 @@ import { el } from "./dom.js";
 import { openConfirm } from "./dialog.js";
 import { MapRegions, type MapRegionsOptions } from "./map-regions.js";
 import { type MapHtmlPayload } from "./map-html-export.js";
-import { ERROR_BAR_KINDS, type MapViewport, type ValueScale, type BrushRange, type BrushSpace, type MapOverlay, type RefLine, type MapMarkerDraw, type ChartCardOptions, type ChartSeriesTarget, type ChartCardConfig, type ChartSource, type BubbleLayer, type Frame, type RegionRequests } from "./chart-card-types.js";
+import { ERROR_BAR_KINDS, type MapViewport, type ValueScale, type BrushRange, type BrushSpace, type MapOverlay, type MapMarkerDraw, type ChartCardOptions, type ChartSeriesTarget, type ChartCardConfig, type ChartSource, type BubbleLayer, type Frame, type RegionRequests } from "./chart-card-types.js";
 export * from "./chart-card-types.js";
 
 
@@ -90,6 +92,10 @@ export class ChartCard {
   linkedLabel = "";
   /** How the last paint scaled its marks, so another chart's slice can be drawn on them. */
   valueScale: ValueScale | null = null;
+  /** The value axis the last draw recorded for reference lines (see chart-ref-lines.ts). */
+  refAxis: RefAxis | null = null;
+  /** "Reset colours" in the Format colours, shown while any mark has its own colour. */
+  markResetButton: HTMLButtonElement | null = null;
   /** The slice's value per mark of this chart (another column's hover), or null. */
   sliceValues: Float64Array | null = null;
   /** Scatter cards: the points of the hovered slice (same scope, other column's rows). */
@@ -1696,6 +1702,7 @@ export class ChartCard {
     }
     this.syncDataIssues();
     this.syncLegend();
+    syncMarkReset(this);
     this.syncAnimationBar();
     const zoomable =
       this.config.kind === "map" ||
@@ -2133,8 +2140,8 @@ export class ChartCard {
     return drawSeries(this, ctx, frame, kind);
   }
 
-  drawCountAxis(ctx: CanvasRenderingContext2D, frame: Frame, maxCount: number): void {
-    return drawCountAxis(this, ctx, frame, maxCount);
+  drawCountAxis(ctx: CanvasRenderingContext2D, frame: Frame, maxCount: number, values?: ArrayLike<number>): void {
+    return drawCountAxis(this, ctx, frame, maxCount, values);
   }
 
   lineUnitLabel(min: number, max: number, bins: number): string {
@@ -2192,7 +2199,13 @@ export class ChartCard {
   /** Whether this chart has a numeric value axis a horizontal line can sit on. */
   hasValueAxis(): boolean {
     const kind = this.config.kind;
-    return kind === "line" || kind === "bar" || kind === "barplot" || kind === "histogram" || kind === "scatter" || kind === "density" || kind === "bubble";
+    return kind === "line" || kind === "bar" || kind === "barplot" || kind === "histogram" || kind === "scatter" || kind === "density" || kind === "bubble" || kind === "box";
+  }
+
+  /** Whether the X axis is numbers or dates a vertical line can sit on (not categories). */
+  hasNumericX(): boolean {
+    const kind = this.config.kind;
+    return kind === "histogram" || kind === "scatter" || kind === "density" || kind === "bubble" || (kind === "line" && this.config.source === "");
   }
 
   /** The column whose values an axis shows, when it is a plain numeric (or date) column; -1 when the axis is counts or categories. */
@@ -2208,10 +2221,16 @@ export class ChartCard {
       case "histogram":
         column = axis === "x" ? c.column : -1;
         break;
+      case "box":
+        column = axis === "y" ? c.x : -1;
+        break;
       case "line":
+        // A pivot view's measure is not a table column; the X of a line is its date column.
+        column = axis === "y" ? (c.source === "" ? (c.valueColumn ?? -1) : -1) : c.source === "" ? c.column : -1;
+        break;
       case "bar":
       case "barplot":
-        column = axis === "y" ? (c.valueColumn ?? -1) : -1;
+        column = axis === "y" && c.source === "" ? (c.valueColumn ?? -1) : -1;
         break;
       default:
         column = -1;
@@ -2220,19 +2239,11 @@ export class ChartCard {
     return meta !== undefined && (isNumericType(meta.type) || meta.type === "date" || meta.type === "datetime") ? column : -1;
   }
 
-  /** The value of a reference line: typed, or the mean of its axis column. */
-  refValue(line: RefLine): number | null {
-    if (line.source === "value") return line.value !== undefined && Number.isFinite(line.value) ? line.value : null;
-    const meta = this.meta(this.refAxisColumn(line.axis));
-    const value = meta?.stats.mean;
-    return value === null || value === undefined || !Number.isFinite(value) ? null : value;
-  }
-
   syncRefLines(): void {
     return syncRefLines(this);
   }
 
-  private drawReferenceLines(ctx: CanvasRenderingContext2D): void {
+  drawReferenceLines(ctx: CanvasRenderingContext2D): void {
     return drawReferenceLines(this, ctx);
   }
 

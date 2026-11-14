@@ -214,10 +214,14 @@ export function leastSquares(x: ArrayLike<number>, y: ArrayLike<number>, n: numb
   return { slope, intercept: (sy - slope * sx) / count, r2: vy > 0 ? (cov * cov) / (vx * vy) : 0 };
 }
 
-/** One reference line: across (a y value) or up (an x value), at a typed value or the mean of the plotted column. */
+/**
+ * One reference line: on the value axis ("y": across the plot, or up it when bars lie on their
+ * side) or the X axis (up the plot), at a typed value, the mean of the plotted column, or the
+ * average of the drawn bars or points.
+ */
 export interface RefLine {
   axis: "x" | "y";
-  source: "value" | "mean";
+  source: "value" | "mean" | "average";
   value?: number;
 }
 
@@ -544,6 +548,16 @@ export interface ChartCardConfig {
   dotOpacity?: number;
   /** Straight lines across the plot at one value each, on any chart with a numeric axis. */
   refLines?: RefLine[];
+  /**
+   * Colours given to single marks or series, keyed by what they stand for (markKey in
+   * chart-mark-colors.ts: category, series, or both), never by position. "muted" is the
+   * theme's de-emphasis grey. Display only.
+   */
+  markColors?: Record<string, string>;
+  /** "Highlight this, grey the rest": the key of the one mark or series kept in colour. */
+  markHighlight?: string;
+  /** Marks (by key) that show their value although the chart labels none. */
+  markLabels?: string[];
   /** The shape of the dots on a scatter or map (circle unless chosen). */
   markerShape?: MarkerShape;
   /** Map markers: nearby ones are drawn as one numbered circle, and a click on it zooms in. */

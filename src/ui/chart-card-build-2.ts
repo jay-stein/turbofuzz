@@ -2,6 +2,7 @@
  * Building the chart card's controls, part 2 of 3: the constructor's work, in the order it ran, one function
  * per stretch. Each takes the card it is building and returns the few elements a later stretch still needs.
  */
+import { resetMarkStyles } from "./chart-mark-colors.js";
 import { INTERVAL_KINDS, type IntervalKind } from "../data/error-bars.js";
 import { DOT_SCALES, type DotScale } from "../data/dot-size.js";
 import { DEFAULT_PALETTE } from "../data/palettes.js";
@@ -420,8 +421,7 @@ export function buildPart5(card: ChartCard, field: (label: string, input: HTMLEl
     card.refRows = el("div", { class: "chart-ref-rows" });
     const addRef = el("button", { class: "ghost small", type: "button", title: "Add a line across the chart at one value" }, ["+ Add a line"]);
     addRef.addEventListener("click", () => {
-      const axis = card.refAxisColumn("y") >= 0 || card.hasValueAxis() ? "y" : "x";
-      card.config.refLines = [...(card.config.refLines ?? []), { axis, source: "value" }];
+      card.config.refLines = [...(card.config.refLines ?? []), { axis: "y", source: "value" }];
       card.refKey = "";
       card.syncRefLines();
       card.render();
@@ -430,7 +430,7 @@ export function buildPart5(card: ChartCard, field: (label: string, input: HTMLEl
       el("span", { class: "chart-animate-title" }, ["Reference lines"]),
       card.refRows,
       el("div", { class: "chart-field" }, [addRef]),
-      el("span", { class: "chart-field-hint chart-ref-hint" }, ["Drawn on charts with a numeric axis. A line is one value: type it, or use the mean of the plotted column (all rows)."]),
+      el("span", { class: "chart-field-hint chart-ref-hint" }, ["Drawn on charts with a numeric axis, which stretches to show the line. Type a value (1,500, 1.5k, 15%), or use an average."]),
     ]);
     const dotNumberValue = (input: HTMLInputElement): number | null => {
       const text = input.value.trim();
@@ -535,6 +535,9 @@ export function buildPart6(card: ChartCard) {
       }
     });
     card.colorGroup.append(card.hexInput);
+    card.markResetButton = el("button", { class: "ghost small hidden", type: "button", title: "Clear the colours, highlight and labels given to single bars or series" }, ["Reset colours"]) as HTMLButtonElement;
+    card.markResetButton.addEventListener("click", () => resetMarkStyles(card));
+    card.colorGroup.append(card.markResetButton);
 
     card.paletteSelect = el("select", {
       class: "chart-picker chart-picker-small chart-palette-select",

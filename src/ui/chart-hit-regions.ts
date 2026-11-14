@@ -33,6 +33,8 @@ export interface HitRegion {
   lines: string[];
   /** Empty when the region is hover-only. */
   actions: HitAction[];
+  /** The mark's colour key (chart-mark-colors.ts), when it is one bar that can be recoloured. */
+  mark?: string;
   /**
    * What right-clicking the region can act on, for shapes whose left click does
    * nothing (box plots). Used only when `actions` is empty.
@@ -232,6 +234,7 @@ export function barHitRegions(
         `${formatCount(bar.count)} rows · ${bar.pct.toFixed(1)}%`,
       ],
       actions: bar.other === true || code < 0 ? [] : [{ kind: "values", column, code }],
+      ...(bar.other === true ? {} : { mark: JSON.stringify([bar.label]) }),
     };
   });
 }
