@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-12 — Import: a PDF, image or other binary file is refused instead of loading as garbage columns
+
+- **Status:** Verified (unit tests)
+- **Related issue / decision:** 2026-11-14 product assessment: a random-bytes file named report.pdf loaded as 8 garbage columns.
+- **What changed:** A file that is not a table is refused with a plain message ("“report.pdf” is a PDF, not a table…") and the loaded data is kept. The check uses magic bytes, the extension and NUL/control-character content; UTF-16, Latin-1 and UTF-8 text still load.
+- **Not covered yet:** files inside archives are not checked.
+- **Files / components changed:** src/parse/not-a-table.ts (new), src/ui/app.ts; test/not-a-table.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-11 — Import: large loads show rows read, elapsed time and Cancel over the dimmed table
 
 - **Status:** Verified (unit: 13 + 64 tests; browser spec load-progress passed, after the first-load Cancel fix with z-index 46)

@@ -125,6 +125,7 @@ import {
 } from "./load-guard.js";
 import { loadDetailText, percentOf, type LoadReport } from "./load-indicator.js";
 import { isParquetName } from "../parse/parquet.js";
+import { NOT_A_TABLE_SAMPLE_BYTES, notATableMessage } from "../parse/not-a-table.js";
 import { openRecipeMapping } from "./recipe-mapping.js";
 import { openExportPanel } from "./export-panel.js";
 import {
@@ -2176,6 +2177,11 @@ export class App {
       if (WORKBOOK_EXTENSIONS.includes(extension)) {
         const buffer = await file.arrayBuffer();
         await this.openWorkbook(buffer, file.name);
+        return;
+      }
+      const notTable = isParquetName(file.name) ? null : notATableMessage(file.name, new Uint8Array(await file.slice(0, NOT_A_TABLE_SAMPLE_BYTES).arrayBuffer()));
+      if (notTable !== null) {
+        this.setStatusError(notTable);
         return;
       }
       const buffer = await file.arrayBuffer();
