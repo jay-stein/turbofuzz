@@ -170,8 +170,6 @@ export interface ChartsPanelOptions {
   onDeepDive?(series: ChartSeriesTarget): void;
   /** Open a map card full width on the Map page. */
   onOpenMap?(preset: Partial<ChartCardConfig>): void;
-  /** False in General mode: cards then hide their Time Series and Map links. */
-  research?(): boolean;
   /** Convert placeholder tokens through the existing null-policy path. */
   onConvertToken?(column: number, tokens: string[]): void;
   /** Apply an existing suggestion through the shared fix path. */
@@ -909,7 +907,6 @@ export class ChartsPanel {
         onBreakDown: (target) => this.breakDownCard(target),
         onDeepDive: this.options.onDeepDive,
         onOpenMap: this.options.onOpenMap,
-        research: this.options.research,
         onConvertToken: this.options.onConvertToken,
         onSuggestion: this.options.onSuggestion,
         // The size is asked at the moment of export, not kept on the page for the rare time it matters.
@@ -1314,10 +1311,19 @@ export class ChartsPanel {
     this.addPanel.setSources(this.sources);
     this.addPanelAuto = !this.addPanel.isOpen;
     this.addPanel.open(false);
+    // The builder can be closed (Escape, ×) while there are no charts; this
+    // button is then the only way back, so it is always shown.
+    const reopen = el("button", { type: "button", class: "primary charts-empty-add" }, [
+      "+ Add a chart",
+    ]) as HTMLButtonElement;
+    reopen.addEventListener("click", () => {
+      this.addPanel.open(true);
+    });
     this.empty.append(
       el("div", { class: "charts-empty-title" }, [
         "No charts yet — pick your fields above, or choose a chart type, to start",
       ]),
+      reopen,
     );
   }
 }

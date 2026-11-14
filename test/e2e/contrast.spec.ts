@@ -71,7 +71,6 @@ for (const theme of ["light", "dark"] as const) {
     await page.locator('input[type="file"]').setInputFiles({ name: "sales.csv", mimeType: "text/csv", buffer: Buffer.from(csv()) });
     await page.locator(".nav-row").waitFor();
     await page.keyboard.press("Escape");
-    await page.locator('.mode-switch-option[data-mode="research"]').click();
     const failures: string[] = [];
     for (const view of ["Overview", "Data Quality", "Table", "Pivot View", "Outliers", "Relationships", "Time Series"]) {
       await page.locator(".view-tabs button", { hasText: view }).first().click();

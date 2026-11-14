@@ -44,10 +44,24 @@ export function parseNumber(raw: string, locale: NumberLocale = "dot"): number {
 
   s = s.replace(/[$€£¥\s]/g, "");
   s = s.replace(/%$/, "");
-  if (locale === "comma") {
-    s = s.replace(/\./g, "").replace(/,/g, ".");
-  } else {
-    s = s.replace(/,/g, "");
+  // A grouping separator is only dropped where it really groups thousands
+  // (1,234,567.89 or 1.234.567,89). Anything else, such as "55348,13" in a
+  // decimal-point column, is left unparsed rather than guessed: reading it as
+  // 5534813 made totals 100× too large, and reading it as 55348.13 assumes a
+  // convention the user has not chosen (owner decision 2026-11-13).
+  const group = locale === "comma" ? "." : ",";
+  if (s.includes(group)) {
+    const mark = locale === "comma" ? "," : ".";
+    const [whole, ...rest] = s.split(mark);
+    const grouped = whole.split(group);
+    const valid =
+      rest.length <= 1 &&
+      /^[+-]?\d{1,3}$/.test(grouped[0]) &&
+      grouped.slice(1).every((part) => /^\d{3}$/.test(part));
+    if (!valid) return NaN;
+    s = grouped.join("") + (rest.length > 0 ? `.${rest[0]}` : "");
+  } else if (locale === "comma") {
+    s = s.replace(/,/g, ".");
   }
 
   if (!/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(s)) return NaN;
@@ -69,8 +83,17 @@ function isBasePrefix(code: number): boolean {
 
 // A decimal mark with 1-2 trailing digits; thousand groups must be 3 digits,
 // so "1,23" is a decimal comma but "1,234" is only a thousands separator.
-const COMMA_STYLE = /^[+-]?\d{1,3}(?:\.\d{3})*,\d{1,2}$/;
-const DOT_STYLE = /^[+-]?\d{1,3}(?:,\d{3})*\.\d{1,2}$/;
+const COMMA_STYLE = /^[+-]?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{1,2}$/;
+const DOT_STYLE = /^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{1,2}$/;
+
+/** An amount followed by an accounting DR or CR suffix: "19215.35 DR", "£1,200.00CR". */
+export const SIGN_SUFFIX = /^\s*(.*\d)\s*(DR|CR)\.?\s*$/i;
+
+/** "DR" or "CR" when the value is an amount with that accounting suffix, otherwise null. */
+export function signSuffixOf(value: string): "DR" | "CR" | null {
+  const match = SIGN_SUFFIX.exec(value);
+  return match === null ? null : (match[2].toUpperCase() as "DR" | "CR");
+}
 
 /**
  * Classifies a value's decimal convention by shape alone (currency symbols,

@@ -227,3 +227,73 @@ test("cohort and period-since dimensions follow each entity's first period", () 
   assert.equal(periodIndex(Date.UTC(2024, 0, 1), Date.UTC(2024, 2, 1), "month"), 2);
   assert.equal(periodIndex(Date.UTC(2024, 0, 1), Date.UTC(2024, 9, 1), "quarter"), 3);
 });
+
+test("a last period the data stops inside is partial, even when it has ended", () => {
+  const daily = (last: number) => {
+    const rows: string[][] = [];
+    for (let day = 1; day <= 31; day++) rows.push([`2025-03-${String(day).padStart(2, "0")}`, "10"]);
+    for (let day = 1; day <= last; day++) rows.push([`2025-04-${String(day).padStart(2, "0")}`, "10"]);
+    const data = buildDataset("sales", ["date", "revenue"], rows);
+    return computeAggregate(
+      view({ dimensions: [{ column: 0, by: { time: "month" } }], sort: { key: "dim0", dir: "asc" } }),
+      data.columns,
+      data.rowCount,
+      allIds(data.rowCount),
+    ).partials;
+  };
+  // 14 of April's 30 days: a half month that would plot as a crash.
+  assert.deepEqual(daily(14), [false, true]);
+  // Every day of April: complete.
+  assert.deepEqual(daily(30), [false, false]);
+});
+
+test("a period inside the data with far fewer rows than usual is marked incomplete, not dropped", () => {
+  const rows: string[][] = [];
+  const start = Date.UTC(2024, 0, 1);
+  for (let day = 0; day < 182; day++) {
+    const date = new Date(start + day * 86_400_000);
+    // An outage: 1-25 March has no rows, so March holds only 6 days.
+    if (date.getUTCMonth() === 2 && date.getUTCDate() <= 25) continue;
+    rows.push([date.toISOString().slice(0, 10), "10"]);
+  }
+  const data = buildDataset("sales", ["date", "revenue"], rows);
+  const monthly = computeAggregate(
+    view({ dimensions: [{ column: 0, by: { time: "month" } }], sort: { key: "dim0", dir: "asc" } }),
+    data.columns,
+    data.rowCount,
+    allIds(data.rowCount),
+  );
+  assert.deepEqual(monthly.labels, ["2024-01", "2024-02", "2024-03", "2024-04", "2024-05", "2024-06"]);
+  assert.deepEqual(monthly.partials, [false, false, true, false, false, false]);
+  assert.equal(monthly.measures[0].length, 6, "the thin month is marked, never dropped");
+
+  // By the day, a quiet day is real: nothing is marked for having few rows.
+  const daily = computeAggregate(
+    view({ dimensions: [{ column: 0, by: { time: "day" } }], sort: { key: "dim0", dir: "asc" } }),
+    data.columns,
+    data.rowCount,
+    allIds(data.rowCount),
+  );
+  assert.equal(daily.partials?.filter(Boolean).length ?? 0, 0);
+});
+
+test("split by a group, each series' thin periods are judged against that series", () => {
+  const rows: string[][] = [];
+  const start = Date.UTC(2024, 0, 1);
+  for (let day = 0; day < 182; day++) {
+    const date = new Date(start + day * 86_400_000);
+    const iso = date.toISOString().slice(0, 10);
+    rows.push([iso, "Big", "10"], [iso, "Big", "10"], [iso, "Big", "10"]);
+    // "Small" has one row a day, and an outage on 1-25 March.
+    if (!(date.getUTCMonth() === 2 && date.getUTCDate() <= 25)) rows.push([iso, "Small", "1"]);
+  }
+  const data = buildDataset("sales", ["date", "store", "revenue"], rows);
+  const result = computeAggregate(
+    view({ dimensions: [{ column: 0, by: { time: "month" } }, { column: 1, by: "value" }], sort: { key: "dim0", dir: "asc" } }),
+    data.columns,
+    data.rowCount,
+    allIds(data.rowCount),
+  );
+  const flagged = result.labels.filter((_, i) => result.partials?.[i] === true);
+  assert.deepEqual(flagged.map((label) => label.replace(/\s/g, "")), ["2024-03·Small"]);
+});

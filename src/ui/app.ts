@@ -103,7 +103,6 @@ import {
 } from "./theme.js";
 import { ResultTable, autoGroups, type ColumnQaKind, type HighlightRule } from "./table.js";
 import { openStatsModal } from "./stats.js";
-import { chipText } from "./chips.js";
 import {
   buildMultiFilePreflight,
   openMultiFilePreflight,
@@ -185,14 +184,14 @@ import { buildHistoryPanel } from "./history-panel.js";
 import { DEFAULT_HEADER_OPTIONS, normalizeHeaders } from "../data/headers.js";
 import { groupSteps, openStepsPanel, type StepsPanelEntry } from "./steps-panel.js";
 import { openTransformPanel } from "./transform-panel.js";
-import { GENERAL_VIEWS, ViewTabs, isResearchView, viewSwitchHint, type ViewId } from "./view-tabs.js";
-import { ModeSwitch, readMode, writeMode, type AppMode } from "./mode.js";
+import { RESEARCH_VIEWS, ViewTabs, viewSwitchHint, type ViewId } from "./view-tabs.js";
+import { researchGaps } from "./tab-availability.js";
 import { TableNav } from "./table-nav.js";
 import { openNewColumn } from "./new-column-dialog.js";
 import { confirmCellEdit } from "./cell-edit-confirm.js";
 import { parseGoTo, type GoTo } from "./table-goto.js";
 import { remapViewDef, ViewsPanel, type ViewSource } from "./views-panel.js";
-import { openCommandBar, type ParsedCommand } from "./command-bar.js";
+import { commandExample, openCommandBar, usageParts, type ParsedCommand } from "./command-bar.js";
 import { openTriagePanel, type TriagePanelHandle } from "./triage-panel.js";
 import { openColumnInspector } from "./column-inspector.js";
 import { CompareMode } from "./compare/compare-mode.js";
@@ -376,6 +375,17 @@ const BUTTON_ICONS = {
 function expandButton(button: HTMLElement, icon: keyof typeof BUTTON_ICONS, label: string): void {
   button.classList.add("xbtn");
   button.replaceChildren(svgIcon(BUTTON_ICONS[icon], "xbtn-icon"), el("span", { class: "xbtn-label" }, [label]));
+}
+/**
+ * A disabled toolbar icon says why in its hover label, not just its name: the reason is its title ("Nothing to
+ * undo yet"), drawn by CSS from data-why so the button's own text stays its name.
+ */
+function showWhyDisabled(button: HTMLButtonElement): void {
+  const label = button.querySelector<HTMLElement>(".xbtn-label");
+  if (label === null) return;
+  const reason = button.disabled ? button.title.trim() : "";
+  if (reason === "") label.removeAttribute("data-why");
+  else if (label.dataset.why !== reason) label.dataset.why = reason;
 }
 function setButtonLabel(button: HTMLElement, label: string): void {
   const span = button.querySelector(".xbtn-label");
@@ -580,7 +590,7 @@ function describeHeader(preview: string[][], layout: HeaderLayout | null, whole:
   const left: string[] = [];
   if (t.skipRows > 0) left.push(`${rows(t.skipRows)} above it skipped`);
   if (t.skipAfter > 0) left.push(`${rows(t.skipAfter)} under it skipped`);
-  if (whole && t.footerRows > 0) left.push(`${rows(t.footerRows)} of notes after the data left out`);
+  if (whole && t.footerRows > 0) left.push(`${rows(t.footerRows)} of totals or notes after the data left out`);
   const dropped = layout?.skipColumns?.length ?? 0;
   if (dropped > 0) left.push(`${dropped} column${dropped === 1 ? "" : "s"} left out`);
   return `${head}${left.length > 0 ? ` ${left.join("; ")}.` : t.headerRows > 0 && t.skipRows === 0 ? " Nothing skipped." : ""}`;
@@ -781,9 +791,6 @@ export class App {
   private view: ViewId = "table";
   private lastLens: ViewId = "table";
   /** Where switching back to General lands when a research view is open. */
-  private lastGeneralView: ViewId = "table";
-  private mode: AppMode = readMode();
-  private modeSwitch: ModeSwitch | null = null;
   private tabs: ViewTabs | null = null;
   private overviewHost!: HTMLElement;
   private overview: Overview | null = null;
@@ -806,6 +813,9 @@ export class App {
   /** The sample button was pressed: the text about to load is the built-in sample. */
   private sampleRequested = false;
   private sidebarEl!: HTMLElement;
+  private paletteLabel!: HTMLElement;
+  private paletteExample = "";
+  private filtersShowButton!: HTMLButtonElement;
   private sidebarToggle!: HTMLButtonElement;
   private sidebarCollapsed = false;
   private pivotPageOpen = false;
@@ -872,7 +882,7 @@ export class App {
     this.hints = new Hints([
       {
         id: "tabs",
-        text: `Table, Overview, Data Quality, Pivot View and Chart are lenses — ${viewSwitchHint(GENERAL_VIEWS.length)}. The green Research tabs (Time Series, Map, Outliers, Relationships) show by default; slide to General to hide them.`,
+        text: `Each tab is a lens on the same table — ${viewSwitchHint()}. After the green divider are the deeper tools: Time Series, Map, Outliers and Relationships.`,
         target: () => (this.workspace.classList.contains("hidden") ? null : this.tabHost),
       },
       {
@@ -904,7 +914,7 @@ export class App {
       },
       {
         id: "placeholder-action",
-        text: "Placeholder text like “N/A” is counted as missing — “Convert to nulls” blanks those cells for real.",
+        text: "Placeholder text like “N/A” is counted as missing — Issues → “Blank placeholders” turns those cells empty for real.",
         target: () =>
           this.healthHost.querySelector<HTMLElement>(".placeholder-action"),
       },
@@ -959,6 +969,7 @@ export class App {
     ) as HTMLButtonElement;
     this.scoreTile.addEventListener("click", () => this.openQuality());
 
+    this.paletteLabel = el("span", { class: "palette-button-label" }, ["Enter a command"]);
     const paletteButton = el(
       "button",
       {
@@ -966,7 +977,7 @@ export class App {
         type: "button",
         title: "Type a command — e.g. “convert date_time to datetime”, “upper amount”, “group region sum sales”",
       },
-      [el("span", { class: "palette-button-label" }, ["Enter a command"]), el("span", { class: "kbd" }, ["Ctrl/⌘ K"])],
+      [this.paletteLabel, el("span", { class: "kbd" }, ["Ctrl/⌘ K"])],
     ) as HTMLButtonElement;
     paletteButton.addEventListener("click", () => this.openPalette());
     helpButton.classList.add("topbar-wide");
@@ -1235,8 +1246,7 @@ export class App {
 
     const tabHost = el("div");
     this.tabHost = tabHost;
-    this.tabs = new ViewTabs(tabHost, { onChange: (view) => this.setView(view) }, this.mode === "research");
-    this.modeSwitch = new ModeSwitch(this.mode, { onChange: (mode) => this.setMode(mode) });
+    this.tabs = new ViewTabs(tabHost, { onChange: (view) => this.setView(view) });
 
     this.stepsButton = el(
       "button",
@@ -1404,20 +1414,25 @@ export class App {
     const navSettings = this.makeSettingsButton();
     const navHelp = this.makeHelpButton();
     for (const button of [navSettings, navHelp]) button.classList.add("nav-action");
+    const navActions = el("div", { class: "nav-actions" }, [
+      reshapeButton,
+      this.undoButton,
+      this.stepsButton,
+      workspaceButton,
+      this.exportButton,
+      navSettings,
+      navHelp,
+      actionsMenu,
+    ]);
+    const syncWhy = (): void => {
+      for (const button of navActions.querySelectorAll<HTMLButtonElement>("button.xbtn")) showWhyDisabled(button);
+    };
+    new MutationObserver(syncWhy).observe(navActions, { subtree: true, attributes: true, attributeFilter: ["disabled", "title"] });
+    syncWhy();
     const navRow = el("div", { class: "nav-row" }, [
-      this.modeSwitch.element,
       tabHost,
       el("span", { class: "grow" }),
-      el("div", { class: "nav-actions" }, [
-        reshapeButton,
-        this.undoButton,
-        this.stepsButton,
-        workspaceButton,
-        this.exportButton,
-        navSettings,
-        navHelp,
-        actionsMenu,
-      ]),
+      navActions,
     ]);
 
     const sidebar = el("aside", { class: "sidebar hidden" });
@@ -1428,9 +1443,21 @@ export class App {
       { class: "icon-btn sidebar-toggle", type: "button", title: "Collapse filters" },
       ["«"],
     ) as HTMLButtonElement;
-    this.sidebarToggle.addEventListener("click", () =>
-      this.setSidebarCollapsed(!this.sidebarCollapsed),
-    );
+    this.sidebarToggle.addEventListener("click", () => {
+      this.setSidebarCollapsed(!this.sidebarCollapsed);
+      // The pane's own toggle goes with it; the toolbar's Filters button takes over.
+      if (this.sidebarCollapsed) this.filtersShowButton.focus();
+    });
+    // With the Filters pane collapsed, it is gone altogether and this toolbar button brings it back.
+    this.filtersShowButton = el(
+      "button",
+      { class: "ghost small filters-show", type: "button", title: "Show the Filters pane" },
+      ["» Filters"],
+    ) as HTMLButtonElement;
+    this.filtersShowButton.addEventListener("click", () => {
+      this.setSidebarCollapsed(false);
+      this.sidebarToggle.focus();
+    });
     sidebarHead.append(
       this.sidebarToggle,
       el("span", { class: "sidebar-title" }, ["Filters"]),
@@ -1558,6 +1585,7 @@ export class App {
 
     resultsRow.append(
       this.countEl,
+      this.filtersShowButton,
       this.filterChipsEl,
       this.addFilterButton,
       this.healthHost,
@@ -1653,10 +1681,12 @@ export class App {
   }
 
   /** Opens the fuzzy command palette (Ctrl/⌘+K or the "Enter a command" button). */
-  private openPalette(): void {
+  private openPalette(initial?: string): void {
     if (this.workspace.classList.contains("hidden")) return;
     openCommandBar({
+      ...(initial === undefined ? {} : { initial }),
       columns: () => this.metas,
+      cursorColumn: () => (this.view === "table" ? (this.table?.cursorColumn() ?? null) : null),
       onRun: (command) => this.runCommand(command),
     });
   }
@@ -1714,7 +1744,7 @@ export class App {
       ) {
         return;
       }
-      // Number keys follow the tabs on screen, so they change with the mode.
+      // Number keys follow the tabs, 1 to 9.
       const numbered = /^[1-9]$/.test(event.key) ? this.tabs?.visibleViews()[Number(event.key) - 1] : undefined;
       if (numbered !== undefined) this.setView(numbered);
       else if (
@@ -2735,13 +2765,6 @@ export class App {
     // A new table shows every column, none frozen.
     this.hiddenColumns = new Set();
     this.frozenThrough = -1;
-    // A new dataset always opens with the research tabs showing; sliding to General hides them until the next file.
-    if (loaded.type === "loaded" && this.mode !== "research") {
-      this.mode = "research";
-      writeMode("research");
-      this.modeSwitch?.setSelected("research");
-      this.tabs?.setResearch(true);
-    }
     const captured = this.chartsPanel?.captureConfigs() ?? this.chartRestore;
     const hadOrphans =
       (captured ?? []).some((config) => (config.missingColumns?.length ?? 0) > 0) ||
@@ -3082,7 +3105,6 @@ export class App {
       },
       onDeepDive: (series) => this.openSeries(series),
       onOpenMap: (config) => this.openMap(config),
-      research: () => this.mode === "research",
       onConvertToken: (column, tokens) => this.convertToken(column, tokens),
       onSuggestion: (column, suggestion) => this.applySuggestion(column, suggestion),
       onMapBrush: (selection) => this.filterToMapArea(selection),
@@ -3859,10 +3881,75 @@ export class App {
 
   private applySuggestion(column: number, suggestion: ColumnSuggestion): void {
     const name = this.metas[column]?.name ?? `Column ${column + 1}`;
+    if (suggestion.kind === "mixedNumber") {
+      void this.confirmDecimalRepair(column, name, suggestion);
+      return;
+    }
+    if (suggestion.kind === "signSuffix") {
+      void this.confirmSignSuffix(column, name, suggestion);
+      return;
+    }
     this.confirmFix(
       `Apply this fix to “${name}”?`,
       `${suggestionLabel(suggestion)}. The change is recorded in the Recipe and can be undone.`,
       "Apply fix",
+      () => this.applySuggestionNow(column, suggestion),
+    );
+  }
+
+  /**
+   * Reading comma-decimals is the user's decision (owner decision 2026-11-13), so
+   * the dialog states the exact number of values it will rewrite, counted over
+   * the whole column rather than the sample behind the chip, and what happens to
+   * them if the user declines.
+   */
+  private async confirmDecimalRepair(
+    column: number,
+    name: string,
+    suggestion: Extract<ColumnSuggestion, { kind: "mixedNumber" }>,
+  ): Promise<void> {
+    const existing = this.cleanedColumns.get(column) ?? [];
+    const preview = await this.client
+      .previewClean([{ column, ops: [...existing, { kind: "repairDecimal", locale: suggestion.locale }] }])
+      .catch(() => null);
+    const changed = preview?.columns[0]?.changed;
+    const count = changed === undefined ? "Some" : changed.toLocaleString();
+    const other = suggestion.locale === "dot" ? "a decimal comma (55348,13)" : "a decimal point (55348.13)";
+    const reading = suggestion.locale === "dot" ? "55348.13" : "55348,13";
+    this.confirmFix(
+      `Read decimal commas in “${name}”?`,
+      `${count} value${changed === 1 ? " is" : "s are"} written with ${other}, unlike the rest of this column. ` +
+        `Until you decide they are left out of totals and charts. Apply to read every one of them as a decimal (→ ${reading}); ` +
+        "Cancel to leave them as they are. The change is recorded in the Recipe and can be undone.",
+      changed === undefined ? "Apply fix" : `Read ${count} as decimals`,
+      () => this.applySuggestionNow(column, suggestion),
+    );
+  }
+
+  /**
+   * Which accounting suffix is money out depends on whose books the file comes
+   * from, so the user picks; the dialog states the exact count over the column
+   * and what each suffix will become.
+   */
+  private async confirmSignSuffix(
+    column: number,
+    name: string,
+    suggestion: Extract<ColumnSuggestion, { kind: "signSuffix" }>,
+  ): Promise<void> {
+    const existing = this.cleanedColumns.get(column) ?? [];
+    const preview = await this.client
+      .previewClean([{ column, ops: [...existing, { kind: "signSuffix", negative: suggestion.negative }] }])
+      .catch(() => null);
+    const changed = preview?.columns[0]?.changed;
+    const count = changed === undefined ? "Some" : changed.toLocaleString();
+    const positive = suggestion.negative === "DR" ? "CR" : "DR";
+    this.confirmFix(
+      `Read ${suggestion.negative} amounts as negative in “${name}”?`,
+      `${count} amount${changed === 1 ? " ends" : "s end"} in DR or CR. Until you decide they are left out of totals and charts. ` +
+        `Apply to read ${suggestion.negative} as negative (19215.35 ${suggestion.negative} → -19215.35) and ${positive} as positive ` +
+        `(19215.35 ${positive} → 19215.35). If ${suggestion.negative} is money in for these books, cancel and pick the other reading. ` +
+        "The change is recorded in the Recipe and can be undone.",
+      `Read ${suggestion.negative} as negative`,
       () => this.applySuggestionNow(column, suggestion),
     );
   }
@@ -3909,6 +3996,13 @@ export class App {
         // The ambiguous value text stays as-is; the column type decides how
         // ranges, sorting, histograms and exports read it.
         this.changeType(column, suggestion.kind);
+        break;
+      }
+      case "signSuffix": {
+        const existing = this.cleanedColumns.get(column) ?? [];
+        this.applyClean([
+          { column, ops: [...existing, { kind: "signSuffix", negative: suggestion.negative }] },
+        ]);
         break;
       }
       case "mixedNumber": {
@@ -4449,10 +4543,6 @@ export class App {
   }
 
   private setView(view: ViewId): void {
-    // Links and commands can still ask for a research view in General mode:
-    // switch modes (and say so) rather than open a page with no tab.
-    if (isResearchView(view) && this.mode !== "research") this.setMode("research");
-    if (!isResearchView(view)) this.lastGeneralView = view;
     this.syncPivotFilters(view);
     this.view = view;
     if (view === "table" || view === "chart" || view === "views") this.ensureFilters();
@@ -4671,9 +4761,6 @@ export class App {
       case "help":
         openHelpDrawer();
         break;
-      case "mode":
-        this.setMode(command.mode);
-        break;
       case "goto": {
         this.setView("table");
         const target = parseGoTo(command.target, this.resultCount, this.metas.map((meta) => meta.name));
@@ -4822,6 +4909,7 @@ export class App {
         sampleValues: async (column) => (await this.client.getColumnSample(column)).values,
         onApplySuggestion: (column, suggestion) => this.applySuggestionNow(column, suggestion),
         onUseAsDate: (column, order) => this.applyQuickClean(column, { kind: "toDate", order: order as DateOrder }),
+        onCommand: (text) => this.openPalette(text),
         onShowRows: (column, min, max) => {
           this.changeFilter(column, { kind: "range", min, max });
           this.setView("table");
@@ -5045,33 +5133,6 @@ export class App {
 
   private syncTabs(): void {
     this.tabs?.setSelected(this.view);
-  }
-
-  /**
-   * Shows or hides the research lenses. Leaving Research while one is open
-   * returns to the last general lens; the research pages keep their state.
-   */
-  private setMode(mode: AppMode): void {
-    if (mode === this.mode) return;
-    const previous = this.mode;
-    const previousView = this.view;
-    this.mode = mode;
-    writeMode(mode);
-    this.modeSwitch?.setSelected(mode);
-    this.tabs?.setResearch(mode === "research", !this.workspace.classList.contains("hidden"));
-    if (mode === "general" && isResearchView(this.view)) this.setView(this.lastGeneralView);
-    // Chart cards drop or restore their "Open in Time Series / Map" links.
-    if (this.view === "chart") this.chartsPanel?.repaint();
-    this.hints?.refresh();
-    const message =
-      mode === "research"
-        ? "Research mode: Time Series, Map, Outliers and Relationships are on the tab bar"
-        : "General mode: the research views are tucked away, and your work in them is kept";
-    this.setAction(message);
-    this.showToast(message, () => {
-      this.setMode(previous);
-      if (previousView !== this.view) this.setView(previousView);
-    });
   }
 
   /** Refreshes the health group and dataset stats after a worker update. */
@@ -6264,46 +6325,22 @@ export class App {
     return ok;
   }
 
-  /** Compact Table/Chart replacement for the old summary band. */
+  /**
+   * The toolbar's one "Issues · N ▾" control, as the column headers have: its menu shows the rows for each issue
+   * (duplicates, missing cells, outliers), then the fixes. A fix with choices of its own opens them from the same
+   * button. N counts issues, not fixes, so placeholders and their blank-them fix count once.
+   */
   private renderHealthGroup(): void {
     clear(this.healthHost);
     const stats = this.latestStats;
     if (stats === null) {
       this.healthChipCount = 0;
+      this.syncPaletteExample();
+      this.syncResearchTabs();
       return;
     }
-    let count = 0;
-    // One split chip per issue: label = issue and count (click = view), the
-    // small "Fix ▾" segment opens the fix. Keeps the strip to a single row.
-    const addChip = (
-      kind: SpecialKind,
-      label: string,
-      title: string,
-      fix?: HTMLButtonElement,
-    ): void => {
-      const chip = el(
-        "button",
-        {
-          class: "ghost small health-chip",
-          type: "button",
-          title,
-          "aria-pressed": this.specials.has(kind) ? "true" : "false",
-        },
-        [label],
-      ) as HTMLButtonElement;
-      chip.dataset.kind = kind;
-      chip.addEventListener("click", () => this.viewSpecial(kind));
-      if (fix === undefined) {
-        this.healthHost.append(chip);
-      } else {
-        fix.classList.add("health-fix");
-        const fixLabel = fix.textContent ?? "Fix";
-        fix.setAttribute("aria-label", fixLabel);
-        fix.textContent = "Fix ▾";
-        this.healthHost.append(el("span", { class: "split-chip" }, [chip, fix]));
-      }
-      count++;
-    };
+    const views: { kind: SpecialKind; label: string; title: string }[] = [];
+    const fixes: { label: string; title: string; run: (anchor: HTMLElement) => void }[] = [];
     const tokenTotals = new Map<string, number>();
     for (const meta of this.metas) {
       for (const token of meta.nullTokens) {
@@ -6312,140 +6349,132 @@ export class App {
         }
       }
     }
-    const placeholderTotal = [...tokenTotals.values()].reduce(
-      (sum, value) => sum + value,
-      0,
-    );
+    const placeholderTotal = [...tokenTotals.values()].reduce((sum, value) => sum + value, 0);
     if (stats.duplicateRows > 0) {
-      const remove = el(
-        "button",
-        {
-          class: "ghost small",
-          type: "button",
-          title: `Remove duplicate rows — ${stats.duplicateRows.toLocaleString()} redundant rows`,
-        },
-        [chipText("fix", "Remove duplicates…")],
-      ) as HTMLButtonElement;
-      remove.addEventListener("click", () =>
-        openDedupeMenu(remove, stats, (keep) => this.dropDuplicates(keep)),
-      );
-      addChip(
-        "duplicates",
-        `View duplicates · ${stats.duplicateRows.toLocaleString()}`,
-        "Show rows that belong to a duplicate group",
-        remove,
-      );
+      views.push({
+        kind: "duplicates",
+        label: `View duplicates · ${stats.duplicateRows.toLocaleString()}`,
+        title: "Show rows that belong to a duplicate group",
+      });
+      fixes.push({
+        label: "Remove duplicates…",
+        title: `Remove duplicate rows — ${stats.duplicateRows.toLocaleString()} redundant rows`,
+        run: (anchor) => openDedupeMenu(anchor, stats, (keep) => this.dropDuplicates(keep)),
+      });
     }
     const columnsWithNulls = this.metas
       .map((meta, index) => ({ meta, index, count: meta.stats.nulls }))
       .filter((entry) => entry.count > 0);
     if (columnsWithNulls.length > 0) {
-      const label =
-        placeholderTotal > 0
-          ? `View placeholders · ${placeholderTotal.toLocaleString()}`
-          : `View empty cells · ${columnsWithNulls.length.toLocaleString()} ${
-              columnsWithNulls.length === 1 ? "col" : "cols"
-            }`;
-      const fix = el(
-        "button",
-        {
-          class: "ghost small",
-          type: "button",
-          title:
-            "Fill the empty cells in one click: median or mean for numbers, the most common value for text",
-        },
-        [chipText("fix", placeholderTotal > 0 ? "placeholder cells…" : "empty cells…")],
-      ) as HTMLButtonElement;
-      fix.addEventListener("click", () =>
-        openMenu(fix, this.fillMenuItems(columnsWithNulls.map((entry) => entry.index))),
-      );
-      addChip(
-        "nulls",
-        label,
-        placeholderTotal > 0
-          ? "Show rows with missing cells, including placeholder text like “NA”"
-          : "Show rows with at least one empty cell",
-        fix,
-      );
+      views.push({
+        kind: "nulls",
+        label:
+          placeholderTotal > 0
+            ? `View placeholders · ${placeholderTotal.toLocaleString()}`
+            : `View empty cells · ${columnsWithNulls.length.toLocaleString()} ${columnsWithNulls.length === 1 ? "col" : "cols"}`,
+        title:
+          placeholderTotal > 0
+            ? "Show rows with missing cells, including placeholder text like “NA”"
+            : "Show rows with at least one empty cell",
+      });
+    }
+    // Placeholders first: blanking them is the one-click fix, and filling comes after.
+    if (placeholderTotal > 0) {
+      const ranked = [...tokenTotals.entries()].sort((a, b) => b[1] - a[1]).map(([label]) => label);
+      const examples = ranked.slice(0, 3).map((label) => `“${label}”`).join(", ");
+      fixes.push({
+        label: `Blank ${placeholderTotal.toLocaleString()} placeholders`,
+        title: `Blank ${placeholderTotal.toLocaleString()} placeholder cells (${examples}) across all columns. Filters and charts then treat them as missing instead of real categories. Undo is in the Recipe.`,
+        run: () =>
+          this.confirmFix(
+            `Convert ${placeholderTotal.toLocaleString()} placeholders to missing?`,
+            `Values such as ${examples} will become empty cells in every affected column. This is recorded in the Recipe and can be undone.`,
+            "Convert to missing",
+            () => this.applyNullPolicyAll(ranked, []),
+          ),
+      });
+    }
+    if (columnsWithNulls.length > 0) {
+      fixes.push({
+        label: placeholderTotal > 0 ? "Fill missing cells…" : "Fill empty cells…",
+        title: "Fill the empty cells in one click: median or mean for numbers, the most common value for text",
+        run: (anchor) => openMenu(anchor, this.fillMenuItems(columnsWithNulls.map((entry) => entry.index))),
+      });
     }
     if (stats.valueAnomalyRows > 0) {
+      views.push({
+        kind: "valueAnomalies",
+        label: `View outliers · ${stats.valueAnomalyRows.toLocaleString()}`,
+        title: "Show rows with a value outside the column fence",
+      });
       const outlierColumns = this.metas
-        .map((meta, index) => ({
-          meta,
-          index,
-          count: meta.anomalyCounts.values,
-        }))
+        .map((meta, index) => ({ meta, index, count: meta.anomalyCounts.values }))
         .filter((entry) => entry.count > 0)
         .sort((a, b) => b.count - a.count)
         .slice(0, 3);
       if (outlierColumns.length > 0) {
-        const fix = el(
-          "button",
-          {
-            class: "ghost small",
-            type: "button",
-            title: "Quick fixes for the columns with the most value outliers",
-          },
-          [chipText("fix", "outliers…")],
-        ) as HTMLButtonElement;
-        fix.addEventListener("click", () =>
-          openMenu(
-            fix,
-            this.outlierMenuItems(outlierColumns.map((entry) => entry.index)),
-          ),
-        );
-        addChip(
-          "valueAnomalies",
-          `View outliers · ${stats.valueAnomalyRows.toLocaleString()}`,
-          "Show rows with a value outside the column fence",
-          fix,
-        );
-      } else {
-        addChip(
-          "valueAnomalies",
-          `View outliers · ${stats.valueAnomalyRows.toLocaleString()}`,
-          "Show rows with a value outside the column fence",
-        );
+        fixes.push({
+          label: "Fix outliers…",
+          title: "Quick fixes for the columns with the most value outliers",
+          run: (anchor) => openMenu(anchor, this.outlierMenuItems(outlierColumns.map((entry) => entry.index))),
+        });
       }
     }
-    // Dataset-level placeholder action, always visible even when the affected
-    // column is scrolled off screen. Per-column chips live in the headers.
-    if (placeholderTotal > 0) {
-      const ranked = [...tokenTotals.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([label]) => label);
-      const examples = ranked.slice(0, 3).map((label) => `“${label}”`).join(", ");
-      const convert = el(
+    const count = views.length;
+    if (count > 0) {
+      const button = el(
         "button",
         {
-          class: "ghost small placeholder-action",
+          class: "ghost small health-issues",
           type: "button",
-          title: `Fix: blank ${placeholderTotal.toLocaleString()} placeholder cells (${examples}) across all columns. Filters and charts then treat them as missing instead of real categories. Undo is in the Recipe.`,
+          "aria-haspopup": "menu",
+          title: `${views.map((view) => view.label).join(", ")} — click to show the rows or fix them`,
         },
-        [`Fix: blank ${placeholderTotal.toLocaleString()} placeholders`],
+        [`Issues · ${count.toLocaleString()} ▾`],
       ) as HTMLButtonElement;
-      convert.addEventListener("click", () =>
-        this.confirmFix(
-          `Convert ${placeholderTotal.toLocaleString()} placeholders to missing?`,
-          `Values such as ${examples} will become empty cells in every affected column. This is recorded in the Recipe and can be undone.`,
-          "Convert to missing",
-          () => this.applyNullPolicyAll(ranked, []),
-        ),
-      );
-      this.healthHost.append(convert);
-      count++;
+      if (placeholderTotal > 0) button.classList.add("placeholder-action");
+      button.addEventListener("click", () => {
+        const items: MenuItem[] = [{ label: "Show rows", heading: true, action: () => undefined }];
+        for (const view of views) {
+          items.push({ label: view.label, title: view.title, checked: this.specials.has(view.kind) || undefined, action: () => this.viewSpecial(view.kind) });
+        }
+        if (fixes.length > 0) items.push({ label: "Fix", heading: true, action: () => undefined });
+        for (const fix of fixes) items.push({ label: fix.label, title: fix.title, action: () => fix.run(button) });
+        openMenu(button, items);
+      });
+      this.healthHost.append(button);
     }
     this.healthChipCount = count;
     this.healthHost.classList.toggle("hidden", this.view === "overview" || count === 0);
+    this.syncHealthChips();
+    this.syncPaletteExample();
+    this.syncResearchTabs();
+  }
+
+  /** Greys the research tabs this table has nothing for (no dates, no coordinates), with the reason on hover. */
+  private syncResearchTabs(): void {
+    const gaps = researchGaps(this.metas, this.rowCount);
+    for (const view of RESEARCH_VIEWS) this.tabs?.setUnavailable(view, gaps[view] ?? null);
+  }
+
+  /**
+   * The top bar's command button names a real command for this table ("Enter a command, e.g. fill
+   * [neighbourhood]"), the one the bar would suggest first. Redrawn with the issues, which is when it can change.
+   */
+  private syncPaletteExample(): void {
+    const example = commandExample(this.metas) ?? "";
+    if (example === this.paletteExample) return;
+    this.paletteExample = example;
+    this.paletteLabel.replaceChildren(
+      ...(example === "" ? ["Enter a command"] : ["Enter a command, e.g. ", ...usageParts(example, this.metas)]),
+    );
   }
 
   private syncHealthChips(): void {
-    for (const chip of this.healthHost.querySelectorAll<HTMLElement>(".health-chip")) {
-      const kind = chip.dataset.kind as SpecialKind | undefined;
-      const on = kind !== undefined && this.specials.has(kind);
-      chip.classList.toggle("active", on);
-      chip.setAttribute("aria-pressed", on ? "true" : "false");
-    }
+    const button = this.healthHost.querySelector<HTMLElement>(".health-issues");
+    if (button === null) return;
+    const on = [...this.specials].some((kind) => kind === "duplicates" || kind === "nulls" || kind === "valueAnomalies");
+    button.classList.toggle("active", on);
   }
 
   /** `⋯` menu on the Table and Chart lenses: Stats Report and friends. */
@@ -6914,8 +6943,8 @@ export class App {
   /** A setting changed in the panel: what already loaded says what it will take to apply it. */
   /**
    * The Settings number format reaches the table: number columns are written in it, and columns with big values (10,000 and up, so
-   * years and small codes stay as they are) get thousands separators unless the person turned them off. With no format chosen the
-   * table is left as it was, separators off unless asked for.
+   * years and small codes stay as they are; ID-like columns stay plain) get thousands separators unless the person turned them off.
+   * With no format chosen the separators follow the browser's locale.
    */
   private applyNumberFormatToTable(repaint: boolean): void {
     // Which columns get separators is worked out by the table from each column as it is now (Table.isGrouped).
@@ -6925,10 +6954,10 @@ export class App {
     }
   }
 
-  /** Whether a column shows thousands separators: the person's choice, else the Settings number format's rule. */
+  /** Whether a column shows thousands separators: the person's choice, else the default rule (big values, not an ID). */
   private groupedNow(column: number): boolean {
     if (this.displayGrouping.has(column)) return true;
-    if (this.groupingOff.has(column) || readSettings().numberFormat === "") return false;
+    if (this.groupingOff.has(column)) return false;
     return autoGroups(this.metas[column]);
   }
 
@@ -7329,13 +7358,11 @@ export class App {
    */
   private outlierMenuItems(columns: number[]): MenuItem[] {
     const items: MenuItem[] = [];
-    if (this.mode === "research") {
-      items.push({
-        label: "Review the outliers first…",
-        title: "See how confident each method is, then keep, fix or remove rows one by one",
-        action: () => this.setView("outliers"),
-      });
-    }
+    items.push({
+      label: "Review the outliers first…",
+      title: "See how confident each method is, then keep, fix or remove rows one by one",
+      action: () => this.setView("outliers"),
+    });
     for (const index of columns) {
       const meta = this.metas[index];
       if (meta === undefined) continue;
@@ -8119,7 +8146,6 @@ export class App {
       },
       removedRows: removed,
       removedRowsLost: this.bakedRows,
-      mode: this.mode,
       view: this.view,
       table: {
         filters: [...this.filters.entries()].flatMap(([column, filter]) => (nameOf(column) === null ? [] : [{ column: nameOf(column) as string, filter: JSON.parse(JSON.stringify(filter)) as ColumnFilter }])),
@@ -8328,7 +8354,6 @@ export class App {
       if (ws.quality.rules.length > 0) this.setRules(ws.quality.rules);
       this.updateStepsButton();
       this.refreshScore();
-      if (ws.mode !== this.mode) this.setMode(ws.mode);
       // However it was saved, it opens on the Table.
       this.setView("table");
       const steps = this.workspaceStepCount(ws);

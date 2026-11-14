@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { commandState, commandSuggestions, parseCommand } from "../src/ui/command-bar.js";
+import { commandState, commandSuggestions, ghostRest, parseCommand, unbracketColumns } from "../src/ui/command-bar.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
 
 function meta(overrides: Partial<ColumnMeta> = {}): ColumnMeta {
@@ -191,7 +191,7 @@ test("suggestions rank prefix matches first", () => {
   const suggestions = commandSuggestions("upp", columns);
   // The example picks a column the verb applies to (a text column), not the
   // first column in the file.
-  assert.equal(suggestions[0].usage, "upper region");
+  assert.equal(suggestions[0].usage, "upper [region]");
   assert.match(suggestions[0].hint, /UPPERCASE/);
   const empty = commandSuggestions("", columns);
   assert.ok(empty.length >= 8);
@@ -199,14 +199,14 @@ test("suggestions rank prefix matches first", () => {
 
 test("column completions finish any column name for a verb", () => {
   const round = commandSuggestions("round a", columns);
-  assert.equal(round[0]?.usage, "round amount");
+  assert.equal(round[0]?.usage, "round [amount]");
   assert.equal(round[0]?.command.kind, "transform");
 
   const upper = commandSuggestions("upper n", columns);
-  assert.equal(upper[0]?.usage, "upper notes", "prefix matches outrank contains");
+  assert.equal(upper[0]?.usage, "upper [notes]", "prefix matches outrank contains");
 
   const datetime = commandSuggestions("convert datetime not", columns);
-  assert.equal(datetime[0]?.usage, "datetime notes");
+  assert.equal(datetime[0]?.usage, "datetime [notes]");
   assert.equal(datetime[0]?.command.kind, "clean");
 
   const drop = commandSuggestions("drop", columns);
@@ -375,18 +375,8 @@ test("sort, filter, view and output commands parse", () => {
   const theme = parseCommand("theme dark", columns);
   assert.equal(theme.kind, "theme");
   if (theme.kind === "theme") assert.equal(theme.preference, "dark");
-  for (const [input, mode] of [
-    ["research", "research"],
-    ["research mode", "research"],
-    ["general", "general"],
-    ["mode general", "general"],
-    ["mode Research", "research"],
-  ] as const) {
-    const command = parseCommand(input, columns);
-    assert.equal(command.kind, "mode", input);
-    if (command.kind === "mode") assert.equal(command.mode, mode);
-  }
-  assert.equal(parseCommand("mode expert", columns).kind, "error");
+  // There is one mode now: the old switch commands are not commands any more.
+  for (const input of ["research", "general", "mode general"]) assert.equal(parseCommand(input, columns).kind, "error", input);
   const goto = parseCommand("go to file 12", columns);
   assert.equal(goto.kind, "goto");
   if (goto.kind === "goto") assert.equal(goto.target, "file 12");
@@ -396,7 +386,7 @@ test("sort, filter, view and output commands parse", () => {
 
 test("suggestions expose the new commands", () => {
   const melt = commandSuggestions("mel", columns);
-  assert.equal(melt[0]?.usage, "melt keep amount");
+  assert.equal(melt[0]?.usage, "melt keep [amount]");
   assert.equal(melt[0]?.command.kind, "transform");
   const all = commandSuggestions("", columns, 50);
   assert.ok(all.some((entry) => entry.usage.startsWith("melt")));
@@ -410,4 +400,68 @@ test("palette input state tracks verb and full-command recognition", () => {
   assert.equal(commandState("round amount", columns), "ready");
   assert.equal(commandState("trim notes", columns), "ready");
   assert.equal(commandState("convert datetime notes", columns), "ready");
+});
+
+test("columns can be written in square brackets, as in formulas", () => {
+  const trim = parseCommand("trim [notes]", columns);
+  assert.equal(trim.kind, "clean");
+  if (trim.kind === "clean") assert.equal(trim.column, 3);
+  const sort = parseCommand("sort [start station id] desc", columns);
+  assert.equal(sort.kind, "sort");
+  if (sort.kind === "sort") {
+    assert.equal(sort.column, 2);
+    assert.equal(sort.dir, -1);
+  }
+  const keys = parseCommand("keydup [amount], [Region]", columns);
+  assert.equal(keys.kind, "keyDuplicates");
+  // Brackets that are not a column (a regex class) are left as typed.
+  assert.equal(unbracketColumns("splitregex [notes] on [a-z]+", columns), "splitregex notes on [a-z]+");
+  // A half-typed bracket still completes to the column, written back in brackets.
+  assert.equal(commandSuggestions("trim [no", columns)[0]?.usage, "trim [notes]");
+  // A formula's own [column] references are not unwrapped.
+  const formula = parseCommand("add column total = [amount] * 2", columns);
+  assert.equal(formula.kind, "addColumn");
+  if (formula.kind === "addColumn") assert.equal(formula.formula, "[amount] * 2");
+});
+
+test("the grey completion continues what was typed, with or without the brackets", () => {
+  assert.equal(ghostRest("tri", "trim [notes]"), "m [notes]");
+  assert.equal(ghostRest("trim [no", "trim [notes]"), "tes]");
+  assert.equal(ghostRest("trim no", "trim [notes]"), "tes");
+  assert.equal(ghostRest("TRIM", "trim [notes]"), " [notes]");
+  assert.equal(ghostRest("round", "trim [notes]"), "");
+  assert.equal(ghostRest("", "trim [notes]"), "");
+});
+
+test("after the column, the bar suggests what comes next from the column itself", () => {
+  const cols: ColumnMeta[] = [
+    meta({ name: "price", type: "number", stats: { ...meta().stats, mean: 12.345, min: 1, max: 99 } }),
+    meta({ name: "city", type: "category", categories: { labels: ["(empty)", "Paris", "New York", "N/A"], counts: [9, 5, 7, 2] } }),
+  ];
+  const round = commandSuggestions("round [price] ", cols);
+  assert.deepEqual(round.map((s) => s.usage), ["round [price] 0", "round [price] 1", "round [price] 2"]);
+  assert.match(round[1]!.hint, /12\.3/);
+  assert.equal(round[1]!.command.kind, "transform");
+  assert.deepEqual(commandSuggestions("sort [price] d", cols).map((s) => s.usage), ["sort [price] desc"]);
+  // Real values, most rows first, quoted when they hold a space; blanks and placeholders are not offered.
+  assert.deepEqual(commandSuggestions("filter [city] ", cols).map((s) => s.usage), ['filter [city] "New York"', "filter [city] Paris"]);
+  assert.equal(commandSuggestions("fill [price] ", cols)[0]!.usage, "fill [price] median");
+  assert.equal(commandSuggestions("fill [city] ", cols)[0]!.usage, "fill [city] mode");
+  // Without the trailing space the column itself is still being chosen.
+  assert.equal(commandSuggestions("sort [price]", cols)[0]!.usage, "sort [price]");
+});
+
+test("a column name on its own lists what can be done to it, the useful things first", () => {
+  const cols: ColumnMeta[] = [
+    meta({ name: "price", type: "number", anomalyCounts: { values: 2, lengths: 0 } }),
+    meta({ name: "city", type: "category", stats: { ...meta().stats, nulls: 4 } }),
+  ];
+  const price = commandSuggestions("pri", cols).map((s) => s.usage);
+  assert.equal(price[0], "flag [price]", "outliers to act on come first");
+  assert.ok(price.includes("sort [price]"));
+  assert.ok(!price.includes("fill [price]"), "nothing missing, so no fill");
+  assert.equal(new Set(price).size, price.length, "no duplicates");
+  const city = commandSuggestions("city", cols);
+  assert.equal(city[0]?.usage, "fill [city]");
+  assert.match(city[0]?.hint ?? "", /4 missing/);
 });

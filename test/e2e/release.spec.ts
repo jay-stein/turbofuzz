@@ -2,17 +2,6 @@ import { test, expect } from "@playwright/test";
 import { gzipSync } from "node:zlib";
 import { zipSync, strToU8 } from "fflate";
 
-// Outliers, Relationships, Time Series and Map are Research-mode tabs, and every new
-// dataset opens in General: switch Research on whenever the switch shows General.
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    new MutationObserver(() => {
-      const research = document.querySelector<HTMLElement>('.mode-switch-option[data-mode="research"][aria-checked="false"]');
-      if (research !== null && !document.querySelector(".workspace.hidden")) research.click();
-    }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-checked", "class"] });
-  });
-});
-
 function collectErrors(page: import("@playwright/test").Page): {
   consoleErrors: string[];
   pageErrors: string[];
@@ -167,9 +156,10 @@ test("a view chip ignores other filters", async ({ page }) => {
   await expect(rows).toHaveCount(27);
   await expect(page.locator(".filter-chip")).toHaveCount(1);
 
-  await page.locator(".health-chip", { hasText: "View outliers" }).click();
+  await page.locator(".health-issues").click();
+  await page.locator(".context-item", { hasText: /^View outliers/ }).click();
   await expect(rows).toHaveCount(1);
-  await expect(rows.first()).toContainText("18000");
+  await expect(rows.first()).toContainText("18,000");
   await expect(page.locator(".filter-chip")).toHaveCount(0);
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);

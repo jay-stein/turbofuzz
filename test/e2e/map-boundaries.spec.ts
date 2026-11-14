@@ -6,7 +6,6 @@ test("boundaries load from a button beside Cities, labels switch off, and the bo
   await page.locator('input[type="file"]').first().setInputFiles({ name: "r.csv", mimeType: "text/csv", buffer: Buffer.from("region,sales\nAlpha,10\nBeta,20\nGamma,30\nAlpha,5\n") });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Map" }).first().click();
   await expect(page.getByRole("button", { name: "Clear boundaries" })).toBeHidden();
   const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Boundaries…", exact: true }).click()]);

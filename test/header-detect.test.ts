@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { detectTable } from "../src/parse/header-detect.js";
 
 test("skips title rows and finds a single header row", () => {
@@ -246,4 +247,75 @@ test("a code the file's own notes say means missing is read from the rows above 
   assert.deepEqual(statedMissingCodes([["Note: A value of '-9' is used for a missing/unknown value."]]), ["-9"]);
   assert.deepEqual(statedMissingCodes([["999 = unknown"], ["Missing values are coded as -99"]]).sort(), ["-99", "999"]);
   assert.deepEqual(statedMissingCodes([["Australian Road Deaths Database"], ["(Data current to September 2026)"]]), []);
+});
+
+test("trailing Total rows are left out as summary rows, not data", () => {
+  const card = detectTable([
+    ["Txn ID", "Date", "Merchant", "Amount"],
+    ["TXN1", "2024-01-01", "Tesco", "-18.46"],
+    ["TXN2", "2024-01-02", "Uber", "-8.87"],
+    ["TOTAL", "", "", "-27.33"],
+  ]);
+  assert.equal(card.rows.length, 2);
+  assert.equal(card.footerRows, 1);
+
+  const budget = detectTable([
+    ["Dept", "Jan", "Feb"],
+    ["Sales", "100", "120"],
+    ["Ops", "80", "90"],
+    [],
+    ["Grand total:", "180", "210"],
+  ]);
+  assert.equal(budget.rows.length, 2);
+
+  const lookalike = detectTable([
+    ["Supplier", "Amount"],
+    ["Shell", "10"],
+    ["TotalEnergies", "12"],
+  ]);
+  assert.equal(lookalike.rows.length, 2);
+  assert.equal(lookalike.rows[1][0], "TotalEnergies");
+});
+
+test("a two-level header carries the upper label across its merged span, and names stay unique", () => {
+  const table = detectTable([
+    ["FY2025 Budget vs Actual"],
+    [],
+    ["", "", "Jan", "", "Feb", ""],
+    ["Dept", "Cost centre", "Budget", "Actual", "Budget", "Actual"],
+    ["Sales", "CC870", "69,000", "65,957", "49,000", "53,795"],
+    ["Ops", "CC542", "118,000", "105,576", "200,000", "192,376"],
+  ]);
+  assert.deepEqual(table.headers, ["Dept", "Cost centre", "Jan Budget", "Jan Actual", "Feb Budget", "Feb Actual"]);
+
+  const flat = detectTable([
+    ["Region", "Actual", "Actual", "Actual 2"],
+    ["North", "1", "2", "3"],
+    ["South", "4", "5", "6"],
+  ]);
+  assert.deepEqual(flat.headers, ["Region", "Actual", "Actual 3", "Actual 2"]);
+});
+
+test("a record that only looks like a header loses to the real header above it", () => {
+  // First 30 lines of the 2026-11-12 card export: title lines, the header, then
+  // text-heavy records. Row 17 ("TXN100379, 02/11/2023, BRITISH GAS, -, …") used
+  // to win, dropping the real header and 13 transactions.
+  const grid = JSON.parse(readFileSync("test/fixtures/card-export-head.json", "utf8")) as string[][];
+  const table = detectTable(grid);
+  assert.equal(table.headers[0], "Txn ID");
+  assert.equal(table.skipRows, 3);
+});
+
+test("a merged Excel title spread across the row is not taken as the header", () => {
+  const table = detectTable([
+    ["Q1 payments", "Q1 payments", "Q1 payments", "Q1 payments"],
+    [],
+    ["Date", "Payee", "Amount", "Posted"],
+    ["2025-01-01", "Payee 1", "-1234.5", "2025-01-01 09:30"],
+    ["2025-01-02", "Payee 2", "-2469", "2025-01-02 09:30"],
+    ["2025-01-03", "Payee 3", "-3703.5", "2025-01-03 09:30"],
+    ["2025-01-04", "Payee 0", "-4938", "2025-01-04 09:30"],
+  ]);
+  assert.deepEqual(table.headers, ["Date", "Payee", "Amount", "Posted"]);
+  assert.equal(table.rows.length, 4);
 });

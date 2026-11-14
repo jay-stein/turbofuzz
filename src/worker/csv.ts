@@ -25,29 +25,37 @@ export function csvEscape(value: string): string {
 /**
  * Export value for one cell. Typed columns emit their parsed value — numbers
  * lose currency/grouping symbols, dates/timestamps become ISO, times `HH:MM`,
- * durations `H:MM:SS` — and unparseable cells export as blank. Text columns
- * keep their raw cell unless nullAsBlank is on.
+ * durations `H:MM:SS`. A typed cell that does not parse (e.g. "19215.35 DR")
+ * keeps its original text: an export must never blank a value the table shows.
+ * Only recognised missing markers become blank, and only when nullAsBlank is on.
  */
+/** The original text of a typed cell that did not parse; blank only for missing markers. */
+function unparsedCell(column: ColumnData, row: number, nullAsBlank: boolean): string {
+  const raw = column.raw[row] ?? "";
+  if (raw.trim() === "") return "";
+  return nullAsBlank && column.isNull(raw) ? "" : raw;
+}
+
 function exportCell(column: ColumnData, row: number, nullAsBlank: boolean): string {
   if (column.type === "integer" || column.type === "number") {
     const value = column.numbers()[row];
-    return Number.isFinite(value) ? String(value) : "";
+    return Number.isFinite(value) ? String(value) : unparsedCell(column, row, nullAsBlank);
   }
   if (column.type === "date") {
     const value = column.numbers()[row];
-    return Number.isFinite(value) ? toDateInputValue(value) : "";
+    return Number.isFinite(value) ? toDateInputValue(value) : unparsedCell(column, row, nullAsBlank);
   }
   if (column.type === "datetime") {
     const value = column.numbers()[row];
-    return Number.isFinite(value) ? toDateTimeValue(value) : "";
+    return Number.isFinite(value) ? toDateTimeValue(value) : unparsedCell(column, row, nullAsBlank);
   }
   if (column.type === "time") {
     const value = column.numbers()[row];
-    return Number.isFinite(value) ? toTimeInputValue(value) : "";
+    return Number.isFinite(value) ? toTimeInputValue(value) : unparsedCell(column, row, nullAsBlank);
   }
   if (column.type === "duration") {
     const value = column.numbers()[row];
-    return Number.isFinite(value) ? formatDurationMs(value) : "";
+    return Number.isFinite(value) ? formatDurationMs(value) : unparsedCell(column, row, nullAsBlank);
   }
   const raw = column.raw[row];
   if (nullAsBlank && column.isNull(raw)) return "";

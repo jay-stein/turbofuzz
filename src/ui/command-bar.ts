@@ -7,11 +7,12 @@ import type { HeaderCaseStyle } from "../data/headers.js";
 import type { TransformOp } from "../data/transform-ops.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ColumnType } from "../types.js";
-import type { AppMode } from "./mode.js";
 import type { ThemePreference } from "./theme.js";
 import type { ViewId } from "./view-tabs.js";
 import { openConfirm } from "./dialog.js";
 import { el } from "./dom.js";
+import { columnBenefit, fitNote, rankColumns } from "./command-columns.js";
+import { isNullToken } from "../parse/null-tokens.js";
 
 /** What a typed command means, or a friendly parse error. */
 export type ParsedCommand =
@@ -46,7 +47,6 @@ export type ParsedCommand =
   | { kind: "recipe"; label: string }
   | { kind: "help"; label: string }
   | { kind: "theme"; preference: ThemePreference; label: string }
-  | { kind: "mode"; mode: AppMode; label: string }
   | { kind: "goto"; target: string; label: string }
   | { kind: "reverse"; label: string }
   | { kind: "addColumn"; name?: string; formula?: string; label: string }
@@ -185,13 +185,6 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
   { name: "help", aliases: ["guide"], hint: "Open the in-app help guide" },
   { name: "theme", aliases: [], hint: "Set the theme — “theme dark”, “theme light” or “theme auto”" },
   {
-    name: "research",
-    aliases: ["research mode"],
-    hint: "Research mode: shows Time Series, Map, Outliers and Relationships on the tabs",
-  },
-  { name: "general", aliases: ["general mode"], hint: "General mode: the everyday tabs only" },
-  { name: "mode", aliases: [], hint: "Switch mode — “mode research” or “mode general”" },
-  {
     name: "goto",
     aliases: ["go to", "jump to", "jump"],
     hint: "Go to a row or column in the Table — “goto 250”, “goto -1”, “goto 50%”, “goto file 1234”, “goto amount”",
@@ -208,6 +201,22 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
 
 function normalise(value: string): string {
   return value.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Columns are written in square brackets, as in formulas: “trim [city]”, “sort [start station id] desc”. A
+ * bracketed real column name is unwrapped before parsing, so brackets are optional and names with spaces are
+ * unambiguous. Brackets around anything else (a regex such as [a-z]+) are left alone.
+ */
+export function unbracketColumns(text: string, columns: readonly ColumnMeta[]): string {
+  if (!text.includes("[")) return text;
+  const names = new Set(columns.map((column) => column.name.trim().toLowerCase()));
+  return text.replace(/\[([^\]]+)\]/g, (whole, name: string) => (names.has(name.trim().toLowerCase()) ? name.trim() : whole));
+}
+
+/** A column as the palette writes it: in square brackets. */
+export function bracket(name: string): string {
+  return `[${name}]`;
 }
 
 /** Best column match for the remaining query, by name prefix/contains. */
@@ -230,6 +239,9 @@ function findColumn(text: string, columns: readonly ColumnMeta[]): number {
   });
   return bestScore >= 40 ? best : -1;
 }
+
+/** Column verbs whose example picks a text column its own way (pickTextColumn), not by the ranking. */
+const TEXT_PICKED = new Set(["type", "filter", "chart"]);
 
 /** Verbs that take a column argument. */
 const ALL_VERBS = new Set(["upper", "lower", "title", "trim"]);
@@ -397,7 +409,9 @@ function splitVerb(input: string): { verb: string; rest: string } | null {
  * "drop notes", "clean", "views".
  */
 export function parseCommand(input: string, columns: readonly ColumnMeta[]): ParsedCommand {
-  const text = input.trim();
+  // A formula keeps its [column] references as written: they are the formula's own syntax.
+  const raw = input.trim();
+  const text = splitVerb(raw)?.verb === "addcolumn" ? raw : unbracketColumns(raw, columns).trim();
   if (text === "") return { kind: "error", message: "Type a command, e.g. “upper amount”." };
   const split = splitVerb(text);
   if (split === null) {
@@ -1187,20 +1201,99 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
       if (!Number.isFinite(n) || n < 1) return { kind: "error", message: `How many rows? “${verb} 100”, or “${verb} all” for every row.` };
       return { kind: "rowLimit", limit: { from: verb, n: Math.floor(n) }, label: `Kept the ${verb === "head" ? "first" : "last"} ${Math.floor(n)} rows` };
     }
-    case "research":
-      return { kind: "mode", mode: "research", label: "Switched to Research mode" };
-    case "general":
-      return { kind: "mode", mode: "general", label: "Switched to General mode" };
-    case "mode": {
-      const mode = normalise(rest);
-      if (mode !== "research" && mode !== "general") {
-        return { kind: "error", message: "Mode needs general or research — “mode research”." };
-      }
-      return { kind: "mode", mode, label: `Switched to ${mode === "research" ? "Research" : "General"} mode` };
-    }
     default:
       return { kind: "error", message: `Unrecognised command “${verb}”.` };
   }
+}
+
+/** Commands that take something after the column, which the palette suggests once the column is written. */
+const ARG_VERBS = new Set(["round", "sort", "fill", "filter", "type"]);
+
+/** The words after a column that name it exactly (case and _ ignored), longest first, and what follows. */
+function exactColumnPrefix(text: string, columns: readonly ColumnMeta[]): { index: number; rest: string } | null {
+  const words = text.trim().split(/\s+/).filter((word) => word !== "");
+  for (let take = words.length; take >= 1; take--) {
+    const candidate = normalise(words.slice(0, take).join(" "));
+    const index = columns.findIndex((meta) => normalise(meta.name) === candidate);
+    if (index >= 0) return { index, rest: words.slice(take).join(" ") };
+  }
+  return null;
+}
+
+const shortNumber = (value: number): string => value.toLocaleString(undefined, { maximumFractionDigits: 6 });
+
+/** What can follow “verb [column] ”, worked out from the column itself, each with a one-line why. */
+function argumentOptions(verb: string, meta: ColumnMeta): { arg: string; hint: string }[] {
+  const numeric = meta.type === "integer" || meta.type === "number";
+  switch (verb) {
+    case "round": {
+      const sample = meta.stats.mean ?? meta.stats.max;
+      return [0, 1, 2].map((decimals) => ({
+        arg: String(decimals),
+        hint:
+          sample === null
+            ? `${decimals} decimal${decimals === 1 ? "" : "s"}`
+            : `${decimals} decimal${decimals === 1 ? "" : "s"} — ${shortNumber(sample)} → ${sample.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`,
+      }));
+    }
+    case "sort":
+      return [
+        { arg: "asc", hint: numeric ? "Smallest first" : meta.type === "date" || meta.type === "datetime" ? "Oldest first" : "A to Z" },
+        { arg: "desc", hint: numeric ? "Largest first" : meta.type === "date" || meta.type === "datetime" ? "Newest first" : "Z to A" },
+      ];
+    case "fill": {
+      const common = meta.stats.topValues[0]?.label;
+      const mode = { arg: "mode", hint: common === undefined ? "The most common value" : `The most common value — “${common}”` };
+      const fromRows = [
+        { arg: "forward", hint: "The value above (for ordered data)" },
+        { arg: "backward", hint: "The value below" },
+        { arg: "constant", hint: "One value you type — “fill … constant 0”" },
+      ];
+      return numeric
+        ? [
+            { arg: "median", hint: "The middle value — not pulled by outliers" },
+            { arg: "mean", hint: meta.stats.mean === null ? "The average" : `The average — ${shortNumber(meta.stats.mean)}` },
+            mode,
+            ...fromRows,
+          ]
+        : [mode, ...fromRows];
+    }
+    case "filter": {
+      if (numeric && meta.stats.min !== null && meta.stats.max !== null) {
+        return [{ arg: `${meta.stats.min}..${meta.stats.max}`, hint: "A range — edit either end; leave one out for open-ended" }];
+      }
+      const labels = meta.categories?.labels ?? meta.stats.topValues.map((top) => top.label);
+      const counts = meta.categories?.counts ?? meta.stats.topValues.map((top) => top.count);
+      return labels
+        .map((label, index) => ({ label, count: counts[index] ?? 0 }))
+        // Blank cells are not a value to type; “filter … blank” lives in the filter panel.
+        .filter((entry) => entry.label !== "" && entry.label !== "(empty)" && !isNullToken(entry.label))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 8)
+        .map((entry) => ({
+          arg: /\s/.test(entry.label) ? `"${entry.label}"` : entry.label,
+          hint: `${entry.count.toLocaleString()} ${entry.count === 1 ? "row" : "rows"}`,
+        }));
+    }
+    case "type":
+      return (["number", "integer", "date", "datetime", "category", "text", "boolean"] as const)
+        .filter((type) => !(type === "text" ? meta.type === "string" : meta.type === type))
+        .map((type) => ({ arg: type, hint: `Change “${meta.name}” to ${type === "text" ? "text" : type}` }));
+    default:
+      return [];
+  }
+}
+
+/** What a column name typed on its own offers, in this order; the ones with something to act on rise to the top. */
+const COLUMN_FIRST = [
+  "fill", "flag", "winsorize", "merge", "sort", "filter", "chart", "round", "trim", "upper", "lower", "title",
+  "date", "number", "rename", "type", "split", "replace", "drop",
+];
+
+/** Whether a suggestion still wants something after its column (taking it adds a space so those show next). */
+export function takesArgument(usage: string): boolean {
+  const verb = usage.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  return ARG_VERBS.has(verb) && usage.trimEnd().endsWith("]");
 }
 
 /** Suggestions for the palette: every command, best prefix match first. */
@@ -1208,59 +1301,59 @@ export function commandSuggestions(
   input: string,
   columns: readonly ColumnMeta[],
   limit = 8,
+  context: { cursorColumn?: number | null } = {},
 ): CommandSuggestion[] {
   const text = input.trim();
-  // Examples pick a column the verb actually applies to (dates for "date",
-  // numbers for "round"), so the base list is not fixated on the first column.
-  const pickColumn = (verb: string): string =>
-    columns.find((meta) => columnFitsVerb(verb, meta))?.name ?? columns[0]?.name ?? "amount";
-  const pickTextColumn = (): string =>
-    columns.find(
-      (meta) =>
-        meta.type === "string" || meta.type === "category" || meta.type === "identifier",
-    )?.name ??
-    columns[0]?.name ??
-    "notes";
+  const cursor = context.cursorColumn ?? null;
+  // Examples pick the column a verb would do most for: the selected one, then one with something to act on
+  // (missing cells for "fill", outliers for "flag"), never an ID for maths, then the file's order.
+  const ranked = (verb: string) => rankColumns(verb, columns, columnFitsVerb, cursor);
+  const pickColumn = (verb: string): string => ranked(verb)[0]?.meta.name ?? columns[0]?.name ?? "amount";
+  const pickTextColumn = (): string => {
+    const textish = (meta: ColumnMeta): boolean =>
+      meta.type === "string" || meta.type === "category" || meta.type === "identifier";
+    const selected = cursor === null ? undefined : columns[cursor];
+    if (selected !== undefined && textish(selected)) return selected.name;
+    return columns.find(textish)?.name ?? columns[0]?.name ?? "notes";
+  };
   const specialExample = (name: string): string | null => {
     switch (name) {
       case "keydup":
-        return `keydup ${columns[0]?.name ?? "order_id"}, ${columns[1]?.name ?? "customer_id"}`;
+        return `keydup ${bracket(columns[0]?.name ?? "order_id")}, ${bracket(columns[1]?.name ?? "customer_id")}`;
       case "melt":
-        return `melt keep ${columns[0]?.name ?? "region"}`;
+        return `melt keep ${bracket(columns[0]?.name ?? "region")}`;
       case "combine":
         return "combine dates";
       case "knn":
-        return `knn ${pickColumn("knn")} 5`;
+        return `knn ${bracket(pickColumn("knn"))} 5`;
       case "splitregex":
-        return `splitregex ${pickColumn("splitregex")} on \\d+`;
+        return `splitregex ${bracket(pickColumn("splitregex"))} on \\d+`;
       case "replace":
-        return `replace ${pickColumn("replace")} "old" with "new"`;
+        return `replace ${bracket(pickColumn("replace"))} "old" with "new"`;
       case "type":
-        return `type ${pickTextColumn()} number`;
+        return `type ${bracket(pickTextColumn())} number`;
       case "rename":
-        return `rename ${pickColumn("rename")} renamed`;
+        return `rename ${bracket(pickColumn("rename"))} renamed`;
       case "sort":
-        return `sort ${pickColumn("sort")} desc`;
+        return `sort ${bracket(pickColumn("sort"))} desc`;
       case "filter":
-        return `filter ${pickTextColumn()} active`;
+        return `filter ${bracket(pickTextColumn())} active`;
       case "clear":
         return "clear filters";
       case "merge":
-        return `merge ${pickColumn("merge")}`;
+        return `merge ${bracket(pickColumn("merge"))}`;
       case "chart":
-        return `chart ${pickTextColumn()}`;
+        return `chart ${bracket(pickTextColumn())}`;
       case "headercase":
         return "headercase snake";
       case "dropempty":
         return "dropempty";
       case "winsorize":
-        return `winsorize ${pickColumn("winsorize")} 1`;
+        return `winsorize ${bracket(pickColumn("winsorize"))} 1`;
       case "flag":
-        return `flag ${pickColumn("flag")}`;
+        return `flag ${bracket(pickColumn("flag"))}`;
       case "theme":
         return "theme dark";
-      case "mode":
-        return "mode research";
       case "goto":
         return "goto -1";
       default:
@@ -1268,20 +1361,45 @@ export function commandSuggestions(
     }
   };
   const example = (name: string): string =>
-    specialExample(name) ?? (COLUMN_VERBS.has(name) ? `${name} ${pickColumn(name)}` : name);
-  const base: CommandSuggestion[] = VERBS.map((verb) => ({
-    usage: example(verb.name),
-    hint: verb.hint,
-    command: parseCommand(example(verb.name), columns),
-  }));
+    specialExample(name) ?? (COLUMN_VERBS.has(name) ? `${name} ${bracket(pickColumn(name))}` : name);
+  // A column command's hint ends with why its example column was picked ("45 missing", "selected column").
+  const noted: { suggestion: CommandSuggestion; acts: boolean }[] = VERBS.map((verb) => {
+    const usage = example(verb.name);
+    const top = COLUMN_VERBS.has(verb.name) && !TEXT_PICKED.has(verb.name) ? ranked(verb.name)[0] : undefined;
+    const note = top === undefined ? "" : fitNote(top);
+    return {
+      suggestion: { usage, hint: note === "" ? verb.hint : `${verb.hint} · ${note}`, command: parseCommand(usage, columns) },
+      acts: top !== undefined && top.fit.score > 0,
+    };
+  });
+  const base = noted.map((entry) => entry.suggestion);
   const text2 = normalise(text);
-  if (text2 === "") return base.slice(0, limit);
+  // Opened empty, the commands with something real to act on in this table come first.
+  if (text2 === "") return [...noted.filter((e) => e.acts), ...noted.filter((e) => !e.acts)].map((e) => e.suggestion).slice(0, limit);
+
+  // Verb + column + space: suggest what comes next (decimals, direction, method, values, type).
+  const head = splitVerb(unbracketColumns(input, columns));
+  if (head !== null && ARG_VERBS.has(head.verb)) {
+    const target = exactColumnPrefix(head.rest, columns);
+    const meta = target === null ? undefined : columns[target.index];
+    if (target !== null && meta !== undefined && (target.rest !== "" || /\s$/.test(input))) {
+      const typed = normalise(target.rest.replace(/"/g, ""));
+      const args = argumentOptions(head.verb, meta)
+        .filter((option) => normalise(option.arg.replace(/"/g, "")).startsWith(typed))
+        .slice(0, limit)
+        .map((option) => {
+          const usage = `${head.verb} ${bracket(meta.name)} ${option.arg}`;
+          return { usage, hint: option.hint, command: parseCommand(usage, columns) };
+        });
+      if (args.length > 0) return args;
+    }
+  }
 
   // Verb + partial column: complete against every matching column of the
   // right type, so any column name can be finished from the palette.
   const prefix = longestVerbPrefix(text);
   if (prefix !== null && COLUMN_VERBS.has(prefix.verb)) {
-    const rest = text2.slice(prefix.length).trim();
+    const rest = text2.slice(prefix.length).replace(/[[\]]/g, "").trim();
     const hint = VERBS.find((verb) => verb.name === prefix.verb)?.hint ?? "";
     // "<verb> all" applies a value clean to every column at once.
     if (rest === "all" && ALL_VERBS.has(prefix.verb)) {
@@ -1294,24 +1412,49 @@ export function commandSuggestions(
         },
       ];
     }
-    const completions = columns
-      .map((meta, index) => ({
-        meta,
-        index,
-        score: columnMatchScore(normalise(meta.name), rest),
-      }))
-      .filter((entry) => entry.score > 0 && columnFitsVerb(prefix.verb, entry.meta))
-      .sort((a, b) => b.score - a.score || a.index - b.index)
+    // Name match first (what was typed), then the ranking: selected, something to act on, file order.
+    const completions = ranked(prefix.verb)
+      .map((entry, order) => ({ entry, order, score: columnMatchScore(normalise(entry.meta.name), rest) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => (rest === "" ? 0 : b.score - a.score) || a.order - b.order)
       .slice(0, limit)
-      .map(({ meta }) => {
-        const usage = `${prefix.verb} ${meta.name}`;
+      .map(({ entry }) => {
+        const usage = `${prefix.verb} ${bracket(entry.meta.name)}`;
+        const note = fitNote(entry);
         return {
           usage,
-          hint: hint === "" ? meta.name : `${hint} · ${meta.name}`,
+          hint: note === "" ? hint : `${hint} · ${note}`,
           command: parseCommand(usage, columns),
         };
       });
     if (completions.length > 0) return completions;
+  }
+
+  // A column name on its own lists what can be done to it: the commands with something to act on first, and
+  // none that would change nothing (“fill” on a column with nothing missing).
+  const columnActions: CommandSuggestion[] = [];
+  if (prefix === null) {
+    const needle = text2.replace(/[[\]]/g, "").trim();
+    const hits = columns
+      .map((meta, index) => ({ meta, index, score: columnMatchScore(normalise(meta.name), needle) }))
+      .filter((hit) => hit.score >= 60 && hit.meta.role !== "provenance")
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .slice(0, 2);
+    for (const hit of hits) {
+      const offers = COLUMN_FIRST.filter((verb) => columnFitsVerb(verb, hit.meta))
+        .map((verb, order) => ({ verb, order, fit: columnBenefit(verb, hit.meta) }))
+        .filter((offer) => offer.fit.score >= 0)
+        .sort((a, b) => Number(b.fit.score > 0) - Number(a.fit.score > 0) || a.order - b.order);
+      for (const offer of offers) {
+        const usage = `${offer.verb} ${bracket(hit.meta.name)}`;
+        const hint = VERBS.find((verb) => verb.name === offer.verb)?.hint ?? "";
+        columnActions.push({
+          usage,
+          hint: offer.fit.reason === "" ? hint : `${hint} · ${offer.fit.reason}`,
+          command: parseCommand(usage, columns),
+        });
+      }
+    }
   }
 
   const scored = base
@@ -1324,17 +1467,69 @@ export function commandSuggestions(
       else if (usage.includes(text2)) score = 40;
       return { suggestion, score };
     })
-    .filter((entry) => entry.score >= 0)
+    // When the text names a column, its own list below says it better than examples that happen to mention it.
+    .filter((entry) => entry.score >= (columnActions.length > 0 ? 60 : 0))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map((entry) => entry.suggestion);
-  if (scored.length > 0) return scored;
+  if (scored.length > 0 || columnActions.length > 0) {
+    const seen = new Set<string>();
+    return [...scored, ...columnActions].filter((s) => !seen.has(s.usage) && seen.add(s.usage) !== undefined).slice(0, limit);
+  }
   const parsed = parseCommand(text, columns);
   return [{ usage: text, hint: parsed.kind === "error" ? parsed.message : "Run this command", command: parsed }];
 }
 
+/**
+ * A suggestion's text with each bracketed column set apart from the action words: the brackets dimmed and the
+ * name in the column colour, so “trim [city]” reads as an action and the column it acts on.
+ */
+export function usageParts(usage: string, columns: readonly ColumnMeta[]): (Node | string)[] {
+  const names = new Set(columns.map((column) => column.name.trim().toLowerCase()));
+  const parts: (Node | string)[] = [];
+  let at = 0;
+  for (const match of usage.matchAll(/\[([^\]]+)\]/g)) {
+    const start = match.index ?? 0;
+    if (!names.has((match[1] ?? "").trim().toLowerCase())) continue;
+    if (start > at) parts.push(usage.slice(at, start));
+    parts.push(
+      el("span", { class: "command-col" }, [
+        el("span", { class: "command-bracket", "aria-hidden": "true" }, ["["]),
+        match[1] ?? "",
+        el("span", { class: "command-bracket", "aria-hidden": "true" }, ["]"]),
+      ]),
+    );
+    at = start + match[0].length;
+  }
+  if (at < usage.length) parts.push(usage.slice(at));
+  return parts;
+}
+
+/**
+ * The rest of the highlighted suggestion after what has been typed, shown in grey inside the input. Brackets
+ * may be left out while typing (“trim nei” → “ghbourhood”); accepting writes the suggestion in full. Empty when
+ * the suggestion does not continue the text.
+ */
+export function ghostRest(value: string, usage: string): string {
+  if (value.trim() === "") return "";
+  const typed = value.toLowerCase();
+  if (usage.toLowerCase().startsWith(typed)) return usage.slice(value.length);
+  const plain = usage.replace(/[[\]]/g, "");
+  if (!value.includes("[") && plain.toLowerCase().startsWith(typed)) return plain.slice(value.length);
+  return "";
+}
+
+/** The command the bar would suggest first for this table (a real column, something to act on when there is one). */
+export function commandExample(columns: readonly ColumnMeta[]): string | null {
+  return columns.length === 0 ? null : (commandSuggestions("", columns, 1)[0]?.usage ?? null);
+}
+
 export interface CommandBarOptions {
   columns(): readonly ColumnMeta[];
+  /** The column the table's cursor is in, which suggestions put first; null when there is none. */
+  cursorColumn?(): number | null;
+  /** Text to open with, already typed (a page's fix button: “combine dates”). */
+  initial?: string;
   onRun(command: ParsedCommand): void;
 }
 
@@ -1348,12 +1543,36 @@ export function openCommandBar(options: CommandBarOptions): void {
   const input = el("input", {
     class: "command-input",
     type: "text",
-    placeholder: "Enter a command — “convert date_time to datetime”, “melt keep region”, “round price 2”…",
+    placeholder: "Type a command",
     spellcheck: "false",
     "aria-label": "Command",
   }) as HTMLInputElement;
   const list = el("div", { class: "command-list" });
-  modal.append(input, list);
+  // The grey completion sits behind the input, in the same type and position, and never takes a click.
+  const ghostTyped = el("span", { class: "command-ghost-typed" });
+  const ghostRestEl = el("span", { class: "command-ghost-rest" });
+  const ghost = el("div", { class: "command-ghost", "aria-hidden": "true" }, [ghostTyped, ghostRestEl]);
+  modal.append(el("div", { class: "command-input-wrap" }, [ghost, input]), list);
+  let ghostText = "";
+  const syncGhost = (): void => {
+    const top = suggestions[active];
+    const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
+    ghostText = top === undefined || !atEnd || input.scrollWidth > input.clientWidth ? "" : ghostRest(input.value, top.usage);
+    const style = getComputedStyle(input);
+    ghost.style.font = style.font;
+    ghost.style.letterSpacing = style.letterSpacing;
+    ghost.style.padding = style.padding;
+    ghost.style.borderWidth = style.borderWidth;
+    ghostTyped.textContent = input.value;
+    ghostRestEl.textContent = ghostText;
+  };
+  /** Takes the highlighted suggestion into the input, as Tab always has. */
+  const accept = (): void => {
+    const usage = suggestions[active]?.usage;
+    if (usage !== undefined) input.value = takesArgument(usage) ? `${usage} ` : usage;
+    active = 0;
+    render();
+  };
   overlay.append(modal);
 
   let suggestions: CommandSuggestion[] = [];
@@ -1380,6 +1599,7 @@ export function openCommandBar(options: CommandBarOptions): void {
       input.value,
       options.columns(),
       input.value.trim() === "" ? 50 : 8,
+      { cursorColumn: options.cursorColumn?.() ?? null },
     );
     active = Math.min(active, Math.max(0, suggestions.length - 1));
     list.replaceChildren();
@@ -1393,12 +1613,23 @@ export function openCommandBar(options: CommandBarOptions): void {
         [],
       ) as HTMLButtonElement;
       row.append(
-        el("span", { class: "command-usage" }, [suggestion.usage]),
+        el("span", { class: "command-usage" }, usageParts(suggestion.usage, options.columns())),
         el("span", { class: "command-hint" }, [suggestion.hint]),
       );
-      row.addEventListener("click", () => runConfirmed(suggestion.command));
+      row.addEventListener("click", () => {
+        // An unfinished command (“filter [price]” needs a value) goes into the input to be finished.
+        if (suggestion.command.kind === "error") {
+          active = index;
+          accept();
+          input.focus();
+        } else runConfirmed(suggestion.command);
+      });
       list.append(row);
     });
+    // Opened empty, the hint names a real command for this table.
+    const first = suggestions[0]?.usage;
+    input.placeholder = input.value === "" && first !== undefined ? `Type a command, e.g. ${first}` : "Type a command";
+    syncGhost();
   };
 
   const run = (command: ParsedCommand): void => {
@@ -1441,6 +1672,9 @@ export function openCommandBar(options: CommandBarOptions): void {
     active = 0;
     render();
   });
+  // Moving the caret off the end hides the completion; back at the end it returns.
+  input.addEventListener("keyup", syncGhost);
+  input.addEventListener("click", syncGhost);
   input.addEventListener("keydown", (event) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -1453,11 +1687,24 @@ export function openCommandBar(options: CommandBarOptions): void {
     } else if (event.key === "Tab" && suggestions.length > 0) {
       // Tab accepts the highlighted suggestion into the input.
       event.preventDefault();
-      input.value = suggestions[active]?.usage ?? input.value;
-      render();
+      accept();
+    } else if (event.key === "ArrowRight" && ghostText !== "") {
+      // → at the end of the text takes the grey completion, as in a browser's address bar.
+      event.preventDefault();
+      accept();
     } else if (event.key === "Enter") {
       event.preventDefault();
       const parsed = parseCommand(input.value, options.columns());
+      const highlighted = suggestions[active];
+      if (parsed.kind === "error" && highlighted !== undefined && highlighted.usage !== input.value.trim()) {
+        // Enter picks the highlighted suggestion: runs it when it is complete, else takes it to be finished.
+        if (highlighted.command.kind === "error") accept();
+        else {
+          input.value = highlighted.usage;
+          runConfirmed(highlighted.command);
+        }
+        return;
+      }
       if (parsed.kind === "error") {
         // Keep the palette open and show the message as the active hint.
         list.replaceChildren(
@@ -1473,6 +1720,7 @@ export function openCommandBar(options: CommandBarOptions): void {
   });
   document.addEventListener("keydown", onKey, true);
   document.body.append(overlay);
+  if (options.initial !== undefined) input.value = options.initial;
   input.focus();
   render();
 }

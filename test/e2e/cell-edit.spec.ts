@@ -49,7 +49,7 @@ test("editing a cell asks first, records a Recipe step, and can be turned to not
   await editor.press("Enter");
   await confirm.getByLabel("Don't ask again for this session").check();
   await confirm.getByRole("button", { name: "Change" }).click();
-  await expect(cell(page, 0, 1)).toHaveText("45000");
+  await expect(cell(page, 0, 1)).toHaveText("45,000");
   await expect(page.getByRole("button", { name: /Recipe \(1\)/ })).toBeVisible();
 
   // No question this time; a second edit in the column joins the same step.

@@ -1389,8 +1389,17 @@ textarea:focus {
   transition: width 0.15s ease;
 }
 
+/* Collapsed, the Filters pane gives all its width back to the grid; "» Filters" in the toolbar reopens it. */
 .sidebar.collapsed {
-  width: 48px;
+  display: none !important;
+}
+
+.filters-show {
+  display: none;
+}
+
+.workspace:has(.sidebar.collapsed:not(.hidden)):not(.overview-mode) .filters-show {
+  display: inline-flex;
 }
 
 .sidebar.collapsed .sidebar-title,
@@ -2555,6 +2564,34 @@ button:disabled {
   background: var(--panel);
 }
 
+/* The scroller and its right-edge fade, which shows that more columns lie off to the side. */
+.table-scroll-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.table-edge-fade {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  width: 44px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+  /* Clipped text fades into the panel, and a faint shadow marks the edge as one that scrolls. */
+  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--panel) 92%, transparent) 85%);
+  box-shadow: inset -6px 0 6px -6px color-mix(in srgb, var(--text) 35%, transparent);
+}
+
+.table-edge-fade.on {
+  opacity: 1;
+}
+
 .table-header {
   position: sticky;
   top: 0;
@@ -2819,13 +2856,14 @@ button:disabled {
 .th-filter-popover {
   position: fixed;
   z-index: 70;
-  width: 555px;
+  /* Grid scale: about 280px wide and the grid's 13px type, so the panel reads as part of the table. */
+  width: 280px;
   max-width: calc(100vw - 16px);
   max-height: min(90vh, 820px);
   overflow-y: auto;
-  padding: 9px;
+  padding: 6px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--panel);
   box-shadow: var(--shadow);
 }
@@ -2869,8 +2907,8 @@ button:disabled {
 }
 
 .th-filter-panel-host .filter-name {
-  font-size: 21px;
-  font-weight: 700;
+  font-size: var(--fs-md);
+  font-weight: 600;
 }
 
 .th-filter-panel-host .filter-head {
@@ -2879,7 +2917,7 @@ button:disabled {
 }
 
 .th-filter-panel-host .filter-caret {
-  font-size: var(--fs-lg);
+  font-size: var(--fs-sm);
 }
 
 .th-filter-panel-host .filter-stats {
@@ -2888,44 +2926,44 @@ button:disabled {
   border-top: 1px dashed var(--border-subtle);
   white-space: normal;
   line-height: 1.4;
-  font-size: 16.5px;
+  font-size: var(--fs-sm);
 }
 
 .th-filter-panel-host .filter-body .text-input,
 .th-filter-panel-host .value-search {
-  font-size: 18.75px;
-  padding: 7px 12px;
+  font-size: var(--fs-md);
+  padding: 4px 8px;
 }
 
 .th-filter-panel-host .mode-select {
-  font-size: 17.25px;
-  padding: 6px 8px;
+  font-size: var(--fs-md);
+  padding: 3px 6px;
 }
 
 .th-filter-panel-host .value-list {
-  max-height: 300px;
+  max-height: 260px;
 }
 
 .th-filter-panel-host .value-row {
-  font-size: 18.75px;
-  padding: 5px 6px;
+  font-size: var(--fs-md);
+  padding: 2px 4px;
 }
 
 .th-filter-panel-host .value-count {
-  font-size: 16.5px;
+  font-size: var(--fs-sm);
 }
 
 .th-filter-panel-host .hist-note {
-  font-size: 16.5px;
+  font-size: var(--fs-sm);
 }
 
 .th-filter-panel-host .value-actions button {
-  font-size: 16.5px;
+  font-size: var(--fs-sm);
 }
 
 .th-filter-panel-host .range-inputs .range-input {
-  font-size: 18.75px;
-  padding: 7px 10px;
+  font-size: var(--fs-md);
+  padding: 4px 6px;
 }
 .th-filter-input::placeholder {
   color: var(--text-dim);
@@ -3283,13 +3321,11 @@ button:disabled {
   will-change: transform;
 }
 
+/* Rows are told apart by their hairline borders alone; zebra striping on top doubled up (and, keyed on the
+   rendered window's nth-child, could flip as the rows scrolled). */
 .tr {
   display: grid;
   height: 28px;
-}
-
-.tr:nth-child(even) {
-  background: color-mix(in srgb, var(--panel-2) 45%, transparent);
 }
 
 .tr.skeleton .td {
@@ -3407,10 +3443,6 @@ button:disabled {
 
 .ghost.small.danger:hover {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
-}
-
-.tr:nth-child(even) .td.row-index {
-  background: color-mix(in srgb, var(--panel-2) 45%, var(--panel));
 }
 
 .tr.dup-row .td.row-index {
@@ -6877,125 +6909,26 @@ tr.views-drop-after > td {
   --research-lane: color-mix(in srgb, var(--research) 12%, transparent);
 }
 
-/* A pill with a thumb that slides to the chosen half. */
-.mode-switch {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  flex: none;
-  height: 30px;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--panel-2);
-}
-
-.mode-switch-thumb {
-  position: absolute;
-  top: 2px;
-  bottom: 2px;
-  left: 2px;
-  width: calc(50% - 2px);
-  border-radius: 999px;
-  background: var(--panel);
-  box-shadow: 0 1px 2px rgb(16 24 40 / 12%), 0 0 0 1px var(--border);
-  transition:
-    transform 280ms cubic-bezier(0.3, 0.9, 0.3, 1),
-    background 200ms ease,
-    box-shadow 200ms ease;
-}
-
-.mode-switch[data-mode="research"] .mode-switch-thumb {
-  transform: translateX(100%);
-  background: var(--research-soft);
-  box-shadow:
-    0 0 0 1px var(--research-border),
-    0 0 14px color-mix(in srgb, var(--research) 28%, transparent);
-}
-
-.mode-switch-option {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  height: 100%;
-  padding: 0 12px;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  white-space: nowrap;
-  transition: color 200ms ease;
-}
-
-.mode-switch-option:hover {
-  color: var(--text);
-}
-
-.mode-switch-option[aria-checked="true"] {
-  color: var(--text);
-}
-
-.mode-switch-option[data-mode="research"][aria-checked="true"] {
-  color: var(--research-text);
-}
-
-.mode-switch-option:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px var(--accent);
-}
-
-.mode-switch-icon {
-  flex: none;
-  width: 14px;
-  height: 14px;
-}
-
-/* Phones: icons only, so the tabs keep their room; the names stay for screen readers. */
-@media (max-width: 480px) {
-  .mode-switch-option {
-    padding: 0 9px;
-  }
-
-  .mode-switch-text {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-}
-
-/* The research tabs sit in their own lane: a green border around the group, a
-   green wash rising from the baseline, and a green underline on the active tab. */
+/* The research tabs are set apart by a thin green divider and their green names, not a box: a heavy frame
+   pulled the eye away from the active tab's underline, which is where you are. */
 .view-tabs-research {
   position: relative;
   display: flex;
   flex: none;
   align-items: stretch;
   margin-left: 13px;
-  margin-top: 3px;
   padding: 0 2px;
-  border: 1.5px solid color-mix(in srgb, var(--research) 75%, transparent);
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  background: linear-gradient(to bottom, transparent 15%, var(--research-lane));
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--research) 40%, transparent);
 }
 
 .view-tabs-research::before {
   content: "";
   position: absolute;
   left: -7px;
-  top: 10px;
-  bottom: 10px;
-  width: 1px;
-  background: var(--border);
+  top: 9px;
+  bottom: 9px;
+  width: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--research) 55%, transparent);
 }
 
 .view-tabs-research.hidden {
@@ -7014,39 +6947,6 @@ tr.views-drop-after > td {
 .view-tabs .view-tabs-research button.active {
   color: var(--research-text);
   border-bottom-color: var(--research);
-}
-
-.view-tabs-research.entering {
-  animation: research-lane-in 360ms ease-out both;
-}
-
-.view-tabs-research.entering button {
-  animation: research-tab-in 340ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  animation-delay: calc(var(--i, 0) * 60ms + 80ms);
-}
-
-@keyframes research-lane-in {
-  from {
-    opacity: 0;
-    clip-path: inset(0 100% 0 0);
-  }
-
-  to {
-    opacity: 1;
-    clip-path: inset(0 0 0 0);
-  }
-}
-
-@keyframes research-tab-in {
-  from {
-    opacity: 0;
-    transform: translateX(-10px);
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
 }
 
 .chart-host {
@@ -9604,20 +9504,21 @@ label.null-row {
   position: fixed;
   z-index: 90;
   right: 16px;
-  bottom: 16px;
-  animation: hint-in 0.2s ease-out, hint-out 0.6s ease-in 7.4s forwards;
+  /* Clears the table's status bar (34px) so "Add column" and "Go to…" stay visible. */
+  bottom: 46px;
+  animation: hint-in 0.2s ease-out, hint-out 0.6s ease-in 4.4s forwards;
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  max-width: min(320px, calc(100vw - 32px));
-  padding: 8px 8px 8px 12px;
+  gap: 6px;
+  max-width: min(260px, calc(100vw - 32px));
+  padding: 6px 6px 6px 10px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
   box-shadow: var(--shadow-pop);
-  font-size: var(--fs-md);
-  line-height: 1.45;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
   pointer-events: none;
 }
 
@@ -11284,7 +11185,9 @@ summary:focus-visible,
 
 /* Toasts and tips never sit on top of an open dialog or drawer. */
 body:has(.modal-overlay) .toast,
-body:has(.modal-overlay) .hint-callout {
+body:has(.modal-overlay) .hint-callout,
+body:has([role="menu"]) .hint-callout,
+body:has(.th-filter-popover) .hint-callout {
   display: none;
 }
 
@@ -13832,7 +13735,6 @@ button.qp-tile:hover {
 /* Table: frozen columns and the File row column stay put when scrolling sideways. */
 .td.frozen, .td.file-row { position: sticky; z-index: 1; background: var(--panel); }
 .th.frozen, .th.file-row-head { position: sticky; z-index: 3; background: var(--panel-2); }
-.tr:nth-child(even) .td.frozen, .tr:nth-child(even) .td.file-row { background: color-mix(in srgb, var(--panel-2) 55%, var(--panel)); }
 .td.frozen:has(+ .td:not(.frozen)), .th.frozen:has(+ .th:not(.frozen)) { box-shadow: 2px 0 0 color-mix(in srgb, var(--accent) 35%, var(--border)); }
 /* Headers: the column number only on hover, so the name has the room. */
 .th .th-index { display: none; }
@@ -14054,7 +13956,6 @@ button.qp-tile:hover {
 .view-tabs button.active { color: var(--text); font-weight: 600; }
 /* Every tab shows its name when they all fit: five tabs from 1100px, nine (Research on) from 1760px. */
 @media (min-width: 1100px) {
-  .view-tabs:not(:has(.view-tabs-research:not(.hidden))) .view-tab-label { max-width: none; padding-left: 6px; opacity: 1; }
 }
 @media (min-width: 1760px) {
   .view-tabs .view-tab-label { max-width: none; padding-left: 6px; opacity: 1; }
@@ -14067,8 +13968,12 @@ button.qp-tile:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--mono);
-  font-size: var(--fs-xs);
+  /* The facts sit under the name in its own face, tight and dim, with even-width figures so ranges line up;
+     a wide mono here made a third typeface and cut "7 distinct" short. */
+  font-family: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
   color: var(--text-dim);
 }
 .th.num-head .th-facts { text-align: right; padding-right: 6px; }
@@ -14117,7 +14022,7 @@ button.qp-tile:hover {
 .health-tile, .qp-tile, .ts-card, .overview-card, .filter-card, .views-card, .chart-card {
   box-shadow: none;
 }
-.mode-switch, .view-tabs { font-feature-settings: "tnum"; }
+.view-tabs { font-feature-settings: "tnum"; }
 
 /* Contrast pass (phase 4): every text colour reaches 4.5:1 on its own background in both themes. */
 :root { --role-text: #2563eb; --role-category: #b45309; --role-numeric: #6d28d9; --accent-ink: #1d4ed8; }
@@ -14853,6 +14758,14 @@ button.qp-tile:hover {
   display: flex;
   flex-direction: column;
   overscroll-behavior: contain;
+  /* Scroll cues: a soft shadow at an edge with more items past it. The panel-coloured covers scroll with the
+     content and hide each shadow once that edge is reached (CSS only, no scroll listener). */
+  background:
+    linear-gradient(var(--panel) 30%, transparent) center top / 100% 32px no-repeat local,
+    linear-gradient(transparent, var(--panel) 70%) center bottom / 100% 32px no-repeat local,
+    radial-gradient(farthest-side at 50% 0, color-mix(in srgb, var(--text) 22%, transparent), transparent) center top / 100% 12px no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, color-mix(in srgb, var(--text) 22%, transparent), transparent) center bottom / 100% 12px no-repeat scroll,
+    var(--panel);
 }
 .cmenu .context-header.cmenu-section {
   margin: 0;
@@ -17724,20 +17637,14 @@ button.cmp-change-name:hover {
   opacity: 1;
   font-weight: 600;
 }
-.th-qa-chip.th-qa-summary.is-issue {
+/* One colour rule: a header chip means "look at this column", so every one is amber, issue or review. */
+.th-qa-chip.th-qa-summary {
   color: var(--qa-warn-text);
   background: color-mix(in srgb, var(--qa-warn) 12%, transparent);
   border-color: color-mix(in srgb, var(--qa-warn) 35%, transparent);
 }
-.th-qa-chip.th-qa-summary.is-issue:hover {
+.th-qa-chip.th-qa-summary:hover {
   background: color-mix(in srgb, var(--qa-warn) 20%, transparent);
-}
-.th-qa-chip.th-qa-summary.is-review {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-}
-.th-qa-chip.th-qa-summary.is-review:hover {
-  background: var(--accent-soft);
 }
 /* One chip needs no room to open into. */
 .th-qa.th-qa-one:not(:empty):hover,
@@ -17751,3 +17658,247 @@ button.cmp-change-name:hover {
   background: none;
   box-shadow: none;
 }
+
+/* ---------- Table: row hover and the cursor's row and column (item 11) ---------- */
+/* A hover tint strong enough to follow a row across a wide table; opaque cells (row number, frozen) take it too. */
+.tr:not(.skeleton):hover {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.tr:not(.skeleton):hover > .td.row-index,
+.tr:not(.skeleton):hover > .td.frozen,
+.tr:not(.skeleton):hover > .td.file-row {
+  background: color-mix(in srgb, var(--accent) 9%, var(--panel));
+}
+/* The cursor cell's row number and column header are marked, so the cell is easy to find from either edge. */
+.tr.cursor-row > .td.row-index {
+  color: var(--accent);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+.table-header > .th.cursor-col {
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-2));
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* A disabled toolbar icon's hover label gives the reason under its name (item 13). The icon is dimmed, not the
+   whole button, so the label stays readable. */
+.nav-actions .xbtn:disabled {
+  opacity: 1;
+}
+.nav-actions .xbtn:disabled .xbtn-icon {
+  opacity: 0.45;
+}
+.nav-actions .xbtn-label[data-why] {
+  width: max-content;
+  max-width: 260px;
+  white-space: normal;
+}
+.nav-actions .xbtn-label[data-why]::after {
+  content: attr(data-why);
+  display: block;
+  max-width: 240px;
+  margin-top: 1px;
+  white-space: normal;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+
+/* Command bar: a column in a suggestion is set apart from the action words, in square brackets as in formulas. */
+.command-col {
+  color: var(--accent);
+  font-weight: 600;
+}
+.command-bracket {
+  color: color-mix(in srgb, var(--accent) 45%, transparent);
+  font-weight: 400;
+}
+.command-item.active .command-col {
+  color: var(--accent);
+}
+
+/* Command bar: the grey completion behind the input (→ or Tab takes it). Type metrics are copied from the
+   input at runtime so the typed part lines up exactly whatever its state. */
+.command-input-wrap {
+  position: relative;
+}
+.command-input-wrap > .command-input {
+  position: relative;
+  z-index: 1;
+  /* See-through, so the grey completion behind shows; the modal's panel is the background. */
+  background: transparent !important;
+}
+.command-ghost {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border-style: solid;
+  border-color: transparent;
+  white-space: pre;
+  overflow: hidden;
+  pointer-events: none;
+}
+.command-ghost-typed {
+  color: transparent;
+}
+.command-ghost-rest {
+  color: var(--text-dim);
+  opacity: 0.75;
+}
+/* The top bar's example command: its column in the chrome accent. */
+.topbar .palette-button .command-col { color: var(--chrome-accent); font-weight: 600; }
+.topbar .palette-button .command-bracket { color: color-mix(in srgb, var(--chrome-accent) 45%, transparent); }
+
+/* The research lane names itself on hover: a soft green glow round the four tools and a small
+   "Research tools" label under them, so the green tint reads as a group, not decoration. */
+.view-tabs-research {
+  border-radius: 8px;
+  transition: box-shadow 160ms ease, background 160ms ease;
+}
+.view-tabs-research:hover,
+.view-tabs-research:focus-within {
+  background: color-mix(in srgb, var(--research) 7%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--research) 30%, transparent), 0 0 14px color-mix(in srgb, var(--research) 28%, transparent);
+}
+.research-lane-tip {
+  position: fixed;
+  z-index: 95;
+  padding: 2px 9px;
+  border: 1px solid var(--research-border);
+  border-radius: 999px;
+  background: var(--research-soft);
+  color: var(--research-text);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--research) 25%, transparent);
+  animation: research-tip-in 140ms ease-out;
+}
+@keyframes research-tip-in { from { opacity: 0; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) {
+  .view-tabs-research { transition: none; }
+  .research-lane-tip { animation: none; }
+}
+
+/* ---------- A page with nothing to show for this table: say so, loudly, and offer the fix ---------- */
+.page-empty {
+  display: flex;
+  align-items: flex-start;
+  gap: 22px;
+  max-width: 660px;
+  margin: 48px auto;
+  padding: 28px 32px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  text-align: left;
+}
+.page-empty-banner {
+  max-width: none;
+  margin: 0 0 12px;
+  padding: 16px 20px;
+  border-left: 4px solid var(--qa-warn);
+  box-shadow: none;
+}
+/* The page's own icon, struck through: "not with this table". */
+.page-empty-icon {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--research) 12%, var(--panel));
+  color: var(--research-text);
+}
+.page-empty-icon::after {
+  content: "";
+  position: absolute;
+  width: 72%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--research) 12%, var(--panel));
+  transform: rotate(-45deg);
+}
+.page-empty-icon-svg {
+  width: 32px;
+  height: 32px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.page-empty-body { min-width: 0; }
+.page-empty-title {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.page-empty-banner .page-empty-title { font-size: 17px; }
+.page-empty .page-empty-lead {
+  max-width: 60ch;
+  margin: 0 0 16px;
+  color: var(--text-dim);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+}
+.page-empty-needs-head {
+  margin-bottom: 6px;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.page-empty-needs {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+.page-empty-needs li { display: flex; align-items: flex-start; gap: 10px; }
+.page-empty-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 50%;
+}
+.page-empty-needs .missing .page-empty-mark { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.page-empty-needs .ok .page-empty-mark { background: color-mix(in srgb, var(--research) 18%, transparent); color: var(--research-text); }
+.page-empty-mark-icon { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; }
+.page-empty-need { display: flex; flex-direction: column; gap: 1px; }
+.page-empty-need strong { color: var(--text); font-size: var(--fs-md); }
+.page-empty-detail { color: var(--text-dim); font-size: var(--fs-sm); }
+.page-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.page-empty .page-empty-foot { margin: 12px 0 0; color: var(--text-dim); font-size: var(--fs-sm); }
+@media (max-width: 560px) {
+  .page-empty { flex-direction: column; gap: 14px; margin: 16px; padding: 20px; }
+}
+/* The card brings its own frame: the pages' older empty boxes step back. */
+.ts-empty:has(.page-empty) { max-width: none; margin: 0; padding: 0; border: none; background: none; }
+.map-empty:has(.page-empty) { padding: 0; border: none; }
+
+/* A research tab this table has nothing for: greyed (no green), still clickable, the reason on hover. */
+.view-tabs .view-tab.unavailable:not(.active) {
+  opacity: 0.42;
+  filter: grayscale(1);
+}
+.view-tabs .view-tab.unavailable:not(.active):hover,
+.view-tabs .view-tab.unavailable:not(.active):focus-visible {
+  opacity: 0.75;
+}
+/* Pages that set their own button colour (Time Series) still get readable fix buttons. */
+.page-empty .page-empty-actions .primary { color: var(--primary-fg); }
+.page-empty .page-empty-actions .ghost { color: var(--text); }

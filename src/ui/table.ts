@@ -13,6 +13,7 @@ import { isNullToken, isNullWithWire } from "../parse/null-tokens.js";
 import { parseDate, toDateInputValue, toTimeInputValue } from "../parse/dates.js";
 import { parseNumber } from "../parse/numbers.js";
 import { valueLength } from "../parse/value-length.js";
+import { looksLikeIdName } from "../data/identifier.js";
 import { COLUMN_TYPES, TYPE_LABELS, type ColumnType } from "../types.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import type { ColumnFilter } from "../search/query-engine.js";
@@ -135,10 +136,30 @@ export interface ResultTableOptions {
 }
 
 /** With a number format chosen, a number column whose values reach 10,000 gets thousands separators; years and small codes don't. */
-export function autoGroups(meta: Pick<ColumnMeta, "type" | "role" | "stats"> | undefined): boolean {
+export function autoGroups(meta: Pick<ColumnMeta, "name" | "type" | "role" | "stats"> | undefined): boolean {
   if (meta === undefined || (meta.type !== "integer" && meta.type !== "number") || meta.role === "provenance") return false;
+  // IDs, codes, postcodes and phone numbers stay plain: 100,013 reads as a quantity, not a listing.
+  if (looksLikeIdName(meta.name)) return false;
   const big = Math.max(Math.abs(meta.stats.min ?? 0), Math.abs(meta.stats.max ?? 0));
   return big >= 10_000;
+}
+
+/**
+ * Whether a column reads as numbers in the grid: a number type, or a category whose labels are all plain numbers
+ * (bedrooms 1-5), which then lines up on the right like the numbers beside it. Display only.
+ */
+export function alignsAsNumber(meta: Pick<ColumnMeta, "type" | "categories"> | undefined): boolean {
+  if (meta === undefined) return false;
+  if (meta.type === "integer" || meta.type === "number") return true;
+  const labels = meta.categories?.labels;
+  if (labels === undefined || labels.length === 0) return false;
+  let seen = 0;
+  for (const label of labels) {
+    if (label === "") continue;
+    if (!/^[-+]?\d+(\.\d+)?$/.test(label.trim())) return false;
+    seen++;
+  }
+  return seen > 0;
 }
 
 export class ResultTable {
@@ -146,7 +167,11 @@ export class ResultTable {
   private readonly header: HTMLDivElement;
   private readonly spacer: HTMLDivElement;
   private readonly rowsHost: HTMLDivElement;
-  private readonly onResize = (): void => this.render();
+  private readonly edgeFade: HTMLDivElement;
+  private readonly onResize = (): void => {
+    this.syncEdgeFade();
+    this.render();
+  };
   private quickFilterTimer: number | null = null;
 
   private columns: ColumnMeta[] = [];
@@ -208,9 +233,14 @@ export class ResultTable {
     this.rowsHost = el("div", { class: "table-rows" });
     this.spacer = el("div", { class: "table-spacer" }, [this.rowsHost]);
     this.scroller = el("div", { class: "table-scroller" }, [this.header, this.spacer]);
-    root.append(this.scroller);
+    // A soft fade on the right edge says more columns are off to the side; it goes once the last column is in view.
+    this.edgeFade = el("div", { class: "table-edge-fade", "aria-hidden": "true" });
+    root.append(el("div", { class: "table-scroll-wrap" }, [this.scroller, this.edgeFade]));
 
-    this.scroller.addEventListener("scroll", () => this.render());
+    this.scroller.addEventListener("scroll", () => {
+      this.syncEdgeFade();
+      this.render();
+    });
     // The grid takes the keyboard: a cell cursor, and typing edits the cell under it.
     this.scroller.tabIndex = 0;
     this.scroller.setAttribute("aria-label", "Table rows. Arrow keys move between cells; Enter or typing edits a cell.");
@@ -465,13 +495,13 @@ export class ResultTable {
 
   /**
    * Whether a column's numbers are written with thousands separators: the person's choice when they made one;
-   * otherwise, with a number format chosen in Settings, every number column with big values (10,000 and up, so
-   * years and small codes stay as they are). Read from the column as it is now, so a column that becomes a number
+   * otherwise every number column with big values (10,000 and up, so years and small codes stay as they are), except
+   * ID-like columns. Display only; the separator follows the Settings number format, or the browser's own. Read from the column as it is now, so a column that becomes a number
    * later (a type change, a clean, an undo) is grouped too, without anyone having to remember to ask.
    */
   isGrouped(column: number): boolean {
     if (this.grouping.has(column)) return true;
-    if (this.groupingOff.has(column) || !this.localeNumbers) return false;
+    if (this.groupingOff.has(column)) return false;
     return autoGroups(this.columns[column]);
   }
 
@@ -604,10 +634,12 @@ export class ResultTable {
       if (this.hidden.has(index)) return;
       const name = column.name;
       const cell = el("div", { class: "th" });
+      cell.dataset.col = String(index);
+      if (this.cursor?.col === index) cell.classList.add("cursor-col");
       const frozenAt = this.frozenLeft(index);
       if (frozenAt !== null) { cell.classList.add("frozen"); cell.style.left = `${frozenAt}px`; }
       if (this.flashIndex === index) cell.classList.add("flash-column");
-      if (column.type === "integer" || column.type === "number") {
+      if (alignsAsNumber(column)) {
         cell.classList.add("num-head");
       }
       const qa = this.buildQaRow(column, index);
@@ -931,7 +963,8 @@ export class ResultTable {
     let label: string;
     const only = issues.length === 1 ? issues[0] : undefined;
     if (only !== undefined) {
-      const words = only.kind === "nulls" && placeholders ? "missing" : only.count === 1 ? only.noun.one : only.noun.many;
+      // One word for empty cells and placeholder text alike, so neighbouring headers read the same.
+      const words = only.kind === "nulls" ? "missing" : only.count === 1 ? only.noun.one : only.noun.many;
       label = `${only.count.toLocaleString()} ${words}`;
     } else if (issues.length > 1) label = `${issues.length} issues`;
     else label = chips.length === 1 ? (chips[0]!.textContent ?? "Review") : `${chips.length} to review`;
@@ -1163,7 +1196,28 @@ export class ResultTable {
     });
   }
 
+  /** Per column, whether its cells line up as numbers; worked out once per set of columns, not per row. */
+  private numberLikeCache: { columns: ColumnMeta[]; flags: boolean[] } | null = null;
+  private numberLike(): boolean[] {
+    if (this.numberLikeCache?.columns !== this.columns) {
+      this.numberLikeCache = { columns: this.columns, flags: this.columns.map((column) => alignsAsNumber(column)) };
+    }
+    return this.numberLikeCache.flags;
+  }
+
+  /** Shows the right-edge fade while columns lie past the right edge, sized to sit inside the scrollbars. */
+  private syncEdgeFade(): void {
+    const s = this.scroller;
+    const more = s.scrollLeft + s.clientWidth < s.scrollWidth - 1;
+    this.edgeFade.classList.toggle("on", more);
+    if (more) {
+      this.edgeFade.style.right = `${s.offsetWidth - s.clientWidth}px`;
+      this.edgeFade.style.bottom = `${s.offsetHeight - s.clientHeight}px`;
+    }
+  }
+
   private render(): void {
+    this.syncEdgeFade();
     const height = this.scroller.clientHeight || 600;
     this.reportViewport(height);
     const start = Math.max(0, Math.floor(this.scroller.scrollTop / ROW_HEIGHT) - OVERSCAN);
@@ -1245,9 +1299,16 @@ export class ResultTable {
     this.markCursor();
   }
 
+  /** The column the cell cursor is in, or null when there is no cursor. */
+  cursorColumn(): number | null {
+    return this.cursor?.col ?? null;
+  }
+
   /** Moves the cursor's mark on the cells already drawn (no repaint, so a double-click still lands). */
   private markCursor(): void {
     for (const cell of this.rowsHost.querySelectorAll(".cursor-cell")) cell.classList.remove("cursor-cell");
+    for (const node of this.rowsHost.querySelectorAll(".cursor-row")) node.classList.remove("cursor-row");
+    for (const node of this.header.querySelectorAll(".cursor-col")) node.classList.remove("cursor-col");
     this.options.onCursor?.(
       this.cursor === null
         ? null
@@ -1255,6 +1316,9 @@ export class ResultTable {
     );
     if (this.cursor === null) return;
     this.rowsHost.querySelector(`.tr[data-pos="${this.cursor.row}"] .td[data-col="${this.cursor.col}"]`)?.classList.add("cursor-cell");
+    // The cell's row number and column header light up too, so the cursor can be found from either edge.
+    this.rowsHost.querySelector(`.tr[data-pos="${this.cursor.row}"]`)?.classList.add("cursor-row");
+    this.header.querySelector(`.th[data-col="${this.cursor.col}"]`)?.classList.add("cursor-col");
   }
 
   private reveal(row: number, col: number): void {
@@ -1299,8 +1363,9 @@ export class ResultTable {
       return;
     }
     if (this.cursor === null) return;
-    // Keys the grid uses never reach the page's shortcuts (1-9 switch tabs).
-    if (event.key === "Escape" || event.key === "Enter" || event.key === "F2" || (event.key.length === 1 && !event.altKey)) event.stopPropagation();
+    // Keys the grid uses never reach the page's shortcuts (1-9 switch tabs). Ctrl/⌘ shortcuts do (Ctrl+K opens
+    // the command bar, Ctrl+G Go to, Ctrl+Z undo); the grid keeps only Ctrl+C, below.
+    if (event.key === "Escape" || event.key === "Enter" || event.key === "F2" || (event.key.length === 1 && !event.altKey && !ctrl)) event.stopPropagation();
     if (event.key === "Escape") {
       this.cursor = null;
       this.markCursor();
@@ -1409,6 +1474,7 @@ export class ResultTable {
     if (this.groupStarts.has(index)) tr.classList.add("group-start");
     if (((this.rowFlags.get(index) ?? 0) & 1) !== 0) tr.classList.add("dup-row");
     if (this.pendingRowDeletes.has(index)) tr.classList.add("row-pending");
+    if (this.cursor?.row === index) tr.classList.add("cursor-row");
 
     const indexCell = el("div", { class: "td row-index" });
     const del = el(
@@ -1432,6 +1498,7 @@ export class ResultTable {
     }
 
     const changedRow = this.changedRows.get(index);
+    const numberLike = this.numberLike();
     for (let c = 0; c < this.columns.length; c++) {
       if (this.hidden.has(c)) continue;
       const type = this.columns[c]?.type;
@@ -1441,7 +1508,7 @@ export class ResultTable {
       cell.dataset.col = String(c);
       if (this.cursor !== null && this.cursor.row === index && this.cursor.col === c) cell.classList.add("cursor-cell");
       if (this.flashIndex === c) cell.classList.add("flash-column");
-      if (type === "integer" || type === "number") cell.classList.add("num-cell", "mono-cell");
+      if (type === "integer" || type === "number" || numberLike[c] === true) cell.classList.add("num-cell", "mono-cell");
       else if (type === "boolean") cell.classList.add("bool-cell");
       else if (type === "date" || type === "datetime" || type === "time" || type === "duration" || type === "identifier") cell.classList.add("mono-cell");
       if (row !== undefined) this.fillCell(cell, row[c] ?? "", c);
@@ -1645,6 +1712,8 @@ function openHeaderFilterPanel(
   onApply: (filter: ColumnFilter | null) => void,
   requestSuggestions?: (query: string) => Promise<{ label: string; count: number }[]>,
 ): void {
+  // Measured first: building a numeric panel can re-render the header, which detaches the anchor and zeroes its rect.
+  const rect = anchor.getBoundingClientRect();
   const popover = el("div", {
     class: "th-filter-popover th-filter-panel-popover",
     role: "dialog",
@@ -1688,7 +1757,6 @@ function openHeaderFilterPanel(
   document.addEventListener("pointerdown", onPointerDown, true);
   document.addEventListener("keydown", onKey);
   document.body.append(popover);
-  const rect = anchor.getBoundingClientRect();
   const left = Math.max(8, Math.min(rect.left, window.innerWidth - popover.offsetWidth - 8));
   popover.style.left = `${left}px`;
   const below = rect.bottom + 6;

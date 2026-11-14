@@ -1,6 +1,7 @@
 import "../data/display-locale.js";
 import { setNumberLocale } from "../data/display-locale.js";
 import { setDateTieBreak } from "../parse/conventions.js";
+import { detectSuggestions } from "../data/suggestions.js";
 import { ColumnData } from "../data/column.js";
 import { isGroupableColumn } from "../data/groupable.js";
 import { keepRows, type ChartExclusion } from "../data/chart-exclusions.js";
@@ -3216,6 +3217,15 @@ function handleCleanColumns(message: CleanColumnsRequest): void {
     if (explicitType !== undefined) rebuilt.setType(explicitType, true);
     const locale = numberLocales.get(column);
     if (locale !== undefined) rebuilt.setNumberLocale(locale);
+    // Suggestions are skipped on a rebuilt column so fixes the user has acted on
+    // stop nagging, but a decision still open in it (decimal commas after a DR/CR
+    // choice, or the reverse) must not vanish, or its values stay out of totals
+    // with nothing pointing at them.
+    if (rebuilt.type === "number" || rebuilt.type === "integer") {
+      rebuilt.suggestions = detectSuggestions(raw, rebuilt.type, policy, rebuilt.numberLocale).filter(
+        (suggestion) => suggestion.kind === "mixedNumber" || suggestion.kind === "signSuffix",
+      );
+    }
     columns[column] = rebuilt;
 
     filters.delete(column);

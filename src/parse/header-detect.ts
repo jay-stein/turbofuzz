@@ -94,23 +94,101 @@ function numericDataBelow(grid: readonly string[][], index: number): number {
   return best;
 }
 
+/** A cell's outline: letter runs become "a", digit runs "9", punctuation kept ("TXN100379" → "a9", "02/11/2023" → "9/9/9"). */
+function cellShape(cell: string): string {
+  return cell.trim().replace(/\p{L}+/gu, "a").replace(/\d+/g, "9").replace(/\s+/g, " ");
+}
+
+const SHAPE_LOOKAHEAD = 6;
+
+/**
+ * Share of a row's filled cells whose shape matches most of the cells below them
+ * in the same column (up to SHAPE_LOOKAHEAD filled rows). A record scores high;
+ * a header ("Txn ID" over "TXN100379") scores low.
+ */
+function shapeLikeBelow(grid: readonly string[][], index: number): number {
+  const row = grid[index] ?? [];
+  const below: (readonly string[])[] = [];
+  for (let next = index + 1; next < grid.length && below.length < SHAPE_LOOKAHEAD; next++) {
+    const candidate = grid[next] ?? [];
+    if (candidate.some((cell) => cell !== "")) below.push(candidate);
+  }
+  // Too few rows below to compare: no evidence it is a header, so it ranks as a
+  // record does. Fewer than three is too few to judge fairly.
+  if (below.length < 3) return 1;
+  let filled = 0;
+  let alike = 0;
+  const limit = Math.min(row.length, MAX_SCAN_COLUMNS);
+  for (let column = 0; column < limit; column++) {
+    const cell = row[column] ?? "";
+    if (cell.trim() === "") continue;
+    filled++;
+    const shape = cellShape(cell);
+    let same = 0;
+    let seen = 0;
+    for (const other of below) {
+      const value = other[column] ?? "";
+      if (value.trim() === "") continue;
+      seen++;
+      if (cellShape(value) === shape) same++;
+    }
+    if (seen > 0 && same * 2 > seen) alike++;
+  }
+  return filled === 0 ? 0 : alike / filled;
+}
+
 function mergeHeaders(grid: readonly string[][], start: number, count: number, columns: number): string[] {
+  // A label in an upper header row spans the blank cells to its right, as a
+  // merged cell does in Excel ("Jan" over Budget | Actual): carry it across while
+  // the bottom row still names a column, so the second column reads "Jan Actual".
+  const bottom = start + count - 1;
+  const levels: string[][] = [];
+  for (let row = start; row < start + count; row++) {
+    const cells: string[] = [];
+    let carry = "";
+    for (let column = 0; column < columns; column++) {
+      const value = (grid[row]?.[column] ?? "").trim();
+      const named = (grid[bottom]?.[column] ?? "").trim() !== "";
+      if (value !== "") carry = value;
+      else if (row === bottom || !named) carry = "";
+      cells.push(value !== "" ? value : carry);
+    }
+    levels.push(cells);
+  }
   const headers: string[] = [];
   for (let column = 0; column < columns; column++) {
     const parts: string[] = [];
-    for (let row = start; row < start + count; row++) {
-      const value = (grid[row]?.[column] ?? "").trim();
-      if (value === "") continue;
-      if (parts.includes(value)) continue;
+    for (const cells of levels) {
+      const value = cells[column];
+      if (value === "" || parts.includes(value)) continue;
       parts.push(value);
     }
     headers.push(parts.join(" ").slice(0, 120));
   }
-  return headers;
+  return uniqueNames(headers);
+}
+
+/** Numbers repeated column names ("Actual", "Actual 2", …) so every column can be told apart and referenced. */
+function uniqueNames(names: readonly string[]): string[] {
+  const taken = new Set(names.map((name) => name.toLowerCase()));
+  const seen = new Map<string, number>();
+  return names.map((name) => {
+    if (name === "") return name;
+    const key = name.toLowerCase();
+    const count = (seen.get(key) ?? 0) + 1;
+    seen.set(key, count);
+    if (count === 1) return name;
+    let suffix = count;
+    while (taken.has(`${key} ${suffix}`)) suffix++;
+    taken.add(`${key} ${suffix}`);
+    return `${name} ${suffix}`;
+  });
 }
 
 const FOOTER_MARKER = /^(foot)?notes?\b|^sources?\b|^symbol legend\b|^how to cite\b/i;
 const FOOTER_HEADING = /^((foot)?notes?|sources?|symbol legend)\s*:?$/i;
+/** A summary row's label: "Total", "TOTAL", "Grand total", "Sub-total", "Totals:". */
+const TOTAL_LABEL = /^(grand\s+|sub-?\s*)?totals?\b\s*:?/i;
 const FOOTER_SCAN_ROWS = 400;
 const BODY_SAMPLE_ROWS = 20;
 
@@ -169,6 +247,24 @@ function footerStart(rows: readonly string[][], width: number): number {
   return rows.length;
 }
 
+/**
+ * Where a trailing block of summary rows begins, looking back from `stop`
+ * (blank rows in between are skipped). A row counts when its first filled cell
+ * is a Total label: it sums the rows above, so keeping it double-counts every
+ * figure in sums, pivots and charts.
+ */
+function totalRowsStart(rows: readonly string[][], stop: number): number {
+  let start = stop;
+  for (let index = stop - 1; index > 0; index--) {
+    const row = rows[index];
+    if (isEmptyRow(row)) continue;
+    const first = row.find((cell) => cell.trim() !== "") ?? "";
+    if (!TOTAL_LABEL.test(first.trim())) break;
+    start = index;
+  }
+  return start;
+}
+
 function applyDataEnd(
   rows: string[][],
   width: number,
@@ -183,6 +279,7 @@ function applyDataEnd(
     if (blank !== -1) stop = blank;
   } else if (end === "auto") {
     stop = footerStart(rows, width);
+    stop = totalRowsStart(rows, stop);
   }
   while (stop > 0 && isEmptyRow(rows[stop - 1])) stop--;
   let footerRows = 0;
@@ -351,15 +448,27 @@ export function detectTable(grid: readonly string[][], layout?: HeaderLayout): D
 
   let bestIndex = -1;
   let bestScore = 0;
+  let bestRank = -Infinity;
   for (let row = 0; row < scanRows; row++) {
     const profile = profiles[row];
     if (profile.populated < 2) continue;
+    // One label repeated in every filled cell is a merged title spread across
+    // the row (Excel "Q1 payments" over A1:D1), never a set of column names.
+    if (new Set((grid[row] ?? []).filter((cell) => cell.trim() !== "").map((cell) => cell.trim())).size === 1) continue;
     const textRatio = profile.text / profile.populated;
     const widthRatio = width > 0 ? profile.populated / width : 0;
     const below = numericDataBelow(grid, row);
     const selfNumbers = profile.numeric / profile.populated;
     const score = textRatio * 2 + widthRatio * 2 + below * 3 - selfNumbers * 3;
-    if (score > bestScore) {
+    if (score < MIN_SCORE) continue;
+    // Among rows that could be the header, prefer the one least like the rows
+    // under it: in a text-heavy table a record ("TXN100379, 02/11/2023, …")
+    // scores as well as the real header, but its cells share the shape of the
+    // cells below. Only ranks candidates; whether there is a header at all
+    // still rests on the score alone.
+    const rank = score - shapeLikeBelow(grid, row) * 3;
+    if (rank > bestRank) {
+      bestRank = rank;
       bestScore = score;
       bestIndex = row;
     }

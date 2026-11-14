@@ -8,6 +8,16 @@ import {
 import { nameHas } from "../data/name-hints.js";
 import { isNullToken } from "./null-tokens.js";
 import { parseNumber, type NumberLocale } from "./numbers.js";
+
+/**
+ * True when the value is a number under either decimal convention. Typing a
+ * column only needs the shape; which convention the column uses is settled
+ * separately by detectNumberLocale, and values that disagree with it are left
+ * unparsed for the user to decide.
+ */
+function isNumberEitherWay(value: string): boolean {
+  return Number.isFinite(parseNumber(value, "dot")) || Number.isFinite(parseNumber(value, "comma"));
+}
 import type { ColumnType } from "../types.js";
 
 export interface InferredType {
@@ -91,7 +101,7 @@ function matchesCandidate(
     case "integer":
       return INTEGER.test(value) || INTEGER_ZERO_TAIL.test(value);
     case "number":
-      return Number.isFinite(parseNumber(value));
+      return isNumberEitherWay(value);
     case "date":
     case "datetime":
       return classifyDateValue(value, dateOrder) !== null;
@@ -285,7 +295,7 @@ export function inferColumnType(
       integerOk++;
       zeroTail = true;
     }
-    if (Number.isFinite(parseNumber(value))) numberOk++;
+    if (isNumberEitherWay(value)) numberOk++;
     const lower = value.toLowerCase();
     if (TRUE_VALUES.has(lower) || FALSE_VALUES.has(lower)) boolOk++;
   }

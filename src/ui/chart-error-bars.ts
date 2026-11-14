@@ -66,15 +66,8 @@ export function errorBarBlock(card: ChartCard): string | null {
   return null;
 }
 
-/** Error bars and Extract stats are for research: General mode leaves them off the panel, unless a chart already has bars. */
-export function syncResearchControls(card: ChartCard): void {
-  const research = card.options.research?.() !== false;
-  card.statsButton.classList.toggle("hidden", !research);
-  card.syncErrorBarControls();
-}
-
 export function syncErrorBarControls(card: ChartCard): void {
-  const relevant = ERROR_BAR_KINDS.has(card.config.kind) && (card.options.research?.() !== false || card.config.errorBars === true);
+  const relevant = ERROR_BAR_KINDS.has(card.config.kind);
   card.errorBarRow.classList.toggle("hidden", !relevant);
   if (!relevant) return;
   const block = card.errorBarBlock();

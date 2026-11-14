@@ -19,7 +19,8 @@ test("KNN fill: choose columns with the column itself greyed out, test k, previe
 
   await page.getByRole("tab", { name: "Table" }).click();
   // The fill menu on the empty-cells chip offers it.
-  await page.locator('button[title^="Fill the empty cells in one click"]').click();
+  await page.locator(".health-issues").click();
+  await page.locator('.context-item[title^="Fill the empty cells in one click"]').click();
   await page.getByRole("menuitem", { name: /Fill from similar rows/ }).or(page.locator(".context-item", { hasText: /Fill from similar rows/ })).first().click();
 
   const dialog = page.getByRole("dialog", { name: "Fill empty cells from similar rows" });
@@ -76,7 +77,8 @@ test("a KNN fill adds to the Recipe: earlier steps stay, kept as part of the dat
   await expect(recipe).toHaveText(/Recipe \(\d+\)/);
 
   await page.getByRole("tab", { name: "Table" }).click();
-  await page.locator('button[title^="Fill the empty cells in one click"]').click();
+  await page.locator(".health-issues").click();
+  await page.locator('.context-item[title^="Fill the empty cells in one click"]').click();
   await page.locator(".context-item", { hasText: /Fill from similar rows/ }).first().click();
   const dialog = page.getByRole("dialog", { name: "Fill empty cells from similar rows" });
   await expect(dialog.locator(".knn-verdict")).toContainText(/Tested by hiding/);

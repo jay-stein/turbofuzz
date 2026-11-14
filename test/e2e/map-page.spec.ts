@@ -1,16 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
 
-// Outliers, Relationships, Time Series and Map are Research-mode tabs, and every new
-// dataset opens in General: switch Research on whenever the switch shows General.
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    new MutationObserver(() => {
-      const research = document.querySelector<HTMLElement>('.mode-switch-option[data-mode="research"][aria-checked="false"]');
-      if (research !== null && !document.querySelector(".workspace.hidden")) research.click();
-    }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-checked", "class"] });
-  });
-});
-
 
 function sites(): string {
   const lines = ["site,lat,lon,visits"];
@@ -71,7 +60,8 @@ test("markers come from a CSV, the table and clicks on the map", async ({ page }
 
 test("a table without coordinates still gets a map for markers", async ({ page }) => {
   await openMap(page, "a,b\nx,1\ny,2\nz,3\n", "plain.csv");
-  await expect(page.locator(".map-empty")).toContainText("No latitude and longitude columns found");
+  await expect(page.locator(".map-empty .page-empty-title")).toHaveText("No rows on the map: this table has no coordinates");
+  await expect(page.locator(".map-empty")).toContainText("The map below still shows your markers");
 });
 
 test("cities: search adds a marker, names alone become markers, and the layer draws offline", async ({ page }) => {
@@ -179,7 +169,7 @@ test("many markers can be clustered into numbered circles, which split when the 
 test("columns not named like coordinates can be chosen by hand as latitude and longitude", async ({ page }) => {
   await openMap(page, "x,y,price\n-0.1,51.5,120\n2.3,48.9,150\n-3.7,40.4,90\n", "grid.csv");
   // Nothing is named lat or lon, so nothing is guessed: not even from price, whose values would fit.
-  await expect(page.locator(".map-empty")).toContainText("choose them with Latitude and Longitude");
+  await expect(page.locator(".map-empty").getByRole("button", { name: "Choose latitude and longitude" })).toBeVisible();
   await expect(page.locator(".map-sub")).toHaveText("");
   await expect(page.getByLabel("Latitude column")).toHaveValue("-1");
 

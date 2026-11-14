@@ -115,11 +115,24 @@ function polarsCleanLines(
         // regex mirrors the pandas generator's anchored pattern.
         const pattern =
           op.locale === "dot"
-            ? String.raw`^([+-]?\d{1,3}(?:\.\d{3})*),(\d{1,2})$`
-            : String.raw`^([+-]?\d{1,3}(?:,\d{3})*)\.(\d{1,2})$`;
+            ? String.raw`^([+-]?(?:\d{1,3}(?:\.\d{3})+|\d+)),(\d{1,2})$`
+            : String.raw`^([+-]?(?:\d{1,3}(?:,\d{3})+|\d+))\.(\d{1,2})$`;
         const replacement = op.locale === "dot" ? "${1}.${2}" : "${1},${2}";
         return assign(`${column}.str.replace_all(${py(pattern)}, ${py(replacement)})`, name);
       }
+      case "signSuffix":
+        return [
+          "import re",
+          "def _sign_suffix(v, negative):",
+          "    m = re.match(r\"^\\s*(.*\\d)\\s*(DR|CR)\\.?\\s*$\", v, re.I) if isinstance(v, str) else None",
+          "    if m is None:",
+          "        return v",
+          "    body = m.group(1).strip()",
+          "    if m.group(2).upper() != negative:",
+          "        return body",
+          "    return body[1:] if body.startswith(\"-\") else \"-\" + body",
+          assign(`${column}.map_elements(lambda v: _sign_suffix(v, ${py(op.negative)}), return_dtype=pl.Utf8)`, name),
+        ].join("\n");
       case "keepNumbers":
         return [
           "def _keep_number(v, mark):",

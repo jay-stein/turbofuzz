@@ -100,3 +100,15 @@ test("buildCsv masks or leaves out chosen columns", () => {
     "2,Hobart\r\n",
   );
 });
+
+test("a typed cell that does not parse keeps its text on export; missing markers still blank", () => {
+  const numbers = Array.from({ length: 60 }, (_, i) => [`${i + 1}.50`]);
+  const rows = [...numbers, ["19215.35 DR"], ["N/A"]];
+  const dataset = buildDataset("t", ["amount"], rows);
+  assert.equal(dataset.columns[0].type, "number");
+  const ids = Uint32Array.from(rows.map((_, i) => i));
+  const lines = buildCsv(dataset, ids, 0, rows.length, true).split(/\r\n/);
+  assert.equal(lines[1], "1.5");
+  assert.equal(lines[61], "19215.35 DR");
+  assert.equal(lines[62], "");
+});

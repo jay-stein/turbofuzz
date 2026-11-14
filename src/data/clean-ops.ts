@@ -1,7 +1,7 @@
 import { parseDate, toDateInputValue, toDateTimeValue, type DateOrder } from "../parse/dates.js";
 import { escapeFormula } from "./formula.js";
 import { describeOrder } from "../parse/date-format.js";
-import { detectDecimalStyle, parseNumber, type NumberLocale } from "../parse/numbers.js";
+import { detectDecimalStyle, parseNumber, SIGN_SUFFIX, type NumberLocale } from "../parse/numbers.js";
 import { maskEdges } from "./mask-value.js";
 import { sha256Hex } from "./sha256.js";
 import { isNullToken } from "../parse/null-tokens.js";
@@ -15,6 +15,8 @@ export type CleanOp =
   | { kind: "replace"; find: string; replacement: string; ignoreCase: boolean }
   | { kind: "toNumber"; locale: NumberLocale }
   | { kind: "repairDecimal"; locale: NumberLocale }
+  /** Turns an accounting suffix into a sign: with negative "DR", "19215.35 DR" → "-19215.35" and "10.00 CR" → "10.00". */
+  | { kind: "signSuffix"; negative: "DR" | "CR" }
   | { kind: "escapeFormulas" }
   /** Keeps only digits, the column's decimal mark and a leading minus: "$1,234.50" → "1234.50". */
   | { kind: "keepNumbers"; locale: NumberLocale }
@@ -126,6 +128,15 @@ function compileOp(op: CleanOp): (value: string) => string {
         return Number.isFinite(parsed) ? String(parsed) : value;
       };
     }
+    case "signSuffix":
+      return (value) => {
+        const match = SIGN_SUFFIX.exec(value);
+        if (match === null) return value;
+        const body = match[1].trim();
+        const negative = match[2].toUpperCase() === op.negative;
+        if (!negative) return body;
+        return body.startsWith("-") ? body.slice(1) : `-${body}`;
+      };
     case "repairDecimal": {
       // Rewrites only the values written in the *other* decimal convention,
       // leaving the column's dominant format untouched.
@@ -275,6 +286,8 @@ export function describeCleanOp(op: CleanOp): string {
       }`;
     case "toNumber":
       return `Convert to number (${op.locale === "comma" ? "decimal comma, 1.234,56" : "decimal point, 1,234.56"})`;
+    case "signSuffix":
+      return `Read ${op.negative} amounts as negative, ${op.negative === "DR" ? "CR" : "DR"} as positive`;
     case "repairDecimal":
       return op.locale === "dot"
         ? "Repair decimal-comma values (613,26 → 613.26)"
@@ -317,6 +330,8 @@ export function describeCleanOpDetail(op: CleanOp): string {
       return `toNumber(locale=${op.locale})`;
     case "repairDecimal":
       return `repairDecimal(locale=${op.locale})`;
+    case "signSuffix":
+      return `signSuffix(negative=${op.negative})`;
     case "escapeFormulas":
       return "escapeFormulas()";
     case "keepNumbers":

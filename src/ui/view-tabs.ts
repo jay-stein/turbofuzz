@@ -11,17 +11,13 @@ export type ViewId =
   | "timeseries"
   | "map";
 
-/** The everyday lenses, shown in both modes. */
-export const GENERAL_VIEWS: readonly ViewId[] = ["table", "overview", "quality", "views", "chart"];
+/** The everyday lenses. */
+const EVERYDAY_VIEWS: readonly ViewId[] = ["table", "overview", "quality", "views", "chart"];
 
-/** The research lane, on by default and edged in green; sliding the switch to General hides it. */
+/** The deeper research tools, always on the tab bar, set apart after a thin green divider. */
 export const RESEARCH_VIEWS: readonly ViewId[] = ["timeseries", "map", "outliers", "relationships"];
 
-export const VIEW_ORDER: readonly ViewId[] = [...GENERAL_VIEWS, ...RESEARCH_VIEWS];
-
-export function isResearchView(view: ViewId): boolean {
-  return RESEARCH_VIEWS.includes(view);
-}
+export const VIEW_ORDER: readonly ViewId[] = [...EVERYDAY_VIEWS, ...RESEARCH_VIEWS];
 
 /** Hint text derived from the tabs actually available, not a hardcoded range. */
 export function viewSwitchHint(count = VIEW_ORDER.length): string {
@@ -80,30 +76,24 @@ export interface ViewTabsCallbacks {
 }
 
 /**
- * `Table | Overview | Data Quality | Pivot View | Chart` lens switcher, plus
- * the Research lane (`Time Series | Map | Outliers | Relationships`) when
- * Research mode is on. ARIA tabs pattern: role=tablist, aria-selected and
- * roving tabindex. Lenses never alter data; they only change what is on screen.
+ * `Table | Overview | Data Quality | Pivot View | Chart` lens switcher, then
+ * the research lane (`Time Series | Map | Outliers | Relationships`), always
+ * shown. ARIA tabs pattern: role=tablist, aria-selected and roving tabindex.
+ * Lenses never alter data; they only change what is on screen.
  */
 export class ViewTabs {
   private readonly buttons = new Map<ViewId, HTMLButtonElement>();
   private readonly researchLane: HTMLElement;
   private view: ViewId = "table";
-  private research: boolean;
 
   constructor(
     private readonly root: HTMLElement,
     private readonly callbacks: ViewTabsCallbacks,
-    research = true,
   ) {
-    this.research = research;
     this.root.classList.add("view-tabs");
     this.root.setAttribute("role", "tablist");
     this.root.setAttribute("aria-label", "Views");
     this.researchLane = el("div", { class: "view-tabs-research" });
-    this.researchLane.addEventListener("animationend", (event) => {
-      if ((event.target as HTMLElement).dataset.last === "true") this.researchLane.classList.remove("entering");
-    });
 
     for (const id of VIEW_ORDER) {
       const button = el(
@@ -113,43 +103,54 @@ export class ViewTabs {
           type: "button",
           role: "tab",
           id: `view-tab-${id}`,
-          title: LABELS[id].title,
+          // The four deeper tools say so on hover, alongside the lane's own "Research tools" label.
+          title: RESEARCH_VIEWS.includes(id) ? `Research · ${LABELS[id].title}` : LABELS[id].title,
         },
         [el("span", { class: "view-tab-key", "data-key": String(VIEW_ORDER.indexOf(id) + 1) }), svgIcon(ICONS[id], "view-tab-icon"), el("span", { class: "view-tab-label" }, [LABELS[id].label])],
       ) as HTMLButtonElement;
       button.addEventListener("click", () => this.select(id));
       this.buttons.set(id, button);
-      const lane = RESEARCH_VIEWS.indexOf(id);
-      if (lane < 0) {
-        this.root.append(button);
-      } else {
-        // Staggers the slide-in when Research mode is switched on.
-        button.style.setProperty("--i", String(lane));
-        if (lane === RESEARCH_VIEWS.length - 1) button.dataset.last = "true";
-        this.researchLane.append(button);
-      }
+      if (RESEARCH_VIEWS.includes(id)) this.researchLane.append(button);
+      else this.root.append(button);
     }
     this.root.append(this.researchLane);
+    this.labelResearchLane();
     this.root.addEventListener("keydown", (event) => this.onKeydown(event));
-    this.syncResearch(false);
     this.sync();
   }
 
-  /** The tabs on screen, in order; number keys 1–n map onto these. */
+  /**
+   * Hovering (or tabbing into) the green lane shows a small "Research tools" label under it. It floats on the
+   * page because the tab bar scrolls sideways and would clip anything drawn below it.
+   */
+  private labelResearchLane(): void {
+    let tip: HTMLElement | null = null;
+    const show = (): void => {
+      if (tip !== null) return;
+      const rect = this.researchLane.getBoundingClientRect();
+      tip = el("div", { class: "research-lane-tip", "aria-hidden": "true" }, ["Research tools"]);
+      document.body.append(tip);
+      tip.style.left = `${Math.max(8, rect.left + rect.width / 2 - tip.offsetWidth / 2)}px`;
+      tip.style.top = `${rect.bottom + 6}px`;
+    };
+    const hide = (): void => {
+      if (this.researchLane.matches(":hover") || this.researchLane.contains(document.activeElement)) return;
+      tip?.remove();
+      tip = null;
+    };
+    this.researchLane.addEventListener("mouseenter", show);
+    this.researchLane.addEventListener("focusin", show);
+    this.researchLane.addEventListener("mouseleave", () => queueMicrotask(hide));
+    this.researchLane.addEventListener("focusout", () => queueMicrotask(hide));
+    this.researchLane.addEventListener("click", () => {
+      tip?.remove();
+      tip = null;
+    });
+  }
+
+  /** The tabs, in order; number keys 1–9 map onto these. */
   visibleViews(): readonly ViewId[] {
-    return this.research ? VIEW_ORDER : GENERAL_VIEWS;
-  }
-
-  /** Shows or hides the Research lane; `animate` slides the tabs in. */
-  setResearch(on: boolean, animate = false): void {
-    if (on === this.research) return;
-    this.research = on;
-    this.syncResearch(animate);
-  }
-
-  private syncResearch(animate: boolean): void {
-    this.researchLane.classList.toggle("hidden", !this.research);
-    this.researchLane.classList.toggle("entering", animate && this.research);
+    return VIEW_ORDER;
   }
 
   /** The currently selected lens. */
@@ -167,6 +168,21 @@ export class ViewTabs {
   setSelected(view: ViewId): void {
     this.view = view;
     this.sync();
+  }
+
+  /**
+   * Greys a tab whose page this table has nothing for, with the reason on hover; null restores it. The tab
+   * stays clickable, and the page says plainly what it needs.
+   */
+  setUnavailable(view: ViewId, reason: string | null): void {
+    const button = this.buttons.get(view);
+    if (button === undefined) return;
+    const base = RESEARCH_VIEWS.includes(view) ? `Research · ${LABELS[view].title}` : LABELS[view].title;
+    button.classList.toggle("unavailable", reason !== null);
+    const research = RESEARCH_VIEWS.includes(view) ? "Research · " : "";
+    button.title = reason === null ? base : `${research}${LABELS[view].label}: ${reason}`;
+    if (reason === null) button.removeAttribute("aria-description");
+    else button.setAttribute("aria-description", reason);
   }
 
   /** Small count badge (e.g. "3 ideas") or null to clear it. */

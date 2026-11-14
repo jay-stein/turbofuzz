@@ -1301,20 +1301,16 @@ test("the colour map list is short until More colour maps is chosen, and keeps t
   card.dispose();
 });
 
-test("error bars and Extract stats are left off the panel in General mode", async () => {
+test("every chart offers Extract stats and error bars: there is no reduced mode", async () => {
   const window = setupDom();
   captureMockContext(window, []);
-  let research = false;
   const host = document.createElement("div");
-  const card = new ChartCard(host, { ...stubCardOptions(), research: () => research }, { kind: "bar", column: 0 });
+  const card = new ChartCard(host, stubCardOptions(), { kind: "bar", column: 0 });
   card.setColumns([meta({ name: "city", type: "category", categories: { labels: ["a", "b"], counts: [1, 1] } })]);
   await tick();
   card.repaint();
   const stats = host.querySelector(".chart-stats-btn") as HTMLElement;
-  assert.equal(stats.classList.contains("hidden"), true);
-  research = true;
-  card.repaint();
-  assert.equal(stats.classList.contains("hidden"), false, "Research brings it back");
+  assert.equal(stats.classList.contains("hidden"), false);
   card.dispose();
   void window;
 });
@@ -4165,3 +4161,23 @@ test("Extract stats gives a histogram's bins from the edges drawn, with the KDE'
   void window;
 });
 
+
+test("chart data issues name near-identical labels that each draw as their own bar", () => {
+  setupDom();
+  const host = document.createElement("div") as unknown as HTMLElement;
+  const card = new ChartCard(host, { ...stubCardOptions(), onShowRows: () => {} }, { kind: "bar", column: 0 });
+  card.setColumns([
+    meta({
+      name: "store",
+      type: "category",
+      categories: { labels: ["Bristol", "BRISTOL ", "Leeds", "LEEDS "], counts: [1180, 25, 1100, 22] },
+      similarGroups: 2,
+    }),
+  ]);
+  const bar = host.querySelector(".chart-data-issues") as HTMLElement;
+  assert.ok(bar !== null && !bar.classList.contains("hidden"));
+  assert.match(bar.textContent ?? "", /store: 2 groups of near-identical values, each drawn separately/);
+  assert.doesNotMatch(bar.textContent ?? "", /missing/, "nothing is missing, so the line says so only about the variants");
+  const chips = [...bar.querySelectorAll(".chart-issue-chip")] as HTMLButtonElement[];
+  assert.ok(!chips.some((chip) => chip.textContent === "Show rows"), "no blank rows to show");
+});

@@ -14,6 +14,8 @@ import type { DeepCheck } from "../data/timeseries/models.js";
 import { compact, dfDate, dfDM, dfMonShort, dfTime, fmtNum, full, nf, nounFor, periodLabel, shortPeriod, signed } from "../data/timeseries/format.js";
 import { BENCHMARK_KEYS, CORE_KEYS, flexDetail, grade, METRIC_KEYS, MODEL_INFO, MODEL_KEYS, type Future, type MetricKey, type ModelKey, type ModelRun } from "../data/timeseries/models.js";
 import { METRIC_INFO, metricText, openModelGuide } from "./timeseries-metrics.js";
+import { emptyState, EMPTY_ICONS, type EmptyAction } from "./empty-state.js";
+import { dateLikeTextColumns, listNames, measureColumnNames } from "./tab-availability.js";
 import { backtestRows, forecastRows, scorecardRows } from "./timeseries-export.js";
 import { cite, openModelDetails } from "./timeseries-model-docs.js";
 import { PLAIN, trustVerdict, type Verdict } from "../data/timeseries/verdict.js";
@@ -41,6 +43,8 @@ export interface TimeSeriesPageOptions {
   /** Filter the table to one period of the date column (UTC ms, inclusive) and show it. */
   onShowRows: (dateColumn: number, min: number, max: number) => void;
   onAction: (message: string) => void;
+  /** Open the command bar with this already typed, for a fix the page suggests (“combine dates”). */
+  onCommand: (text: string) => void;
   /** Read a text column of periods ("2024-03", "Mar-24", "2024 Q1") as dates, with the given `fmt:` order. */
   onUseAsDate: (column: number, order: string) => void;
   /** Apply one of a column's cleaning suggestions (treat a code as missing). */
@@ -359,6 +363,57 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     empty.hidden = false;
     empty.innerHTML = html;
   }
+  /**
+   * No date column: a card that says so in a headline, ticks off what the table has against what the page
+   * needs, and offers the fixes this table allows (a text column of periods or dates, Year/Month/Day parts).
+   */
+  function showNoDates(period: { column: number; order: string; format: string; example: string } | null): void {
+    ref("body").hidden = true;
+    const empty = ref("empty");
+    empty.hidden = false;
+    const measures = measureColumnNames(metas);
+    const dateText = dateLikeTextColumns(metas);
+    const names = metas.map((m) => m.name.trim().toLowerCase());
+    const hasParts = names.some((n) => /^(year|yr)s?$/.test(n)) && names.some((n) => /^(month|mon|mm)s?$/.test(n));
+    const actions: EmptyAction[] = [];
+    if (period !== null) {
+      const name = metas[period.column]!.name;
+      actions.push({
+        label: `Use ${name} as dates`,
+        title: `Reads values like ${period.example} as the first day of each period (${period.format})`,
+        primary: true,
+        run: () => options.onUseAsDate(period.column, period.order),
+      });
+    }
+    for (const name of dateText.slice(0, 2)) {
+      actions.push({ label: `Read ${name} as dates`, primary: actions.length === 0, run: () => options.onCommand(`date [${name}]`) });
+    }
+    if (hasParts) actions.push({ label: "Combine Year, Month, Day into a date", primary: actions.length === 0, run: () => options.onCommand("combine dates") });
+    actions.push({ label: "Change a column's type…", title: "Pick a column and make it a Date", run: () => options.onCommand("type ") });
+    const textDates = period !== null ? [metas[period.column]!.name, ...dateText] : dateText;
+    empty.replaceChildren(
+      emptyState({
+        icon: EMPTY_ICONS.timeseries,
+        title: "No dates in this table",
+        lead: "Time Series follows a number over time (trend, seasons and a forecast), so it needs a column of dates.",
+        needs: [
+          {
+            ok: false,
+            label: "A date or date-time column",
+            detail: textDates.length > 0
+              ? `${listNames([...new Set(textDates)])} ${new Set(textDates).size === 1 ? "looks" : "look"} like dates but ${new Set(textDates).size === 1 ? "is" : "are"} read as text`
+              : `none among the ${metas.length} columns`,
+          },
+          {
+            ok: measures.length > 0,
+            label: "A number to follow",
+            detail: measures.length > 0 ? listNames(measures) : "none: rows per period are counted instead",
+          },
+        ],
+        actions,
+      }),
+    );
+  }
   /** A text column whose values are almost all months, quarters or years in one explicit format (the first such column). */
   async function periodColumn(): Promise<{ column: number; order: string; format: string; example: string } | null> {
     for (let i = 0; i < metas.length; i++) {
@@ -385,12 +440,11 @@ export function createTimeSeriesPage(host: HTMLElement, options: TimeSeriesPageO
     if (!dates.length) {
       dateColumn = -1;
       snap = null;
-      const base = `<h3>No date column</h3><p>The Time Series page needs a column of dates or date-times. If the dates are split over Year, Month and Day columns, type <b>combine</b> in the command bar to build one; if a date column reads as text, change its type to Date. Then come back here.</p>`;
-      showEmpty(base);
+      showNoDates(null);
       const asked = metas;
       void periodColumn().then((period) => {
         if (!period || metas !== asked || dateColumn >= 0) return;
-        showEmpty(`${base}<p><button type="button" class="btn-primary" data-use-date="${period.column}" data-use-order="${escapeHtml(period.order)}">Use ${escapeHtml(metas[period.column]!.name)} as date</button> <span class="muted">reads values like ${escapeHtml(period.example)} as the first day of each period (${escapeHtml(period.format)}).</span></p>`);
+        showNoDates(period);
       });
       return;
     }

@@ -1,7 +1,7 @@
 import { detectDateOrder, parseDate, parseDuration, parseTimeOfDay } from "../parse/dates.js";
 import { looksLikeFormula } from "./formula.js";
 import { stratifiedSample } from "../parse/infer.js";
-import { detectDecimalStyle, parseNumber, type NumberLocale } from "../parse/numbers.js";
+import { detectDecimalStyle, parseNumber, signSuffixOf, type NumberLocale } from "../parse/numbers.js";
 import {
   NUMERIC_SENTINEL_VALUES,
   placeholderDateLabel,
@@ -25,6 +25,8 @@ export type ColumnSuggestion =
   | { kind: "time"; ratio: number; sampled: number }
   | { kind: "duration"; ratio: number; sampled: number }
   | { kind: "mixedNumber"; locale: NumberLocale; count: number; ratio: number; sampled: number }
+  /** Amounts with a DR/CR suffix ("19215.35 DR"); one suggestion per reading, so the user picks which suffix is negative. */
+  | { kind: "signSuffix"; negative: "DR" | "CR"; dr: number; cr: number; sampled: number }
   | { kind: "typeConflict"; count: number; sampled: number; example: string; columnType: string }
   | { kind: "formula"; count: number; ratio: number; sampled: number; example: string };
 
@@ -67,9 +69,9 @@ export function suggestionLabel(suggestion: ColumnSuggestion): string {
     case "duration":
       return "Convert to duration";
     case "mixedNumber":
-      return `Repair ${suggestion.count.toLocaleString()} ${
-        suggestion.locale === "dot" ? "decimal-comma" : "decimal-point"
-      } values`;
+      return `Read ${suggestion.locale === "dot" ? "decimal-comma" : "decimal-point"} values as decimals`;
+    case "signSuffix":
+      return `Read ${suggestion.negative} amounts as negative`;
     case "typeConflict":
       return `Treat as text (${suggestion.count.toLocaleString()} don't parse)`;
     case "formula":
@@ -93,7 +95,9 @@ export function suggestionShortLabel(suggestion: ColumnSuggestion): string {
     case "duration":
       return "convert to duration";
     case "mixedNumber":
-      return `repair ${suggestion.count.toLocaleString()} mixed decimals`;
+      return suggestion.locale === "dot" ? "decimal commas: decide" : "decimal points: decide";
+    case "signSuffix":
+      return `read ${suggestion.negative} as negative`;
     case "typeConflict":
       return `${suggestion.count.toLocaleString()} don't parse`;
     case "formula":
@@ -118,8 +122,10 @@ export function describeSuggestion(suggestion: ColumnSuggestion): string {
       return `About ${Math.round(suggestion.ratio * 100)}% of values look like elapsed durations (HH:MM:SS or 1h 30m). Click to treat them as durations.`;
     case "mixedNumber":
       return suggestion.locale === "dot"
-        ? `${suggestion.count.toLocaleString()} of ${suggestion.sampled.toLocaleString()} sampled values look like decimal comma (e.g. 613,26) while this column reads 1,234.56 — they are currently parsed as thousands. Click to rewrite just those values.`
-        : `${suggestion.count.toLocaleString()} of ${suggestion.sampled.toLocaleString()} sampled values look like decimal point (e.g. 613.26) while this column reads 1.234,56 — they are currently parsed as thousands. Click to rewrite just those values.`;
+        ? `${suggestion.count.toLocaleString()} of ${suggestion.sampled.toLocaleString()} sampled values look like decimal comma (e.g. 613,26) while this column reads 1,234.56. They are left out of totals until you decide; click to choose.`
+        : `${suggestion.count.toLocaleString()} of ${suggestion.sampled.toLocaleString()} sampled values look like decimal point (e.g. 613.26) while this column reads 1.234,56. They are left out of totals until you decide; click to choose.`;
+    case "signSuffix":
+      return `${(suggestion.dr + suggestion.cr).toLocaleString()} of ${suggestion.sampled.toLocaleString()} sampled amounts end in DR or CR (${suggestion.dr.toLocaleString()} DR, ${suggestion.cr.toLocaleString()} CR). Which one is money out depends on whose books these are, so they are left out of totals until you choose. Click to read ${suggestion.negative} as negative and the other as positive.`;
     case "typeConflict":
       return `${suggestion.count.toLocaleString()} of ${suggestion.sampled.toLocaleString()} sampled cells don't parse as ${suggestion.columnType} (e.g. “${suggestion.example}”). Values are kept visible; click to treat the column as text instead of coercing.`;
     case "formula":
@@ -284,6 +290,20 @@ export function detectSuggestions(
         ratio: otherStyle / nonNull.length,
         sampled: nonNull.length,
       });
+    }
+    // Accounting suffixes ("19215.35 DR"): which one is negative depends on
+    // whose books these are, so both readings are offered and none is assumed.
+    let dr = 0;
+    let cr = 0;
+    for (const value of nonNull) {
+      const suffix = signSuffixOf(value);
+      if (suffix === "DR") dr++;
+      else if (suffix === "CR") cr++;
+    }
+    if (dr + cr >= MIXED_MIN_COUNT) {
+      for (const negative of ["DR", "CR"] as const) {
+        suggestions.push({ kind: "signSuffix", negative, dr, cr, sampled: nonNull.length });
+      }
     }
     // Type conflict: repeated values that do not parse as the column's type
     // (e.g. "high" inside an integer column). Never silently coerced; the

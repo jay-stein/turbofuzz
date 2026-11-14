@@ -1,16 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import {
-  GENERAL_VIEWS,
-  RESEARCH_VIEWS,
-  VIEW_ORDER,
-  ViewTabs,
-  isResearchView,
-  viewSwitchHint,
-  type ViewId,
-} from "../src/ui/view-tabs.js";
-import { ModeSwitch, readMode, writeMode, type AppMode } from "../src/ui/mode.js";
+import { RESEARCH_VIEWS, VIEW_ORDER, ViewTabs, viewSwitchHint, type ViewId } from "../src/ui/view-tabs.js";
 
 function setupDom(): Window {
   const window = new Window();
@@ -36,84 +27,25 @@ test("the keyboard hint follows the number of registered tabs", () => {
     "relationships",
   ]);
   assert.equal(viewSwitchHint(), `switch anytime with 1–${VIEW_ORDER.length}`);
-  assert.equal(viewSwitchHint(GENERAL_VIEWS.length), "switch anytime with 1–5");
 });
 
-test("research views are Time Series, Map, Outliers and Relationships, in that order", () => {
+test("the research tools are Time Series, Map, Outliers and Relationships, last on the bar", () => {
   assert.deepEqual(RESEARCH_VIEWS, ["timeseries", "map", "outliers", "relationships"]);
-  for (const view of VIEW_ORDER) assert.equal(isResearchView(view), RESEARCH_VIEWS.includes(view));
-  assert.deepEqual([...GENERAL_VIEWS, ...RESEARCH_VIEWS], VIEW_ORDER);
+  assert.deepEqual(VIEW_ORDER.slice(-RESEARCH_VIEWS.length), RESEARCH_VIEWS);
 });
 
-test("General mode hides the research lane and keyboard moves only over visible tabs", () => {
+test("every tab is always on the bar; the research ones sit in the green lane and say so on hover", () => {
   const window = setupDom();
   const root = window.document.createElement("div") as unknown as HTMLElement;
   const picked: ViewId[] = [];
-  const tabs = new ViewTabs(root, { onChange: (view) => picked.push(view) }, false);
+  const tabs = new ViewTabs(root, { onChange: (view) => picked.push(view) });
   const lane = root.querySelector(".view-tabs-research")!;
   assert.equal(lane.querySelectorAll("button").length, RESEARCH_VIEWS.length);
-  assert.ok(lane.classList.contains("hidden"));
-  assert.deepEqual(tabs.visibleViews(), GENERAL_VIEWS);
-
-  // ArrowRight from the last general tab wraps to Table, never into the lane.
-  tabs.setSelected("chart");
-  root.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight" }) as unknown as Event);
-  assert.deepEqual(picked, ["table"]);
-
-  tabs.setResearch(true, true);
   assert.ok(!lane.classList.contains("hidden"));
-  assert.ok(lane.classList.contains("entering"));
   assert.deepEqual(tabs.visibleViews(), VIEW_ORDER);
+  for (const button of lane.querySelectorAll("button")) assert.match(button.getAttribute("title") ?? "", /^Research · /);
+  // ArrowRight from Chart moves on into the research lane.
   tabs.setSelected("chart");
   root.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight" }) as unknown as Event);
-  assert.deepEqual(picked, ["table", "timeseries"]);
-});
-
-test("the mode is remembered, defaults to Research and survives blocked storage", () => {
-  setupDom();
-  assert.equal(readMode(), "research");
-  writeMode("general");
-  assert.equal(readMode(), "general");
-  localStorage.setItem("turbofuzz-mode", "bogus");
-  assert.equal(readMode(), "research");
-
-  const globals = globalThis as Record<string, unknown>;
-  globals.localStorage = {
-    getItem(): string | null {
-      throw new Error("storage blocked");
-    },
-    setItem(): void {
-      throw new Error("storage blocked");
-    },
-  };
-  assert.equal(readMode(), "research");
-  writeMode("general");
-});
-
-test("the mode switch is a radio group that reports the user's choice", () => {
-  const window = setupDom();
-  const changes: AppMode[] = [];
-  const control = new ModeSwitch("general", { onChange: (mode) => changes.push(mode) });
-  const root = control.element;
-  assert.equal(root.getAttribute("role"), "radiogroup");
-  const [general, research] = [...root.querySelectorAll<HTMLButtonElement>("[role=radio]")];
-  assert.equal(general.getAttribute("aria-checked"), "true");
-  assert.equal(research.tabIndex, -1);
-
-  research.click();
-  assert.deepEqual(changes, ["research"]);
-  assert.equal(root.dataset.mode, "research");
-  assert.equal(research.getAttribute("aria-checked"), "true");
-  assert.equal(general.tabIndex, -1);
-
-  // Clicking the checked option is not a change.
-  research.click();
-  assert.deepEqual(changes, ["research"]);
-
-  root.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowLeft" }) as unknown as Event);
-  assert.deepEqual(changes, ["research", "general"]);
-
-  control.setSelected("research");
-  assert.deepEqual(changes, ["research", "general"]);
-  assert.equal(root.dataset.mode, "research");
+  assert.deepEqual(picked, ["timeseries"]);
 });

@@ -1,16 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
 
-// Outliers, Relationships, Time Series and Map are Research-mode tabs, and every new
-// dataset opens in General: switch Research on whenever the switch shows General.
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    new MutationObserver(() => {
-      const research = document.querySelector<HTMLElement>('.mode-switch-option[data-mode="research"][aria-checked="false"]');
-      if (research !== null && !document.querySelector(".workspace.hidden")) research.click();
-    }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-checked", "class"] });
-  });
-});
-
 /** Two years of weekday readings with a six-week hole in the middle, for three players. */
 function games(): string {
   const lines = ["order_date,region,player,points"];
@@ -445,11 +434,11 @@ test("a text column of months is offered as the date, and one click makes the pa
   await page.locator('input[type="file"]').setInputFiles({ name: "monthly.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
-  const offer = page.locator(".ts-page [data-use-date]");
+  // The page says plainly what is missing, and the fix is its first button.
+  await expect(page.locator(".ts-page .page-empty-title")).toHaveText("No dates in this table");
+  const offer = page.locator(".ts-page .page-empty").getByRole("button", { name: "Use month as dates" });
   await expect(offer).toBeVisible({ timeout: 20_000 });
-  await expect(offer).toContainText("Use month as date");
   await offer.click();
   await expect(page.locator(".ts-page [data-ref=empty]")).toBeHidden({ timeout: 20_000 });
 });
@@ -462,7 +451,6 @@ test("an error code in the measure is called out, and one click treats it as mis
   await page.locator('input[type="file"]').setInputFiles({ name: "sensor.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
   const banner = page.locator(".ts-page [data-ref=sentinel]");
   await page.locator(".ts-tok[data-tok=agg]").click();
@@ -487,7 +475,6 @@ test("a column that moves the series is offered as a driver with the error it cu
   await page.locator('input[type="file"]').setInputFiles({ name: "demand.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
   await page.locator(".ts-tok[data-tok=agg]").click();
   await page.locator(".ts-popover button", { hasText: "mean" }).first().click();
@@ -515,7 +502,6 @@ test("a holiday region can be chosen on the page, and the calendar is then offer
   await page.locator('input[type="file"]').setInputFiles({ name: "shop.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
   await page.locator(".ts-tok[data-tok=agg]").click();
   await page.locator(".ts-popover button", { hasText: "mean" }).first().click();
@@ -546,7 +532,6 @@ test("on a seasonal series the latest change is shown with the season taken out,
   await page.locator('input[type="file"]').setInputFiles({ name: "weekly.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
   await page.locator(".ts-tok[data-tok=agg]").click();
   await page.locator(".ts-popover button", { hasText: "mean" }).first().click();
@@ -561,7 +546,6 @@ test("Decompose shows a typical week and a typical year, not just the wave laid 
   await page.locator('input[type="file"]').setInputFiles({ name: "d.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Time Series" }).first().click();
   await page.locator(".ts-tok[data-tok=agg]").click();
   await page.locator(".ts-popover button", { hasText: "mean" }).first().click();

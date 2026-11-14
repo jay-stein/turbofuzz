@@ -22,7 +22,6 @@ async function openMap(page: Page, csv: string): Promise<Locator> {
   await page.locator('input[type="file"]').first().setInputFiles({ name: "t.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator('.mode-switch-option[data-mode="research"]').click();
   await page.locator(".view-tabs button", { hasText: "Map" }).first().click();
   const card = page.locator(".map-card");
   await card.locator(".chart-note").waitFor();
@@ -47,6 +46,24 @@ test("the map's kinds are pictures: Markers, Heat grid and Choropleth, and Choro
   await page.getByRole("radio", { name: "Markers" }).click();
   await expect(card.getByRole("button", { name: "Load boundaries…" })).toBeHidden();
   await expect(card.locator(".chart-note")).toContainText("places from");
+});
+
+test("a table of place names with no coordinates opens on Choropleth, asking for a boundary file", async ({ page }) => {
+  const card = await openMap(page, WIND);
+  await expect(page.getByRole("radio", { name: "Choropleth" })).toHaveAttribute("aria-checked", "true");
+  await expect(card.locator(".map-drop")).toContainText("Drop a boundary file here");
+  await expect(page.locator(".map-empty")).toBeHidden();
+  // Back on Markers the banner leads with boundaries, and the empty coordinates read as none.
+  await page.getByRole("radio", { name: "Markers" }).click();
+  await expect(page.locator(".map-empty .page-empty-title")).toHaveText("Map this table by County");
+  await expect(page.locator(".map-empty .page-empty-actions button").first()).toHaveText("Load boundaries…");
+  for (const axis of ["X column", "Y column"]) {
+    await expect(card.getByRole("combobox", { name: axis })).toHaveValue("-1");
+    await expect(card.getByRole("combobox", { name: axis }).locator("option:checked")).toHaveText("— none —");
+  }
+  await page.getByRole("radio", { name: "Choropleth" }).click();
+  await load(card, counties());
+  await expect(card.locator(".map-step").nth(1)).toContainText("NAME_1 = County");
 });
 
 test("a file dropped on the map loads, from any kind of map, and a clear match needs no asking", async ({ page }) => {

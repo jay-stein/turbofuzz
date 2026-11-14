@@ -21,71 +21,64 @@ async function load(page: Page): Promise<void> {
   await page.keyboard.press("Escape");
 }
 
-const modeOption = (page: Page, name: "General" | "Research") =>
-  page.getByRole("radiogroup", { name: "Mode" }).getByRole("radio", { name });
-
-test("a file opens on Table with the research tabs showing; General hides them until the next file", async ({ page }) => {
+test("every tab is always on the bar: there is no General or Research switch", async ({ page }) => {
   await load(page);
   await expect(page.getByRole("tab", { name: "Table" })).toHaveAttribute("aria-selected", "true");
-  await expect(modeOption(page, "Research")).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("radiogroup", { name: "Mode" })).toHaveCount(0);
   for (const name of RESEARCH_TABS) await expect(page.getByRole("tab", { name })).toBeVisible();
-  // Number keys follow the visible tabs: 9 is Relationships, the last research tab.
+  // Number keys run over all nine tabs: 9 is Relationships.
   await page.keyboard.press("9");
   await expect(page.getByRole("tab", { name: "Relationships" })).toHaveAttribute("aria-selected", "true");
-
-  await modeOption(page, "General").click();
-  await expect(modeOption(page, "General")).toHaveAttribute("aria-checked", "true");
-  for (const name of RESEARCH_TABS) await expect(page.getByRole("tab", { name })).toBeHidden();
   await page.keyboard.press("5");
   await expect(page.getByRole("tab", { name: "Chart" })).toHaveAttribute("aria-selected", "true");
-
-  await page.reload();
-  await page.locator('input[type="file"]').setInputFiles({ name: "sales.csv", mimeType: "text/csv", buffer: Buffer.from(sales()) });
-  await page.locator(".nav-row").waitFor();
-  // Every new dataset opens with Research on again, on the Table.
-  await expect(modeOption(page, "Research")).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByRole("tab", { name: "Outliers" })).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Table" })).toHaveAttribute("aria-selected", "true");
 });
 
-test("leaving Research on a research page returns to the last general page, and Undo brings it back", async ({ page }) => {
+test("the green lane names itself on hover as the research tools", async ({ page }) => {
   await load(page);
-  await page.getByRole("tab", { name: "Table" }).click();
-  await page.getByRole("tab", { name: "Relationships" }).click();
-
-  await modeOption(page, "General").click();
-  await expect(page.getByRole("tab", { name: "Table" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("tab", { name: "Relationships" })).toBeHidden();
-
-  await page.locator(".toast").getByRole("button", { name: "Undo" }).click();
-  await expect(modeOption(page, "Research")).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByRole("tab", { name: "Relationships" })).toHaveAttribute("aria-selected", "true");
+  for (const name of RESEARCH_TABS) await expect(page.getByRole("tab", { name })).toHaveAttribute("title", /^Research · /);
+  await page.getByRole("tab", { name: "Map" }).hover();
+  await expect(page.locator(".research-lane-tip")).toHaveText("Research tools");
+  await page.mouse.move(700, 600);
+  await expect(page.locator(".research-lane-tip")).toHaveCount(0);
 });
 
-test("asking for a research page from the command bar switches to Research and says so", async ({ page }) => {
+test("the command bar opens a research page directly", async ({ page }) => {
   await load(page);
-  await modeOption(page, "General").click();
   await page.keyboard.press("Control+k");
   await page.keyboard.type("outliers");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("tab", { name: "Outliers" })).toHaveAttribute("aria-selected", "true");
-  await expect(modeOption(page, "Research")).toHaveAttribute("aria-checked", "true");
-  await expect(page.locator(".toast")).toContainText("Research mode");
 });
 
-test("chart line cards only point to Time Series in Research mode", async ({ page }) => {
+test("chart line cards point to Time Series: chart tools are never held back", async ({ page }) => {
   await load(page);
   await page.getByRole("tab", { name: "Chart" }).click();
   await page.locator(".chart-add-type", { hasText: /^Line/ }).first().click();
   const dialog = page.locator(".modal-overlay");
   if (await dialog.count()) await dialog.getByRole("button", { name: /^(Add|Create|OK)/ }).last().click();
   await page.locator("canvas.chart-canvas").first().waitFor();
-  const link = page.getByRole("button", { name: "Open in Time Series →" });
-  await expect(link.first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open in Time Series →" }).first()).toBeVisible();
+});
 
-  await modeOption(page, "General").click();
-  await expect(link).toHaveCount(0);
-
-  await modeOption(page, "Research").click();
-  await expect(link.first()).toBeVisible();
+test("a table with no dates or coordinates greys Time Series and Map, says why on hover, and the pages say so plainly", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto("/");
+  const rows = ["agent,price"];
+  for (let i = 0; i < 30; i++) rows.push(`A${i % 4},${100 + i}`);
+  await page.locator('input[type="file"]').setInputFiles({ name: "plain.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  const ts = page.getByRole("tab", { name: "Time Series" });
+  await expect(ts).toHaveClass(/\bunavailable\b/);
+  await expect(ts).toHaveAttribute("title", /No date column/);
+  await expect(page.getByRole("tab", { name: "Map" })).toHaveClass(/\bunavailable\b/);
+  await expect(page.getByRole("tab", { name: "Outliers" })).not.toHaveClass(/\bunavailable\b/);
+  // Still clickable: the page says what it needs, ticked against this table.
+  await ts.click();
+  await expect(page.locator(".ts-page .page-empty-title")).toHaveText("No dates in this table");
+  await expect(page.locator(".ts-page .page-empty-needs .missing")).toContainText("A date or date-time column");
+  await expect(page.locator(".ts-page .page-empty-needs .ok")).toContainText("price");
+  // Its fix opens the command bar already filled in.
+  await page.locator(".ts-page .page-empty").getByRole("button", { name: "Change a column's type…" }).click();
+  await expect(page.locator(".command-input")).toHaveValue("type ");
 });

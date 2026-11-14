@@ -219,6 +219,8 @@ export interface AggregateResult {
   partials: boolean[] | null;
 }
 
+/** A time period with under half the median rows per period is marked incomplete. */
+const THIN_PERIOD_SHARE = 0.5;
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
@@ -1297,6 +1299,15 @@ export function computeAggregate(
     "time" in dimensions[0].by
       ? dimensions[0].by.time
       : null;
+  /**
+   * The first dimension's time grain, also when other dimensions follow it
+   * (month × store): incomplete periods are judged on it, so a chart split by a
+   * group marks them too. Gap filling still keys off timeGrain alone.
+   */
+  const edgeGrain =
+    dimensions.length >= 1 && typeof dimensions[0].by === "object" && "time" in dimensions[0].by
+      ? dimensions[0].by.time
+      : null;
   const timeEvery =
     dimensions.length === 1 && typeof dimensions[0].by === "object" && "time" in dimensions[0].by
       ? dimensions[0].by.every
@@ -1388,6 +1399,8 @@ export function computeAggregate(
   const accs: MeasureAcc[][] = [];
   /** True for calendar gap groups (used by the carry fill). */
   const filled: boolean[] = [];
+  /** Rows that fell in each group; a time period with far fewer than usual is incomplete. */
+  const groupRows: number[] = [];
 
   // One accumulator slot per aggregate term; expression measures get one slot
   // per term and are evaluated from the term values after the row loop. Slots
@@ -1560,12 +1573,14 @@ export function computeAggregate(
       groupTimes.push(bucket ?? Number.NaN);
       accs.push(newSlotAccs());
       filled.push(false);
+      groupRows.push(0);
       if (collect !== undefined) {
         collect.rows.push([]);
         collect.labels.push(dimValues.map((values) => values[index as number] ?? ""));
       }
     }
     collect?.rows[index]!.push(row);
+    groupRows[index]++;
     const groups = accs[index];
 
     for (let s = 0; s < slots.length; s++) {
@@ -1650,6 +1665,7 @@ export function computeAggregate(
       groupTimes.push(time);
       accs.push(newSlotAccs());
       filled.push(true);
+      groupRows.push(0);
       if (accs.length >= 50_000) break;
     }
   }
@@ -1745,12 +1761,13 @@ export function computeAggregate(
   };
   let finalShown = shown;
   let partials: boolean[] | null = null;
-  if (timeGrain !== null && shown.length > 0) {
+  if (edgeGrain !== null && shown.length > 0) {
     // Edge partiality is judged from the raw timestamps, not the bucket starts.
     const numbers = columns[dimensions[0].column]?.numbers() ?? null;
     const shift = dimRuntime[0]?.shift ?? null;
     let rawMin = Infinity;
     let rawMax = -Infinity;
+    let beforeMax = -Infinity;
     if (numbers !== null) {
       for (let position = 0; position < ids.length; position++) {
         const row = ids[position];
@@ -1758,30 +1775,77 @@ export function computeAggregate(
         if (!Number.isFinite(value)) continue;
         const shifted = shift === null ? value : shift(value);
         if (shifted < rawMin) rawMin = shifted;
-        if (shifted > rawMax) rawMax = shifted;
+        if (shifted > rawMax) {
+          beforeMax = rawMax;
+          rawMax = shifted;
+        } else if (shifted < rawMax && shifted > beforeMax) {
+          beforeMax = shifted;
+        }
       }
     }
     const firstBucket = Number.isFinite(rawMin)
-      ? timeBucket(rawMin, timeGrain, bucketOptions)
+      ? timeBucket(rawMin, edgeGrain, bucketOptions)
       : Number.NaN;
     const lastBucket = Number.isFinite(rawMax)
-      ? timeBucket(rawMax, timeGrain, bucketOptions)
+      ? timeBucket(rawMax, edgeGrain, bucketOptions)
       : Number.NaN;
-    const lastEnd = nextBucket(lastBucket, timeGrain, stepOptions);
+    const lastEnd = nextBucket(lastBucket, edgeGrain, stepOptions);
     const firstPartial = Number.isFinite(rawMin) && rawMin > firstBucket;
+    // The last period is also partial when the data stops before it ends, not
+    // only while it is still running: daily rows up to 14 Apr make April a
+    // half month that plots as a crash. "Before it ends" is judged by the data's
+    // own spacing (the gap between its last two timestamps), so daily rows up to
+    // 30 Apr leave April complete.
+    const spacing = Number.isFinite(beforeMax) ? rawMax - beforeMax : Number.NaN;
+    const stopsEarly = Number.isFinite(spacing) && rawMax + spacing * 1.5 < lastEnd;
     const now = Date.now();
     const flagsFor = (indexes: readonly number[]): boolean[] =>
       indexes.map((index) => {
         const time = groupTimes[index] ?? Number.NaN;
         if (!Number.isFinite(time)) return false;
         if (firstPartial && time === firstBucket) return true;
-        if (time === lastBucket && now < lastEnd) return true;
+        if (time === lastBucket && (now < lastEnd || stopsEarly)) return true;
         return false;
       });
     partials = flagsFor(shown);
     if (view.partial === "exclude" && partials.some(Boolean)) {
       finalShown = shown.filter((_, position) => partials?.[position] !== true);
       partials = flagsFor(finalShown);
+    }
+    // A period inside the data holding far fewer rows than usual is incomplete
+    // too: a 45-day outage leaves its months thin, and their sums plot as a slump
+    // in the business rather than missing data. Marked, never dropped. Weekly
+    // and coarser only: by the day or hour, quiet Sundays and nights are real.
+    const coarse = edgeGrain === "week" || edgeGrain === "month" || edgeGrain === "quarter" || edgeGrain === "year";
+    // Each period is judged against its own series (the other dimensions' values,
+    // e.g. one store), so a small series is not thin next to a large one.
+    if (coarse) {
+      const seriesOf = (index: number): string =>
+        dimValues.slice(1).map((values) => values[index] ?? "").join("\u0000");
+      const bySeries = new Map<string, number[]>();
+      for (const index of finalShown) {
+        const count = groupRows[index] ?? 0;
+        if (count <= 0) continue;
+        const key = seriesOf(index);
+        const list = bySeries.get(key);
+        if (list === undefined) bySeries.set(key, [count]);
+        else list.push(count);
+      }
+      const medians = new Map<string, number>();
+      for (const [key, list] of bySeries) {
+        if (list.length < 4) continue;
+        list.sort((a, b) => a - b);
+        const median = list[Math.floor(list.length / 2)];
+        if (median >= 4) medians.set(key, median);
+      }
+      if (medians.size > 0) {
+        const thin = finalShown.map((index) => {
+          const median = medians.get(seriesOf(index));
+          const count = groupRows[index] ?? 0;
+          return median !== undefined && count > 0 && count < median * THIN_PERIOD_SHARE;
+        });
+        partials = (partials ?? finalShown.map(() => false)).map((flag, position) => flag || thin[position] === true);
+      }
     }
   }
   const limited = finalMeasures.map((values) => {

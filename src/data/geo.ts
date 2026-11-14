@@ -162,3 +162,15 @@ export function detectGeoPair(
 
   return null;
 }
+
+/** Words that name a kind of place; matched as whole words so "statement" or "citycode" never count. */
+const PLACE_NAME = /(^|[^a-z])(country|countries|nation|state|states|province|county|counties|region|regions|district|city|cities|town|suburb|municipality|borough|parish|ward|prefecture|territory|lga|constituency|electorate|locality|place)($|[^a-z])/i;
+
+/**
+ * A text column whose NAME says it holds places (County, State, Country, region_name, ...), so a boundary
+ * file can be matched to it by name. Text columns only: a numeric "region" code is left to the matcher.
+ */
+export function detectPlaceColumn(columns: readonly ColumnMeta[]): number | null {
+  const index = columns.findIndex((meta) => (meta.type === "string" || meta.type === "category") && PLACE_NAME.test(meta.name));
+  return index >= 0 ? index : null;
+}
