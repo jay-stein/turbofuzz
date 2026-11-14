@@ -149,6 +149,8 @@ export interface PivotLambdaSpec {
 export interface ViewDef {
   id: string;
   name: string;
+  /** The name was made from the fields and follows them until the user renames the view. */
+  autoName?: boolean;
   dimensions: DimensionSpec[];
   measures: MeasureSpec[];
   /** Empty time buckets: dropped, counted as zero, or carried forward. */

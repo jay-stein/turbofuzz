@@ -103,3 +103,50 @@ test("dragging a column or row header reorders the pivot, and the cells go with 
   await expect.poll(() => columnHeads(page).allTextContents()).toEqual(heads);
   await expect.poll(() => rowHeads(page).allTextContents()).toEqual(rows);
 });
+
+test("removing the first of two values keeps the pivot showing", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    // The pivot logs its own faults as "Pivot view: …" when it shows a plain message instead.
+    if (message.type() === "error" && message.text().startsWith("Pivot view:")) errors.push(message.text());
+  });
+  await open(page);
+  await pivotTab(page).click();
+  const card = page.locator(".views-card.expanded");
+  // Only the value pills: the zone's add buttons share the views-pill class.
+  const pills = card.locator(".views-measure-zone .views-pill[data-measure-index]");
+  await expect(pills).toHaveCount(1);
+  await card.getByRole("button", { name: "Add a value" }).click();
+  await page.locator(".context-menu .context-item", { hasText: /^units …$/ }).click();
+  await page.locator(".context-menu .context-item", { hasText: /^Sum$/ }).click();
+  await expect(pills).toHaveCount(2);
+  await expect(card.locator(".views-total td")).toHaveCount(3);
+
+  await pills.first().locator(".views-pill-remove").click();
+  await expect(pills).toHaveCount(1);
+  await expect(card.locator(".views-table .views-row")).toHaveCount(4);
+  await expect(card.locator(".views-total td")).toHaveCount(2);
+  await expect(card.locator(".views-note")).not.toContainText("updating");
+  await expect(card.locator(".views-note")).not.toContainText("could not");
+  expect(errors).toEqual([]);
+});
+
+test("+ New view shows no browser error and keeps its name field open until named", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await open(page);
+  await pivotTab(page).click();
+  await page.locator(".views-dock-add").click();
+  const card = page.locator(".views-card.expanded");
+  // The first result lands while the name field has focus.
+  await expect(card.locator(".views-table .views-row").first()).toBeVisible();
+  await expect(card.locator(".views-note")).not.toContainText(/removeChild|Failed to execute|could not/);
+  const input = card.locator(".views-card-name-input");
+  await expect(input).toBeVisible();
+  await input.fill("Regions");
+  await input.press("Enter");
+  await expect(page.locator(".views-dock-tab").last()).toHaveText("Regions");
+  await expect(page.locator(".views-note")).not.toContainText(/removeChild|Failed to execute/);
+  expect(errors).toEqual([]);
+});

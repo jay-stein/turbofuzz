@@ -8,8 +8,8 @@ import {
   movePivotField,
   pivotDefFromView,
   remapViewDef,
-  starterViews,
 } from "../src/ui/views-panel.js";
+import { starterMeasure, starterViews } from "../src/ui/views-starters.js";
 import type { ViewDef } from "../src/data/aggregate.js";
 
 function setupDom(): Window {
@@ -72,6 +72,36 @@ test("starter views follow the column types", () => {
   assert.equal(views[1].fill, "zero");
   assert.equal(views[2].name, "Count by city");
   assert.equal(views[2].measures[0]?.agg, "count");
+});
+
+test("the starter pivot totals an amount and never sums coordinates, codes, ids or years", () => {
+  const stats = meta().stats;
+  const numeric = (name: string, extra: Partial<ColumnMeta["stats"]> = {}, type: ColumnMeta["type"] = "number"): ColumnMeta =>
+    meta({ name, type, stats: { ...stats, distinct: 80, ...extra } });
+  const orders = [
+    numeric("postcode", {}, "integer"),
+    numeric("lat"),
+    numeric("lon"),
+    numeric("customer_id", { distinct: 1000 }, "integer"),
+    numeric("year", { distinct: 5, min: 2019, max: 2024 }, "integer"),
+    numeric("discount_pct"),
+    numeric("unit_price"),
+    numeric("revenue"),
+    numeric("cost"),
+    meta({ name: "customer_name", type: "category", stats: { ...stats, distinct: 40 } }),
+    meta({ name: "state", type: "category", stats: { ...stats, distinct: 8 } }),
+  ];
+  assert.deepEqual(starterMeasure(orders, 1000), { column: 7, agg: "sum" }, "revenue, totalled");
+  const views = starterViews(orders, "general", 1000);
+  assert.equal(views[0]?.name, "Sum of revenue by state");
+
+  // Nothing amount-like: a rate is averaged, and coordinates alone give no value at all.
+  assert.deepEqual(starterMeasure([orders[1]!, orders[5]!], 1000), { column: 1, agg: "mean" });
+  assert.equal(starterMeasure(orders.slice(0, 5), 1000), null);
+  const geoOnly = starterViews([orders[1]!, orders[10]!], "general", 1000);
+  assert.ok(geoOnly.every((view) => view.measures.every((measure) => measure.column === null)), "only counts");
+  const semanticGeo = meta({ name: "y", type: "number", stats: { ...stats, distinct: 80 }, semantic: { type: "geo", confidence: 1, reason: "" } });
+  assert.equal(starterMeasure([semanticGeo], 1000), null);
 });
 
 function aggregateFor(view: ViewDef): AggregateMessage {
@@ -963,7 +993,7 @@ test("date fields can add a multi-level Year and Month hierarchy", async () => {
   assert.ok(whenChip !== undefined);
   (whenChip as unknown as { click(): void }).click();
   const toIndex = [...doc.querySelectorAll(".context-menu .context-item")].find(
-    (item) => item.textContent === "Add to Index",
+    (item) => item.textContent === "Add to Rows",
   );
   assert.ok(toIndex !== undefined);
   (toIndex as unknown as { click(): void }).click();
@@ -1024,3 +1054,262 @@ test("the dock names every view; + New view minimises the others and opens the n
   assert.ok(host.querySelectorAll(".views-card")[0]!.classList.contains("expanded"), "a name opens its view; it never closes it");
 });
 
+
+/** An aggregate result with one column per measure of the view it was asked for. */
+function aggregateShaped(view: ViewDef): AggregateMessage {
+  return aggregateOf(view, {
+    measures: view.measures.map(() => Float64Array.from([30, 10])),
+    measureNames: view.measures.map((measure, index) => `${measure.agg}(${index})`),
+    totals: Float64Array.from(view.measures.map(() => 40)),
+  });
+}
+
+test("removing the first of two values recomputes the view and shows the new table", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const requests: ViewDef[] = [];
+  const panel = new ViewsPanel(host as unknown as HTMLElement, {
+    requestAggregate: async (view) => {
+      requests.push(JSON.parse(JSON.stringify(view)) as ViewDef);
+      return aggregateShaped(view);
+    },
+    onDrill: () => {},
+    onChart: () => {},
+    onCopyPandas: async () => {},
+  });
+  panel.setColumns(metas, 100);
+  await tick();
+
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  (host.querySelector('button[aria-label="Add a value"]') as unknown as { click(): void }).click();
+  const columnItem = [...doc.querySelectorAll(".context-menu .context-item")].find((item) => item.textContent === "amount …");
+  (columnItem as unknown as { click(): void }).click();
+  const meanItem = [...doc.querySelectorAll(".context-menu .context-item")].find((item) => item.textContent === "Average (mean)");
+  (meanItem as unknown as { click(): void }).click();
+  await tick();
+  assert.equal(host.querySelectorAll(".views-total td").length, 3, "one label and two value cells");
+
+  const before = requests.length;
+  const removes = host.querySelectorAll('.views-measure-zone .views-pill-remove');
+  assert.equal(removes.length, 2);
+  (removes[0] as unknown as { click(): void }).click();
+  await tick();
+
+  assert.equal(requests.length, before + 1, "the new layout is requested");
+  assert.deepEqual(requests.at(-1)?.measures, [{ column: 0, agg: "mean" }]);
+  assert.equal(host.querySelectorAll(".views-row").length, 2, "the table shows again");
+  assert.equal(host.querySelectorAll(".views-total td").length, 2, "one label and one value cell");
+  assert.doesNotMatch(host.querySelector(".views-note")?.textContent ?? "", /updating/);
+});
+
+test("a result that cannot be drawn shows a plain message and a retry, never a frozen view", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  let calls = 0;
+  const errors: unknown[] = [];
+  const consoleError = console.error;
+  console.error = (...args: unknown[]) => errors.push(args);
+  try {
+    const panel = new ViewsPanel(host as unknown as HTMLElement, {
+      requestAggregate: async (view) => {
+        calls++;
+        // One more value column than the view asked for: drawing it fails.
+        return aggregateShaped({ ...view, measures: [...view.measures, { column: null, agg: "count" }] });
+      },
+      onDrill: () => {},
+      onChart: () => {},
+      onCopyPandas: async () => {},
+    });
+    panel.setColumns(metas, 100);
+    await tick();
+    const note = host.querySelector(".views-note")?.textContent ?? "";
+    assert.equal(note, "This view could not be drawn.");
+    assert.ok(errors.length > 0, "the detail goes to the console");
+    const retry = [...host.querySelectorAll(".views-table-host button")].find((button) => button.textContent === "Try again");
+    assert.ok(retry !== undefined, "a way to retry");
+    const before = calls;
+    (retry as unknown as { click(): void }).click();
+    await tick();
+    assert.equal(calls, before + 1, "retry asks for the result again");
+  } finally {
+    console.error = consoleError;
+  }
+});
+
+test("+ New view keeps its name field open through the first result, with no browser error shown", async () => {
+  const win = setupDom();
+  const host = document.createElement("div");
+  const panel = new ViewsPanel(host as unknown as HTMLElement, {
+    requestAggregate: async (view) => aggregateShaped(view),
+    onDrill: () => {},
+    onChart: () => {},
+    onCopyPandas: async () => {},
+  });
+  panel.setColumns(metas, 100);
+  await tick();
+  // A browser blurs a focused field while it is being removed, and the blur handler runs inside the removal.
+  const stack = host.querySelector(".views-stack") as unknown as HTMLElement;
+  const removeChild = stack.removeChild.bind(stack);
+  stack.removeChild = (<T extends Node>(child: T): T => {
+    const input = (child as unknown as HTMLElement).querySelector?.(".views-card-name-input");
+    input?.dispatchEvent(new win.Event("blur") as unknown as Event);
+    if (child.parentNode !== stack) throw new Error("Failed to execute 'removeChild' on 'Node': The node to be removed is no longer a child of this node.");
+    return removeChild(child);
+  }) as typeof stack.removeChild;
+
+  (host.querySelector(".views-dock-add") as unknown as HTMLElement).click();
+  const typed = host.querySelector(".views-card-name-input") as HTMLInputElement | null;
+  assert.ok(typed !== null, "the new view opens with its name field");
+  typed.value = "Reg";
+  typed.dispatchEvent(new win.Event("input") as unknown as Event);
+  await tick();
+
+  assert.doesNotMatch(host.textContent ?? "", /removeChild|Failed to execute/);
+  const input = host.querySelector(".views-card-name-input") as HTMLInputElement | null;
+  assert.ok(input !== null, "the name field is still open after the result arrived");
+  assert.equal(input.value, "Reg", "what was typed is kept");
+  assert.equal(host.querySelectorAll(".views-row").length, 2, "the result is shown");
+});
+
+test("a failed request shows a plain sentence, not the raw exception", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const consoleError = console.error;
+  const logged: unknown[] = [];
+  console.error = (...args: unknown[]) => logged.push(args);
+  try {
+    const panel = new ViewsPanel(host as unknown as HTMLElement, {
+      requestAggregate: async () => {
+        throw new TypeError("Cannot read properties of undefined (reading 'post')");
+      },
+      onDrill: () => {},
+      onChart: () => {},
+      onCopyPandas: async () => {},
+    });
+    panel.setColumns(metas, 100);
+    await tick();
+    const note = host.querySelector(".views-note")?.textContent ?? "";
+    assert.doesNotMatch(note, /Cannot read|undefined/);
+    assert.match(note, /could not be computed/);
+    assert.equal(logged.length, 1, "the detail is logged");
+  } finally {
+    console.error = consoleError;
+  }
+});
+
+function pivotWith(def: PivotDef, rowLabels: string[][], colLabels: string[][]): PivotMessage {
+  const cells = rowLabels.length * colLabels.length;
+  return {
+    type: "pivot",
+    requestId: 1,
+    pivotId: def.id,
+    rowLabels,
+    colLabels,
+    rowNames: ["state"],
+    colNames: ["segment"],
+    rowIsTime: [false],
+    colIsTime: [false],
+    rowTimes: [new Float64Array(rowLabels.length).fill(Number.NaN)],
+    colTimes: [new Float64Array(colLabels.length).fill(Number.NaN)],
+    measures: [
+      {
+        name: "sum(amount)",
+        values: new Float64Array(cells).fill(1),
+        rowTotals: new Float64Array(rowLabels.length).fill(colLabels.length),
+        colTotals: new Float64Array(colLabels.length).fill(rowLabels.length),
+        grandTotal: cells,
+      },
+    ],
+    groupCount: cells,
+    totalGroups: cells,
+    truncated: false,
+    ms: 1,
+  };
+}
+
+const pivotView: ViewDef = {
+  id: "view-p",
+  name: "Pivot",
+  dimensions: [{ column: 1, by: "value" }, { column: 1, by: "value" }],
+  measures: [{ column: 0, agg: "sum" }],
+  pivotColumns: [1],
+  fill: "none",
+  sort: { key: "dim0", dir: "asc" },
+  limit: 500,
+  respectFilters: true,
+};
+
+test("pivot headings show values as stored: case kept, edge spaces marked", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const panel = new ViewsPanel(host as unknown as HTMLElement, {
+    requestAggregate: async (view) => aggregateShaped(view),
+    requestPivot: async (def) => pivotWith(def, [["NSW"], ["NSW "]], [["Consumer"], ["consumer"]]),
+    onDrill: () => {},
+    onChart: () => {},
+    onCopyPandas: async () => {},
+  });
+  panel.setColumns(metas, 100);
+  panel.restoreState([pivotView], 0);
+  await tick();
+
+  const heads = [...host.querySelectorAll("th.views-head-value")].map((th) => th.textContent);
+  assert.deepEqual(heads, ["Consumer", "consumer"], "data-value headings carry the class that keeps their case");
+  const rows = [...host.querySelectorAll("td.views-dim")] as unknown as HTMLElement[];
+  assert.deepEqual(rows.map((cell) => cell.textContent), ["NSW", "NSW␠"]);
+  assert.equal(rows[0]!.querySelector(".views-space-mark"), null);
+  assert.equal(rows[1]!.querySelector(".views-space-mark")?.getAttribute("aria-label"), "a space at the end of this value");
+});
+
+test("a worker pivot's note reports the result, not that it is still waiting", async () => {
+  setupDom();
+  const host = document.createElement("div");
+  const panel = new ViewsPanel(host as unknown as HTMLElement, {
+    requestAggregate: async (view) => aggregateShaped(view),
+    requestPivot: async (def) => pivotWith(def, [["a"], ["b"]], [["x"], ["y"]]),
+    onDrill: () => {},
+    onChart: () => {},
+    onCopyPandas: async () => {},
+  });
+  panel.setColumns(metas, 100);
+  panel.restoreState([pivotView], 0);
+  await tick();
+  assert.equal(host.querySelector(".views-note")?.textContent, "4 groups · 1 ms");
+});
+
+test("an unrenamed view's title follows its fields; a renamed one keeps its name", async () => {
+  const win = setupDom();
+  const host = document.createElement("div");
+  const panel = new ViewsPanel(host as unknown as HTMLElement, {
+    requestAggregate: async (view) => aggregateShaped(view),
+    onDrill: () => {},
+    onChart: () => {},
+    onCopyPandas: async () => {},
+  });
+  panel.setColumns(metas, 100);
+  await tick();
+  const name = (): string => host.querySelector(".views-card.expanded .views-card-name")?.textContent ?? "";
+  assert.equal(name(), "Sum of amount by city");
+
+  const removeFirst = (): void => (host.querySelector(".views-measure-zone .views-pill-remove") as unknown as { click(): void }).click();
+  const doc = (globalThis as Record<string, unknown>).document as Window["document"];
+  const addMean = (): void => {
+    (host.querySelector('button[aria-label="Add a value"]') as unknown as { click(): void }).click();
+    (([...doc.querySelectorAll(".context-menu .context-item")].find((item) => item.textContent === "amount …")) as unknown as { click(): void }).click();
+    (([...doc.querySelectorAll(".context-menu .context-item")].find((item) => item.textContent === "Average (mean)")) as unknown as { click(): void }).click();
+  };
+  addMean();
+  await tick();
+  removeFirst();
+  await tick();
+  assert.equal(name(), "Average of amount by city", "the title follows the new value");
+
+  (host.querySelector(".views-card.expanded .views-card-name") as unknown as { click(): void }).click();
+  const input = host.querySelector(".views-card-name-input") as HTMLInputElement;
+  input.value = "My view";
+  input.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true }) as unknown as Event);
+  await tick();
+  addMean();
+  await tick();
+  assert.equal(name(), "My view", "a name the user gave stays");
+});

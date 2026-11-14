@@ -5344,6 +5344,16 @@ tr.views-drop-after > td {
   text-align: left;
 }
 
+/* Column headings that are data values: shown exactly as stored, so "Consumer" and "consumer" stay apart. */
+.views-table th.views-head-value {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.views-space-mark {
+  opacity: 0.45;
+}
+
 .views-num-head {
   text-align: right;
 }

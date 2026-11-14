@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-02 — Pivot: removing a value no longer blanks the view; the starter pivot totals an amount; headings keep their case
+
+- **Status:** Verified (69 unit tests: views-panel, pivot, architecture; browser specs pivot-page and pivot-chart passed)
+- **Related issue / decision:** 2026-11-14 product assessment: removing a value left the pivot on "updating…"; "+ New view" showed a raw browser error; the starter pivot could total coordinates or ids.
+- **What changed:** Removing a value left the view on "updating…" (a TypeError in the table renderer: a stale two-measure result drawn against one measure); now a result is only drawn for the layout it was computed for, and a draw failure shows a plain message with Try again. "+ New view" no longer shows a raw browser error (the rename field lost focus during a redraw). The starter pivot picks an amount-like measure, never coordinates, codes, ids or years. Pivot headings show values as stored, with edge spaces shown as ␠. "Index" is now "Rows". Automatic view titles follow the fields until the view is renamed.
+- **Files / components changed:** src/ui/views-panel.ts, src/ui/views-starters.ts (new), src/data/aggregate.ts, src/styles.css; test/views-panel.test.ts, test/e2e/pivot-page.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-01 — Recipe: exported pandas and Polars scripts read mixed-format dates and keep leading zeros
 
 - **Status:** Verified (unit; parity harness in pandas 2.3.3 and Polars, 12 cases; 100,000-row file: 99,433 dates parsed, was 97,440)

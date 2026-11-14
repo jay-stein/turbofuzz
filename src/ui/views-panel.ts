@@ -10,6 +10,7 @@ import { groupLabels, moveBlock, reorderGroups, reorderPivot } from "../data/piv
 import { downloadCsv } from "./chart-export.js";
 import { pivotCsvRows } from "./pivot-export.js";
 import { safeFileName } from "./chart-utils.js";
+import { autoViewName, DEFAULT_LIMIT, starterViews } from "./views-starters.js";
 import { parseDate, toDateInputValue, toDateTimeInputValue } from "../parse/dates.js";
 import { openPrompt, setupDialog } from "./dialog.js";
 import { clear, el, svgIcon } from "./dom.js";
@@ -45,6 +46,8 @@ interface ViewEntry {
   result: AggregateMessage | null;
   /** Worker pivot payload when requestPivot is available. */
   pivotResult: PivotMessage | null;
+  /** The layout the result was computed for: a result is only ever drawn against that same layout. */
+  resultLayout: string | null;
   /** Pivot margins computed by the worker over raw rows. */
   margins: {
     rows: AggregateMessage | null;
@@ -64,8 +67,38 @@ function hasResult(entry: { result: AggregateMessage | null; pivotResult: PivotM
   return entry.result !== null || entry.pivotResult !== null;
 }
 
+/**
+ * A data value used as a row or column heading, exactly as stored: spaces at either end show
+ * as a faint ␠ so "NSW" and "NSW " never look like the same heading.
+ */
+function headingValue(cell: HTMLElement, value: string): HTMLElement {
+  const [, lead = "", core = "", trail = ""] = /^(\s*)([\s\S]*?)(\s*)$/.exec(value) ?? [];
+  if (lead === "" && trail === "") {
+    cell.append(value);
+    return cell;
+  }
+  const mark = (spaces: string, where: string): HTMLElement => {
+    const what = `${spaces.length === 1 ? "a space" : `${spaces.length} spaces`} at the ${where} of this value`;
+    return el("span", { class: "views-space-mark", role: "img", "aria-label": what, title: `Stored with ${what}` }, ["␠".repeat(spaces.length)]);
+  };
+  if (lead !== "") cell.append(mark(lead, "start"));
+  cell.append(core);
+  if (trail !== "") cell.append(mark(trail, "end"));
+  return cell;
+}
+
+/** Everything a result's shape depends on: fields, values, the column split and margins. */
+function resultLayout(def: ViewDef, pivots: readonly number[]): string {
+  return JSON.stringify([def.dimensions, def.measures, pivots, def.margins === true]);
+}
+
+/** A request that failed: a plain sentence for the view, the detail for the console. */
+function failureNote(error: unknown): string {
+  console.error("Pivot view: the result could not be computed", error);
+  return "This view could not be computed. Change a field or try again.";
+}
+
 const MAX_VIEWS = 5;
-const DEFAULT_LIMIT = 500;
 const VISIBLE_ROWS = 20;
 
 const AGG_OPTIONS: readonly { value: Aggregate; label: string }[] = (
@@ -429,7 +462,7 @@ export function movePivotField(
     if (target === "columns" && !wasColumn) {
       const indexCount = view.dimensions.length - oldColumns.length;
       if (indexCount <= 1) {
-        return { ok: false, reason: "Keep at least one Index field." };
+        return { ok: false, reason: "Keep at least one Rows field." };
       }
     }
     const columnSpecs = new Set(oldColumns.map((index) => view.dimensions[index]!));
@@ -478,7 +511,7 @@ export function movePivotField(
   ) {
     return {
       ok: false,
-      reason: "Only a simple value can become an Index or Columns field.",
+      reason: "Only a simple value can become a Rows or Columns field.",
     };
   }
   if (
@@ -486,7 +519,7 @@ export function movePivotField(
       (dimension) => dimension.column === measure.column && dimension.by === "value",
     )
   ) {
-    return { ok: false, reason: "That column is already an Index or Columns field." };
+    return { ok: false, reason: "That column is already a Rows or Columns field." };
   }
   const oldColumns = thisPivotIndexes(view);
   const columnSpecs = new Set(oldColumns.map((index) => view.dimensions[index]!));
@@ -639,61 +672,6 @@ export function remapViewDef(
   };
   return { def: next, missing: [...missing] };
 }
-/** Up to three one-click starter views derived from column types. */
-export function starterViews(
-  columns: readonly ColumnMeta[],
-  archetype: ArchetypeId = "general",
-): ViewDef[] {
-  const date = columns.findIndex(
-    (meta) => (meta.type === "date" || meta.type === "datetime") && meta.stats.distinct >= 2,
-  );
-  const category = columns.findIndex(
-    (meta) =>
-      (meta.type === "category" || meta.type === "boolean") &&
-      meta.stats.distinct >= 2 &&
-      meta.stats.distinct <= 50,
-  );
-  const numeric = columns.findIndex(
-    (meta) => (meta.type === "integer" || meta.type === "number") && meta.stats.distinct >= 2,
-  );
-
-  const views: ViewDef[] = [];
-  const base = (name: string): ViewDef => ({
-    id: `view-${views.length + 1}`,
-    name,
-    dimensions: [],
-    measures: [],
-    fill: "none",
-    sort: { key: "m0", dir: "desc" },
-    limit: DEFAULT_LIMIT,
-    respectFilters: true,
-  });
-
-  // Event logs change too fast for months; day resolution is the useful grain.
-  const grain: TimeGrain = archetype === "eventLog" ? "day" : "month";
-  if (numeric >= 0 && category >= 0) {
-    const view = base(`Sum of ${columns[numeric].name} by ${columns[category].name}`);
-    view.dimensions = [{ column: category, by: "value" }];
-    view.measures = [{ column: numeric, agg: "sum" }];
-    views.push(view);
-  }
-  if (date >= 0) {
-    const view = base(`Rows by ${columns[date].name} ${grain}`);
-    view.dimensions = [{ column: date, by: { time: grain } }];
-    view.measures = [{ column: null, agg: "count" }];
-    view.fill = "zero";
-    view.sort = { key: "dim0", dir: "asc" };
-    views.push(view);
-  }
-  if (category >= 0 && views.length < 3) {
-    const view = base(`Count by ${columns[category].name}`);
-    view.dimensions = [{ column: category, by: "value" }];
-    view.measures = [{ column: null, agg: "count" }];
-    views.push(view);
-  }
-  return views.slice(0, 3);
-}
-
 /**
  * The Views lens: saved aggregate definitions over the filtered table. Each
  * view is a definition, never a copied dataset — the worker recomputes it from
@@ -733,6 +711,10 @@ export class ViewsPanel {
   private fieldSearch = "";
   /** Index of a just-added view whose name field should open for editing. */
   private pendingRename: number | null = null;
+  /** The name being edited and the text typed so far: a redraw (a result arriving) reopens the field as it was. */
+  private renameDraft: { index: number; value: string } | null = null;
+  /** True while the panel is being redrawn, when a name field losing focus is the redraw removing it. */
+  private drawing = false;
   /** The open card should be brought into view after the next render. */
   private pendingScroll = false;
   /** The header being dragged to reorder: its kind and level, and its position. */
@@ -763,11 +745,12 @@ export class ViewsPanel {
     this.rowCount = rowCount;
     if (!this.started && metas.length > 0) {
       this.started = true;
-      const starters = starterViews(metas, this.options.archetype?.() ?? "general");
+      const starters = starterViews(metas, this.options.archetype?.() ?? "general", rowCount);
       this.views = starters.map((def) => ({
         def,
         result: null,
         pivotResult: null,
+        resultLayout: null,
         margins: null,
         loading: false,
         stale: true,
@@ -833,10 +816,12 @@ export class ViewsPanel {
   /** Puts saved views back, in order, and recomputes the open one. */
   restoreState(defs: readonly ViewDef[], active: number): void {
     this.started = true;
+    this.renameDraft = null;
     this.views = defs.map((def) => ({
       def,
       result: null,
       pivotResult: null,
+      resultLayout: null,
       margins: null,
       loading: false,
       stale: true,
@@ -905,9 +890,10 @@ export class ViewsPanel {
     entry.error = null;
     entry.margins = null;
     entry.pivotResult = null;
-    this.render();
     const generation = ++this.generation;
     const def = entry.def;
+    const layout = resultLayout(def, this.pivotIndexes(def));
+    this.render();
     const marginViews: ViewDef[] = [];
     const pivots = this.pivotIndexes(def);
     if (pivots.length > 0 && this.options.requestPivot !== undefined) {
@@ -917,6 +903,7 @@ export class ViewsPanel {
         .then((message) => {
           if (generation !== this.generation) return;
           entry.pivotResult = orderedPivot(def, message);
+          entry.resultLayout = layout;
           entry.loading = false;
           entry.stale = false;
           this.render();
@@ -924,7 +911,7 @@ export class ViewsPanel {
         .catch((error: unknown) => {
           if (generation !== this.generation) return;
           entry.loading = false;
-          entry.error = error instanceof Error ? error.message : String(error);
+          entry.error = failureNote(error);
           this.render();
         });
       return;
@@ -972,6 +959,7 @@ export class ViewsPanel {
       .then(([message, rows, cols, total]) => {
         if (generation !== this.generation) return;
         entry.result = message === undefined ? message : reorderGroups(message, def.pivotRowOrder);
+        entry.resultLayout = layout;
         entry.margins =
           marginViews.length === 3
             ? { rows: rows ?? null, cols: cols ?? null, total: total ?? null }
@@ -983,7 +971,7 @@ export class ViewsPanel {
       .catch((error: unknown) => {
         if (generation !== this.generation) return;
         entry.loading = false;
-        entry.error = error instanceof Error ? error.message : String(error);
+        entry.error = failureNote(error);
         this.render();
       });
   }
@@ -999,6 +987,7 @@ export class ViewsPanel {
     const def: ViewDef = {
       id: `view-${Date.now().toString(36)}`,
       name: "New view",
+      autoName: true,
       dimensions: this.metas.length > 0 ? [{ column: dimension, by: "value" }] : [],
       measures: [{ column: null, agg: "count" }],
       fill: "none",
@@ -1010,6 +999,7 @@ export class ViewsPanel {
       def,
       result: null,
       pivotResult: null,
+      resultLayout: null,
       margins: null,
       loading: false,
       stale: true,
@@ -1039,10 +1029,12 @@ export class ViewsPanel {
     const copy = JSON.parse(JSON.stringify(source.def)) as ViewDef;
     copy.id = `view-${this.views.length + 1}-${Date.now().toString(36)}`;
     copy.name = this.uniqueViewName(`Copy of ${source.def.name}`);
+    delete copy.autoName;
     const entry: ViewEntry = {
       def: copy,
       result: null,
       pivotResult: null,
+      resultLayout: null,
       margins: null,
       loading: false,
       stale: true,
@@ -1071,7 +1063,7 @@ export class ViewsPanel {
   }
 
   /** Turn the card's name into an input (click the name or the ✎ button). */
-  private beginRename(index: number, host: HTMLElement): void {
+  private beginRename(index: number, host: HTMLElement, draft?: string): void {
     const entry = this.views[index];
     if (entry === undefined || host.querySelector("input") !== null) return;
     const input = el("input", {
@@ -1080,16 +1072,29 @@ export class ViewsPanel {
       placeholder: "Name your view…",
       type: "text",
     }) as HTMLInputElement;
-    input.value = entry.def.name;
+    input.value = draft ?? entry.def.name;
     clear(host);
     host.classList.add("renaming");
     host.append(input);
     input.focus();
-    input.select();
-    const commit = (): void => {
+    if (input.value === entry.def.name) input.select();
+    else input.setSelectionRange(input.value.length, input.value.length);
+    const state = { index, value: input.value };
+    this.renameDraft = state;
+    input.addEventListener("input", () => {
+      state.value = input.value;
+    });
+    let done = false;
+    const finish = (save: boolean): void => {
+      // A redraw removing the field blurs it: keep the draft so the redraw reopens it, and do not redraw again inside it.
+      if (done || this.drawing) return;
+      done = true;
+      if (this.renameDraft === state) this.renameDraft = null;
       const name = input.value.trim();
-      if (name.length > 0 && name !== entry.def.name) {
+      if (save && name.length > 0 && name !== entry.def.name) {
         entry.def.name = this.uniqueViewName(name, index);
+        // Named by the user: the name no longer follows the fields.
+        delete entry.def.autoName;
         this.options.onViewsChanged?.();
       }
       this.render();
@@ -1097,13 +1102,13 @@ export class ViewsPanel {
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
-        commit();
+        finish(true);
       } else if (event.key === "Escape") {
         event.preventDefault();
-        this.render();
+        finish(false);
       }
     });
-    input.addEventListener("blur", commit);
+    input.addEventListener("blur", () => finish(true));
   }
 
   private removeView(index: number): void {
@@ -1130,6 +1135,10 @@ export class ViewsPanel {
     if (shape() !== before && entry.def.pivotRowOrder === rowOrder && entry.def.pivotColOrder === colOrder) {
       delete entry.def.pivotRowOrder;
       delete entry.def.pivotColOrder;
+    }
+    if (entry.def.autoName === true) {
+      const name = autoViewName(entry.def, this.metas);
+      if (name !== null) entry.def.name = this.uniqueViewName(name, this.active);
     }
     entry.stale = true;
     this.options.onViewsChanged?.();
@@ -1179,7 +1188,44 @@ export class ViewsPanel {
     this.toggleCard(index);
   }
 
+  /** Draws the panel; a drawing fault leaves a plain message and a way to retry, never a frozen view. */
   private render(): void {
+    this.drawing = true;
+    try {
+      this.draw();
+    } catch (error) {
+      console.error("Pivot view: the view could not be drawn", error);
+      this.drawFailure();
+    } finally {
+      this.drawing = false;
+    }
+  }
+
+  private drawFailure(): void {
+    const entry = this.views[this.active];
+    if (entry !== undefined) {
+      entry.loading = false;
+      entry.stale = false;
+    }
+    clear(this.noteEl);
+    clear(this.tableEl);
+    this.noteEl.textContent = "This view could not be drawn.";
+    const retry = el("button", { class: "ghost small", type: "button" }, ["Try again"]) as HTMLButtonElement;
+    retry.addEventListener("click", () => {
+      const current = this.views[this.active];
+      if (current === undefined) return this.render();
+      current.result = null;
+      current.pivotResult = null;
+      current.margins = null;
+      current.stale = true;
+      this.refresh();
+    });
+    this.tableEl.append(el("div", { class: "views-empty" }, ["Something went wrong drawing this view. ", retry]));
+    // The fault may have come before the card was built: show the message where it can be seen.
+    if (!this.stackEl.contains(this.tableEl)) this.stackEl.append(this.noteEl, this.tableEl);
+  }
+
+  private draw(): void {
     this.renderDock();
     clear(this.stackEl);
     this.views.forEach((entry, index) => {
@@ -1188,10 +1234,18 @@ export class ViewsPanel {
       if (this.pendingRename === index) {
         this.pendingRename = null;
         this.beginRename(index, name);
+      } else if (this.renameDraft?.index === index) {
+        this.beginRename(index, name, this.renameDraft.value);
       }
     });
     this.renderAddRow();
     const entry = this.views[this.active];
+    if (entry !== undefined && hasResult(entry) && entry.resultLayout !== resultLayout(entry.def, this.pivotIndexes(entry.def))) {
+      // The fields changed since this result: its columns no longer match the definition, so it is not drawn.
+      entry.result = null;
+      entry.pivotResult = null;
+      entry.margins = null;
+    }
     if (entry === undefined) {
       // Every card is minimised: the shared panels stay detached.
       clear(this.builderEl);
@@ -2088,7 +2142,7 @@ export class ViewsPanel {
     const rowsSection = this.zoneSection(
       "views-index-zone",
       "Rows",
-      "Each distinct value becomes a row (the Index)",
+      "Each distinct value becomes a row",
       def.dimensions.length < 6
         ? {
             label: "Add a row field",
@@ -2372,7 +2426,7 @@ export class ViewsPanel {
             asColumn ? " used-column" : ""
           }${usedMeasure ? " used-value" : ""}`,
           type: "button",
-          title: `Drag "${meta.name}" into Index, Columns or Values`,
+          title: `Drag "${meta.name}" into Rows, Columns or Values`,
         },
         [
           el("span", { class: "views-shelf-name" }, [meta.name]),
@@ -2411,7 +2465,7 @@ export class ViewsPanel {
     const source: PivotDragSource = { kind: "column", index: column, well: "shelf" };
     const items: MenuItem[] = [
       {
-        label: "Add to Index",
+        label: "Add to Rows",
         title: `Group rows by ${name}`,
         action: () =>
           this.applyPivotFieldMove(source, "index", def.dimensions.length - pivots.length),
@@ -2432,7 +2486,7 @@ export class ViewsPanel {
       const dateSpec: DimensionSpec = { column, by: { time: "month" } };
       items.unshift(
         {
-          label: "Date groups in Index…",
+          label: "Date groups in Rows…",
           title: `Choose Years, Quarters, Months and more as nested ${name} fields`,
           action: () => this.openDateGroups(dateSpec, "index"),
         },
@@ -2537,7 +2591,7 @@ export class ViewsPanel {
 
   private makePillDraggable(pill: HTMLElement, source: PivotDragSource): void {
     pill.draggable = true;
-    pill.title = `${pill.title ? `${pill.title} - ` : ""}Drag to move between Index, Columns and Values`;
+    pill.title = `${pill.title ? `${pill.title} - ` : ""}Drag to move between Rows, Columns and Values`;
     pill.addEventListener("dragstart", (event) => {
       this.pivotDrag = source;
       pill.classList.add("dragging");
@@ -2685,7 +2739,7 @@ export class ViewsPanel {
       this.openFilterForColumn(
         filter,
         spec.column,
-        group === "index" ? "Index filter" : "Column filter",
+        group === "index" ? "Rows filter" : "Column filter",
       ),
     );
     const toggle = el(
@@ -2693,8 +2747,8 @@ export class ViewsPanel {
       {
         class: "views-pill-group-toggle",
         type: "button",
-        title: group === "index" ? "Move to Columns" : "Move to Index",
-        "aria-label": group === "index" ? "Move to Columns" : "Move to Index",
+        title: group === "index" ? "Move to Columns" : "Move to Rows",
+        "aria-label": group === "index" ? "Move to Columns" : "Move to Rows",
       },
       [group === "index" ? "→" : "←"],
     ) as HTMLButtonElement;
@@ -3532,7 +3586,7 @@ export class ViewsPanel {
     const body = el("div", { class: "date-group-body" });
     body.append(
       el("p", { class: "date-group-note" }, [
-        `Choose one or more parts to nest in ${group === "index" ? "Index" : "Columns"}.`,
+        `Choose one or more parts to nest in ${group === "index" ? "Rows" : "Columns"}.`,
       ]),
     );
     const list = el("div", { class: "date-group-list" });
@@ -3974,6 +4028,15 @@ export class ViewsPanel {
       this.noteEl.textContent = entry.error;
       return;
     }
+    const pivot = entry.pivotResult;
+    if (entry.result === null && pivot !== null) {
+      // A worker pivot is a result too: say what it holds, never that it is still awaited.
+      const parts = [`${pivot.groupCount.toLocaleString()} ${pivot.groupCount === 1 ? "group" : "groups"}`];
+      parts.push(pivot.ms < 1 ? "<1 ms" : `${Math.round(pivot.ms)} ms`);
+      if (entry.stale) parts.push("updating…");
+      this.noteEl.textContent = parts.join(" · ");
+      return;
+    }
     if (entry.result === null) {
       this.noteEl.textContent = entry.loading
         ? "Aggregating…"
@@ -4076,7 +4139,7 @@ export class ViewsPanel {
         });
       }
       result.dimensionNames.forEach((_, d) => {
-        const cell = el("td", { class: "views-dim" }, [result.dimensions[d][row]]);
+        const cell = headingValue(el("td", { class: "views-dim" }), result.dimensions[d][row] ?? "");
         this.wireReorder(cell, `row-${d}`, row, "row", (from, after) => this.moveRows(entry, groupLabels(result), d, from, row, after));
         if (result.partials?.[row] === true && result.dimensionIsTime[d] === true) {
           const marker = el("span", { class: "views-partial", title: "Incomplete period — the data starts or ends inside it" }, [" ◔"]);
@@ -4191,7 +4254,7 @@ export class ViewsPanel {
         el("div", { class: "views-pivot-warning", role: "status" }, [
           `Too many column values. Showing the first ${pivot.columnLimit ?? 500} of ${(
             pivot.totalColumnCount ?? 0
-          ).toLocaleString()} columns. Move a field to Index or filter the data to see the rest.`,
+          ).toLocaleString()} columns. Move a field to Rows or filter the data to see the rest.`,
         ]),
       );
     }    const rowHeaderCount = Math.max(1, pivot.rowNames.length);
@@ -4289,15 +4352,15 @@ export class ViewsPanel {
           ) {
             end++;
           }
-          const th = el(
-            "th",
-            {
-              class: colDepth === colHeaderDepth - 1 ? "views-num-head" : "views-col-head",
-              colspan: String(end - start),
-              title: prefix.join(" / "),
-            },
-            [prefix[colDepth] || "All"],
-          );
+          const label = prefix[colDepth] ?? "";
+          const th = el("th", {
+            // views-head-value: a data value, shown as stored (no upper-casing).
+            class: `${colDepth === colHeaderDepth - 1 ? "views-num-head" : "views-col-head"}${label === "" ? "" : " views-head-value"}`,
+            colspan: String(end - start),
+            title: prefix.join(" / "),
+          });
+          if (label === "") th.append("All");
+          else headingValue(th, label);
           const at = start;
           if (pivot.colNames.length > 0 && at < colCount - pins.cols) {
             this.wireReorder(th, `col-${colDepth}`, at, "column", (from, after) => {
@@ -4318,7 +4381,9 @@ export class ViewsPanel {
       const parts = pivot.rowLabels[row] ?? [];
       const pins = pivotPins(entry.def, pivot);
       for (let level = 0; level < rowHeaderCount; level++) {
-        const cell = el("td", { class: "views-dim" }, [parts[level] || "All"]);
+        const cell = el("td", { class: "views-dim" });
+        if ((parts[level] ?? "") === "") cell.append("All");
+        else headingValue(cell, parts[level]!);
         if (pivot.rowNames.length > 0 && row < rowCount - pins.rows) {
           this.wireReorder(cell, `row-${level}`, row, "row", (from, after) => {
             const order = moveBlock(pivot.rowLabels, level, from, row, after, pins.rows);
