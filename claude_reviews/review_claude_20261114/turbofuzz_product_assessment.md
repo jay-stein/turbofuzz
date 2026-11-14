@@ -90,7 +90,7 @@ Friction:
 
 - Fuzzy results come back in file order, with no closeness score and no visible control for how loose the match is. "Catherine Schmitt" matched "Katherin Smith" and I cannot tell why or tune it.
 - In the "+ Add filter" column picker, typing a name and pressing Enter does nothing. You must click the single remaining match.
-- With 30 columns, scrolling right loses the identifying columns. I found no way to freeze a column (I may have missed it).
+- With 30 columns, scrolling right loses the identifying columns. I found no way to freeze a column. **Correction:** one exists ("Freeze columns up to here" in the column header menu, saved with the workspace). I missed it in two hours of use, which is itself a discoverability finding.
 
 ### C. Cleaning and diagnosing quality: strong diagnosis, flawed batch fix
 
