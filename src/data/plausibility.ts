@@ -1,5 +1,5 @@
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
-import { nameHas, type HintGroup } from "./name-hints.js";
+import { nameHas, nameTokens, type HintGroup } from "./name-hints.js";
 import type { ColumnType } from "../types.js";
 
 /**
@@ -102,4 +102,50 @@ export function checkPlausibility(
     checked: values.length,
     examples: [...new Set(bad.map((entry) => entry.text))].slice(0, 3),
   };
+}
+
+/** Names whose values are a share: a fraction 0 to 1 or a percentage 0 to 100. */
+const SHARE_WORDS = new Set(["rate", "share", "ratio", "proportion", "fraction"]);
+/** At least this share of values must sit in 0..1 before a few above 1 read as a scale mix. */
+const FRACTION_SHARE = 0.95;
+
+export interface ScaleMix {
+  /** Values above 1 (and at most 100) in a column that is otherwise a fraction. */
+  above: number;
+  checked: number;
+  examples: string[];
+}
+
+/**
+ * A share column written as a fraction (0.15) with a few rows written as a
+ * percentage (15): overwhelmingly 0..1, a handful in 1..100. Null otherwise. Counted
+ * over every row; only runs for share-like names.
+ */
+export function checkScaleMix(
+  name: string,
+  type: ColumnType,
+  raw: readonly string[],
+  isMissing: (value: string) => boolean,
+  locale: NumberLocale,
+): ScaleMix | null {
+  if (type !== "integer" && type !== "number") return null;
+  if (!nameHas(name, "percent") && !nameTokens(name).some((token) => SHARE_WORDS.has(token))) return null;
+  let checked = 0;
+  let unit = 0;
+  let above = 0;
+  const examples = new Set<string>();
+  for (let i = 0; i < raw.length; i++) {
+    const text = (raw[i] ?? "").trim();
+    if (text === "" || isMissing(text)) continue;
+    const value = parseNumber(text, locale);
+    if (!Number.isFinite(value)) continue;
+    checked++;
+    if (value >= 0 && value <= 1) unit++;
+    else if (value > 1 && value <= 100) {
+      above++;
+      if (examples.size < 3) examples.add(text);
+    }
+  }
+  if (above === 0 || checked < 20 || unit / checked < FRACTION_SHARE) return null;
+  return { above, checked, examples: [...examples] };
 }

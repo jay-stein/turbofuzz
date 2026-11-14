@@ -597,6 +597,40 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
     });
   });
 
+  // --- other forms of the same value (N.S.W., New South Wales): worth reviewing, never batch-fixed ---
+  metas.forEach((meta, column) => {
+    const loose = meta.role === "provenance" ? undefined : meta.variants?.loose;
+    if (loose === undefined || loose.rows === 0) return;
+    const shown = [...loose.mappings].sort((a, b) => b.count - a.count);
+    issues.push({
+      id: `variantsLoose.${column}`,
+      severity: "review",
+      kind: "variants",
+      column,
+      columnName: meta.name,
+      title: `“${meta.name}” writes ${n(loose.mappings.length)} ${plural(loose.mappings.length, "value", "values")} in another form of a value it already has`,
+      evidence: `${shown.slice(0, 4).map((m) => `“${showSpaces(m.from)}” ×${n(m.count)} → ${m.to}`).join(" · ")}. ${
+        loose.longForm ? "Long names were matched to their codes with the bundled state list" : "They differ only by dots"
+      }, so check before standardising`,
+      impact: `${n(loose.rows)} ${plural(loose.rows, "row is", "rows are")} grouped apart from the standard form in pivots and charts`,
+      points: null,
+      examples: [],
+      dist: null,
+      fixes: [
+        {
+          kind: "standardise",
+          column,
+          pairs: recodePairs(loose.mappings.map((m) => [m.from, m.to] as const)),
+          preview: shown.slice(0, 5).map((m) => ({ ...m, from: showSpaces(m.from) })),
+          groups: loose.groups,
+        },
+      ],
+      fixLabel: "Standardise…",
+      batchSafe: false,
+      rows: loose.rows,
+    });
+  });
+
   // --- truly empty cells (placeholder text is shown above, not here) ---
   metas.forEach((meta, column) => {
     if (meta.role === "provenance") return;

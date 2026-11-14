@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-06 — Quality: yes/no spellings, fraction columns with percentages, -999 codes and long state names are reviewed; coordinates and product names are no longer flagged
+
+- **Status:** Verified (unit: 51 tests, wider run 896; bench:dq within budget; pii-benchmark passes)
+- **Related issue / decision:** 2026-11-14 product assessment: missed detections (yes/no spellings, mixed fraction/percent shares, -999 codes, long state names) and false alarms (coordinates as outliers, product names as personal data).
+- **What changed:** Yes/Y/TRUE/yes standardise as one value. A fraction column (pct/rate/share) with a few percentages among it is listed under Worth reviewing with Show rows. Isolated repeated runs of nines (-999) are offered as missing-value codes, never applied automatically. Coordinates are not value outliers; product, file and company names are not personal data. Suggested allowed-value rules list the standard spellings only. N.S.W. and New South Wales are listed against the dominant NSW for review. Short category lists no longer get a "long values" chip.
+- **Files / components changed:** src/data/plausibility.ts, hidden-missing.ts, anomalies.ts, sensitivity.ts, rules.ts, column.ts, findings.ts, dq-issues.ts; src/parse/infer.ts; src/ui/standardise-review-dialog.ts; test/dq-detection-gaps.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-05 — Quality: a repeated key, dates out of order and whitespace variants are reported
 
 - **Status:** Verified (unit, 631+ data-quality tests; bench:dq within budget; corpus tests pass)

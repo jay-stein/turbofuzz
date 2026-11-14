@@ -8,6 +8,7 @@ import {
   resetToMostCommon,
   type ReviewGroup,
 } from "../data/standardise-review.js";
+import { showSpaces } from "../data/variants.js";
 import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
 
@@ -146,11 +147,11 @@ export function openStandardiseReview(input: StandardiseReviewInput): Promise<St
             el("span", { class: "std-opt-n" }, [`Option ${optionIndex + 1}`]),
             el("span", { class: "std-from" }, others.flatMap((spelling, i) => [
               i > 0 ? el("span", { class: "std-sep" }, [","]) : "",
-              el("code", {}, [spelling.value]),
+              el("code", {}, [showSpaces(spelling.value)]),
               el("span", { class: "std-count" }, [n(spelling.count)]),
             ])),
             el("span", { class: "std-to-arrow", "aria-hidden": "true" }, ["→"]),
-            el("code", { class: "std-to" }, [target.value]),
+            el("code", { class: "std-to" }, [target.value.trim()]),
             el("span", { class: "std-cost" }, [`changes ${n(cellsIf)} ${plural(cellsIf, "cell", "cells")}`]),
             optionIndex === 0 ? el("span", { class: "std-badge" }, ["Suggested · most frequent, so the fewest cells change"]) : "",
           ],

@@ -284,6 +284,14 @@ export function suggestedLabel(cls: SensitiveClass, confidence: SensitiveConfide
   return "confidential";
 }
 
+/** Words that make a "name" column the name of a thing (product_name, file_name, company_name), never a person. */
+const THING_WORDS: ReadonlySet<string> = new Set([
+  "product", "item", "file", "filename", "column", "field", "table", "sheet", "company", "business", "brand",
+  "store", "shop", "branch", "site", "city", "town", "place", "location", "region", "state", "country", "street",
+  "project", "team", "department", "dept", "category", "model", "host", "server", "domain", "app", "event",
+  "course", "plan", "campaign", "species", "variable", "metric", "sku", "organisation", "organization", "org",
+]);
+
 /**
  * One finding per column, strongest evidence first. Identifier and code columns
  * are not flagged unless a name hint or a non-ambiguous shape says so.
@@ -296,7 +304,8 @@ export function scoreSensitivity(inputs: readonly ColumnSensitivityInput[]): Sen
     const signals = [...valueSignals(input), ...embeddedSignals(input), ...nameSignals(input)];
     const best = strongest(signals);
     if (best === null) {
-      if (input.semantic?.type !== "identifier" && nameTokens(input.name).includes("name")) bare.push(input);
+      const tokens = nameTokens(input.name);
+      if (input.semantic?.type !== "identifier" && tokens.includes("name") && !tokens.some((token) => THING_WORDS.has(token))) bare.push(input);
       continue;
     }
     const used = signals.filter((signal) => signal.class === best.cls);

@@ -296,6 +296,27 @@ export function qualityFindings(
       }
     }
 
+    // A share written as a fraction with a few percentages among it (0.15 beside 15).
+    const scale = meta.stats.scaleMix;
+    if (scale !== undefined) {
+      findings.push({
+        id: `scale.${column}`,
+        report: "quality.unitInconsistency",
+        severity: "review",
+        title: `“${meta.name}” is a fraction (0 to 1) in most rows but ${scale.above.toLocaleString()} ${
+          scale.above === 1 ? "value is" : "values are"
+        } above 1, probably written as percentages`,
+        evidence: [
+          { metric: "values above 1", value: scale.above.toLocaleString(), n: scale.above },
+          { metric: "values checked", value: scale.checked.toLocaleString(), n: scale.checked },
+          { metric: "examples", value: scale.examples.join(", "), n: scale.examples.length },
+        ],
+        impact: { rows: scale.above, columns: [column] },
+        fixLabel: "Show rows",
+        action: { kind: "filterRange", column, min: 1 + Number.EPSILON, max: null },
+      });
+    }
+
     // Join readiness: a unique key candidate (and its hygiene).
     if (rowCount > 20 && meta.stats.distinct === rowCount) {
       const keyLike =
@@ -381,7 +402,7 @@ export function qualityFindings(
  * the page, and fuzzy near-duplicate clusters stay in Advanced signals with their
  * dismissals, so neither is repeated here.
  */
-const REVIEW_PREFIXES = ["sentinel.", "negative.", "units.", "key."];
+const REVIEW_PREFIXES = ["sentinel.", "negative.", "units.", "key.", "scale."];
 /** Findings the page lists as "fix" items although no automatic fix exists (a key that repeats). */
 const FIX_PREFIXES = ["keyrepeat."];
 

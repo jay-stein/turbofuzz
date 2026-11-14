@@ -123,3 +123,56 @@ export function standsApartNumerically(
   const p99 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.99))];
   return code >= p99;
 }
+
+/** Runs of nines (-999, 9999, 99999) that systems write for "unknown". */
+const NINES = /^[+-]?9{3,}(\.0+)?$/;
+const NINES_MIN_COUNT = 5;
+/** The code must repeat this many times more often than all values near it put together. */
+const NINES_SPIKE = 5;
+
+/**
+ * A run-of-nines code (-999 in 101 of 100,000 revenue rows) counted over every row,
+ * so it is found even when it is too rare for the sampled pass. It counts as a code
+ * only when it is a spike: repeated exactly, far more often than every value within
+ * 5% of it together (a price list where 999 sits among 949 and 1,049 stays quiet).
+ */
+export function detectNinesCode(
+  type: ColumnType,
+  raw: readonly string[],
+  isNull: (value: string) => boolean,
+  locale: NumberLocale,
+): Sentinel | null {
+  if (type !== "integer" && type !== "number") return null;
+  const counts = new Map<string, number>();
+  let present = 0;
+  for (let i = 0; i < raw.length; i++) {
+    const value = raw[i]!;
+    if (isNull(value)) continue;
+    present++;
+    const first = value.charCodeAt(0);
+    // Cheap gate before the pattern: a sign or a 9 first.
+    if (first !== 57 && first !== 45 && first !== 43 && first !== 32) continue;
+    const trimmed = value.trim();
+    if (NINES.test(trimmed)) counts.set(trimmed, (counts.get(trimmed) ?? 0) + 1);
+  }
+  const best = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  if (best === undefined || best[1] < NINES_MIN_COUNT || present === 0) return null;
+  const code = parseNumber(best[0], locale);
+  const radius = Math.max(1, Math.abs(code) * 0.05);
+  let near = 0;
+  for (let i = 0; i < raw.length; i++) {
+    const value = raw[i]!;
+    if (isNull(value)) continue;
+    const parsed = parseNumber(value.trim(), locale);
+    if (parsed !== code && Math.abs(parsed - code) <= radius) near++;
+  }
+  if (best[1] < NINES_SPIKE * Math.max(1, near)) return null;
+  return {
+    kind: "sentinel",
+    value: best[0],
+    count: best[1],
+    ratio: best[1] / present,
+    sampled: present,
+    hint: "the same run of nines over and over, apart from the real values",
+  };
+}

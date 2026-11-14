@@ -265,7 +265,10 @@ export function recommendRules(metas: readonly ColumnMeta[], rowCount: number): 
       const covered = categories.counts.reduce((sum, count) => sum + count, 0);
       const populated = rowCount - stats.nulls;
       if (populated > 0 && covered / populated >= 0.99) {
-        add({ type: "inList", column: meta.name, severity: "major", values: [...categories.labels], allowedFailure: 0.005 });
+        // Learned from the standard spellings only: "consumer" beside "Consumer" is a variant to fix, not an allowed value.
+        const variants = [...(meta.variants?.mappings ?? []), ...(meta.variants?.loose?.mappings ?? [])];
+        const minority = new Set(variants.filter((m) => m.from.trim() !== m.to).map((m) => m.from.trim()));
+        add({ type: "inList", column: meta.name, severity: "major", values: categories.labels.filter((label) => !minority.has(label)), allowedFailure: 0.005 });
       }
     }
   });

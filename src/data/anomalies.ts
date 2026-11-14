@@ -2,6 +2,7 @@ import { valueLength } from "../parse/value-length.js";
 import { BitSet } from "../search/bitset.js";
 import type { ColumnData } from "./column.js";
 import { isLikelyIdentifierColumn } from "./identifier.js";
+import { nameHas } from "./name-hints.js";
 
 export interface ValueFence {
   center: number;
@@ -167,6 +168,10 @@ function countOutside(sample: readonly number[], lo: number, hi: number): number
   return count;
 }
 
+/** Category columns with at most this many values, none longer than NAME_LENGTH, get no length fence. */
+const SHORT_LIST = 50;
+const NAME_LENGTH = 40;
+
 /**
  * Length fences: a value is overlong when its trimmed length exceeds three
  * times the column's 90th-percentile length. Only the long side is flagged,
@@ -180,6 +185,8 @@ function lengthFenceFor(column: ColumnData): LengthFence | null {
   ) {
     return null;
   }
+  // A short list of repeated names (NSW beside Western Australia) is a category, not overlong text.
+  if (column.type === "category" && column.stats.distinct <= SHORT_LIST && (column.stats.maxLength ?? 0) <= NAME_LENGTH) return null;
   const raw = column.raw;
   const nullMask = column.nullMask;
   const step = Math.max(1, Math.floor(raw.length / MAX_SAMPLES));
@@ -238,7 +245,9 @@ export function computeAnomalies(
     const sparse = rowCount > 0 && column.stats.nulls / rowCount > MAX_NULL_RATIO;
     // IDs and surrogate keys are unique by design: a new key is not an outlier.
     const identifier = isLikelyIdentifierColumn(column, rowCount);
-    const valueFence = sparse || identifier ? null : numericFence(column);
+    // Latitude and longitude spread by geography: a smaller town far from the cities is not an outlier.
+    const coordinate = nameHas(column.name, "coordinate");
+    const valueFence = sparse || identifier || coordinate ? null : numericFence(column);
     let columnValueBits: BitSet | null = null;
     if (valueFence !== null) {
       columnValueBits = new BitSet(rowCount);

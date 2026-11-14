@@ -64,6 +64,8 @@ export interface ColumnStats {
   avgLength: number | null;
   /** Near-unique columns only (98%+ distinct, not unique): rows sharing their value with another row, and how many values repeat. */
   repeats?: { rows: number; values: number };
+  /** Share-named columns written as fractions (0.15) with a few percentages (15) among them. */
+  scaleMix?: { above: number; checked: number; examples: string[] };
 }
 
 const TRUE_VALUES = new Set(["true", "yes", "y", "t", "1"]);

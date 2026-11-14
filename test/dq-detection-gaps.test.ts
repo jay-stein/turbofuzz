@@ -7,6 +7,11 @@ import { detectArchetypes } from "../src/data/archetype.js";
 import { computeDQScore, type ScoreCheck } from "../src/data/score.js";
 import { columnVariants, recodePairs } from "../src/data/variants.js";
 import { computeRowsAffected } from "../src/data/dq-rows.js";
+import { detectNinesCode } from "../src/data/hidden-missing.js";
+import { computeAnomalies } from "../src/data/anomalies.js";
+import { scoreSensitivity } from "../src/data/sensitivity.js";
+import { textProfile } from "../src/data/text-profile.js";
+import { recommendRules } from "../src/data/rules.js";
 import { computePairViolations, suggestPairs } from "../src/data/pair-checks.js";
 import type { DatasetStats } from "../src/data/stats.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
@@ -197,4 +202,139 @@ test("a column with no stray spaces and no case variants raises no variants issu
   const clean = ColumnData.create("state", rows(1000, (i) => ["NSW", "VIC", "QLD", "WA"][i % 4]!));
   assert.equal(columnVariants(clean), null);
   assert.equal(issuesFor([clean], 1000).issues.filter((entry) => entry.kind === "variants").length, 0);
+});
+
+// --- 5. yes/no columns spelled many ways -----------------------------------------------------
+
+test("Yes/No/Y/N/TRUE/FALSE/yes/no in one column are two values, with one standardise fix", () => {
+  const spellings = ["Yes", "No", "No", "No", "No", "No", "No", "No", "Y", "N", "TRUE", "FALSE", "yes", "no"];
+  const returned = ColumnData.create("returned", rows(1400, (i) => spellings[i % spellings.length]!));
+  const { issues } = issuesFor([returned], 1400);
+  const issue = issues.find((entry) => entry.kind === "variants");
+  assert.ok(issue);
+  assert.equal(issue.title, "“returned” has 8 spellings of 2 values");
+  const step = issue.fixes[0];
+  assert.ok(step !== undefined && step.kind === "standardise");
+  const to = new Map(step.pairs);
+  assert.equal(to.get("Y"), "Yes");
+  assert.equal(to.get("TRUE"), "Yes");
+  assert.equal(to.get("FALSE"), "No");
+  assert.equal(to.get("N"), "No");
+});
+
+test("a column that only partly holds yes/no words, or holds one spelling each, merges nothing", () => {
+  // Sizes: T and F sit beside other letters, so they are not yes/no.
+  const sizes = ColumnData.create("size", rows(400, (i) => ["S", "M", "L", "T", "F", "true"][i % 6]!));
+  assert.equal(columnVariants(sizes), null);
+  const flags = ColumnData.create("active", rows(400, (i) => (i % 3 === 0 ? "Y" : "N")));
+  assert.equal(columnVariants(flags), null);
+});
+
+// --- 6. a share written as a fraction with a few percentages ----------------------------------
+
+test("discount_pct in 0..0.25 with a few values of 5..25 is worth reviewing, with Show rows", () => {
+  const values = rows(2000, (i) => (i % 200 === 0 ? String(5 + (i % 4) * 5) : String((i % 26) / 100)));
+  const { issues } = issuesFor([ColumnData.create("discount_pct", values)], 2000);
+  const issue = issues.find((entry) => entry.id === "review.scale.0");
+  assert.ok(issue, "the scale mix is reported");
+  assert.equal(issue.severity, "review");
+  assert.equal(issue.title, "“discount_pct” is a fraction (0 to 1) in most rows but 10 values are above 1, probably written as percentages");
+  assert.deepEqual(issue.finding?.action, { kind: "filterRange", column: 0, min: 1 + Number.EPSILON, max: null });
+});
+
+test("a clean fraction, a 0..100 percentage, or a rate that is not a share raises nothing", () => {
+  const quiet = (name: string, make: (i: number) => string): void => {
+    const { issues } = issuesFor([ColumnData.create(name, rows(2000, make))], 2000);
+    assert.equal(issues.filter((entry) => entry.id.startsWith("review.scale.")).length, 0, name);
+  };
+  quiet("discount_pct", (i) => String((i % 26) / 100));
+  quiet("tax_rate", (i) => String(5 + (i % 20)));
+  quiet("heart_rate", (i) => String(55 + (i % 60)));
+  quiet("discount", (i) => (i % 200 === 0 ? "15" : String((i % 26) / 100)));
+});
+
+// --- 7. a run of nines that stands for "unknown" ----------------------------------------------
+
+test("-999 repeated in an amount column with real negatives is a missing-value code to review", () => {
+  const values = rows(5000, (i) => (i % 50 === 0 ? "-999" : i % 97 === 0 ? `-${(10 + (i % 300)).toFixed(2)}` : (100 + ((i * 37) % 5000) + 0.25).toFixed(2)));
+  const revenue = ColumnData.create("revenue", values);
+  const sentinel = revenue.suggestions.find((s) => s.kind === "sentinel" && s.value === "-999");
+  assert.ok(sentinel, "the code is suggested");
+  assert.equal(sentinel.kind === "sentinel" && sentinel.count, 100);
+  const { issues } = issuesFor([revenue], 5000);
+  const issue = issues.find((entry) => entry.id === "review.sentinel.0.-999");
+  assert.ok(issue);
+  assert.equal(issue.severity, "review");
+  assert.equal(issue.fixLabel, "Treat as missing");
+  assert.equal(issue.batchSafe, false, "never applied without a click");
+});
+
+test("999 as a common price among its neighbours, or a rare nine, is not a code", () => {
+  // The full-column pass leaves it alone (the older sampled pass judges frequent 999s on its own terms).
+  const prices = rows(3000, (i) => ["899", "949", "999", "1049", "1099", "950", "1000"][i % 7]!);
+  assert.equal(detectNinesCode("integer", prices, (v) => v === "", "dot"), null);
+  const rare = ColumnData.create("revenue", rows(3000, (i) => (i < 3 ? "-999" : (50 + (i % 400)).toFixed(2))));
+  assert.ok(!rare.suggestions.some((s) => s.kind === "sentinel" && s.value === "-999"), "three cells are not a pattern");
+});
+
+// --- 8. false positives -------------------------------------------------------------------------
+
+test("lat and lon are never value outliers; the same spread under another name still is", () => {
+  // Most rows in two cities, a few in far smaller towns: geography, not error.
+  const lat = rows(3000, (i) => (i % 60 === 0 ? String(-12.4 - (i % 7)) : String(-33.86 - (i % 10) / 100)));
+  const flagged = (name: string): number => computeAnomalies([ColumnData.create(name, lat)], 3000).valueColumnBits[0]?.count() ?? 0;
+  assert.equal(flagged("lat"), 0);
+  assert.equal(flagged("Longitude"), 0);
+  assert.ok(flagged("depth") > 0, "a measure with the same values keeps its outliers");
+});
+
+test("product_name beside an email column is not personal data; customer_name and a bare name still are", () => {
+  const input = (column: number, name: string, values: string[]) => {
+    const data = ColumnData.create(name, values);
+    return { column, name, type: data.type, semantic: data.semantic, shapes: textProfile(values, data.nullMask, 1, false).shapes, sampled: values.length, scanned: values.length, embedded: null };
+  };
+  const emails = rows(300, (i) => `user${i}@example.com`);
+  const things = rows(300, (i) => ["Stapler", "Webcam", "Desk Lamp", "Monitor Arm"][i % 4]!);
+  const people = rows(300, (i) => ["Ann Lee", "Bo Chan", "Cy Diaz", "Di Eve", "Ed Fox"][i % 5]!);
+  const found = scoreSensitivity([input(0, "email", emails), input(1, "product_name", things), input(2, "file_name", things), input(3, "customer_name", people), input(4, "name", people)]);
+  const names = found.filter((f) => f.class === "personal_name").map((f) => f.name);
+  assert.ok(!names.includes("product_name") && !names.includes("file_name"), names.join(","));
+  assert.ok(names.includes("customer_name") && names.includes("name"), names.join(","));
+});
+
+test("suggested allowed values list the standard spellings only when the column has variants", () => {
+  const segment = ColumnData.create("segment", rows(1000, (i) => (i % 50 === 0 ? "consumer" : i % 77 === 0 ? "smb" : ["Consumer", "Corporate", "SMB"][i % 3]!)));
+  const inList = recommendRules([metaOf(segment)], 1000).find((rule) => rule.type === "inList");
+  assert.deepEqual(inList?.values, ["Consumer", "Corporate", "SMB"]);
+  const clean = ColumnData.create("channel", rows(1000, (i) => ["Online", "Phone", "Retail"][i % 3]!));
+  assert.deepEqual(recommendRules([metaOf(clean)], 1000).find((rule) => rule.type === "inList")?.values, ["Online", "Phone", "Retail"]);
+});
+
+// --- 4. dotted and long forms of the same value -------------------------------------------------
+
+test("N.S.W., W.A. and long state names are worth reviewing, mapped to the dominant form", () => {
+  const forms = ["NSW", "NSW", "NSW", "VIC", "VIC", "WA", "WA", "QLD"];
+  const state = ColumnData.create("state", rows(2000, (i) => (i % 100 === 0 ? "N.S.W." : i % 100 === 1 ? "New South Wales" : i % 100 === 2 ? "W.A." : i % 100 === 3 ? "Victoria" : forms[i % forms.length]!)));
+  const { issues } = issuesFor([state], 2000);
+  const loose = issues.find((entry) => entry.id === "variantsLoose.0");
+  assert.ok(loose);
+  assert.equal(loose.severity, "review");
+  assert.equal(loose.batchSafe, false);
+  const step = loose.fixes[0];
+  assert.ok(step !== undefined && step.kind === "standardise");
+  assert.deepEqual(new Map(step.pairs), new Map([["N.S.W.", "NSW"], ["New South Wales", "NSW"], ["W.A.", "WA"], ["Victoria", "VIC"]]));
+  assert.match(loose.evidence, /bundled state list/);
+  assert.equal(issues.filter((entry) => entry.id.startsWith("variants.")).length, 0, "nothing certain to fix");
+  // The suggested allowed list keeps the standard forms only.
+  assert.deepEqual(recommendRules([metaOf(state)], 2000).find((rule) => rule.type === "inList")?.values, ["NSW", "QLD", "VIC", "WA"]);
+});
+
+test("long names stay apart without a state-like column name, and version numbers keep their dots", () => {
+  const region = ColumnData.create("team", rows(1000, (i) => ["NSW", "Victoria", "WA"][i % 3]!));
+  assert.equal(columnVariants(region), null, "no list applies to a team column");
+  const versions = ColumnData.create("release", rows(1000, (i) => ["1.0", "10", "2.1"][i % 3]!));
+  assert.equal(columnVariants(versions)?.loose, undefined);
+  // A short category list of state names gets no "long values" chip.
+  const state = ColumnData.create("state", rows(3000, (i) => (i % 40 === 0 ? "Western Australia" : ["NSW", "VIC", "QLD"][i % 3]!)));
+  assert.equal(computeAnomalies([state], 3000).lengthColumnBits[0]?.count() ?? 0, 0);
 });

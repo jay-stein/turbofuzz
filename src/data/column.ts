@@ -20,12 +20,12 @@ import {
 import { isNullWithPolicy, EMPTY_NULL_POLICY, type NullPolicy } from "../parse/null-tokens.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { detectSuggestions, type ColumnSuggestion } from "./suggestions.js";
-import { detectHiddenZeros, detectNegativeCodes } from "./hidden-missing.js";
+import { detectHiddenZeros, detectNegativeCodes, detectNinesCode } from "./hidden-missing.js";
 import { spellingVariants, spellingVariantsFromRaw, type VariantSummary } from "./variants.js";
 import { measureConformance, type Conformance } from "./conformance.js";
 import { summariseDateFormats, type DateFormatSummary } from "./date-formats.js";
 import { summariseNumberSymbols, type NumberSymbolSummary } from "./number-symbols.js";
-import { checkPlausibility, type RangeViolation } from "./plausibility.js";
+import { checkPlausibility, checkScaleMix, type RangeViolation } from "./plausibility.js";
 import { blocksConversion, inferSemanticType, skipsSimilarity, type Semantic } from "./semantic-type.js";
 import { looksLikeRowIndex } from "./identifier.js";
 import { KEY_MIN_DISTINCT_SHARE, looksLikeKeyName, valueRepeats } from "./key-duplicates.js";
@@ -337,6 +337,8 @@ export class ColumnData {
           column.numberLocale,
         );
     if (!options.skipSuggestions) {
+      const scaleMix = checkScaleMix(name, inferred.type, raw, (value) => isNullWithPolicy(value, nullPolicy), column.numberLocale);
+      if (scaleMix !== null) stats.scaleMix = scaleMix;
       // Sentinel counts come from a sample; make them exact, then add the
       // name-gated hidden zeros (counted exactly over every row already).
       for (const suggestion of column.suggestions) {
@@ -366,6 +368,11 @@ export class ColumnData {
       );
       if (codes !== null && !column.suggestions.some((s) => s.kind === "sentinel" && s.value === codes.value)) {
         column.suggestions.push(codes);
+      }
+      // -999 among real negatives (refunds) is skipped above; a spike of nines is still a code.
+      const nines = detectNinesCode(inferred.type, raw, (value) => isNullWithPolicy(value, nullPolicy), column.numberLocale);
+      if (nines !== null && !column.suggestions.some((s) => s.kind === "sentinel" && s.value === nines.value)) {
+        column.suggestions.push(nines);
       }
     }
     // Suggestion counts come from a sample; make the type-conflict count exact.
