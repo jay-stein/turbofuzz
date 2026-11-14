@@ -25,15 +25,16 @@
       "column": "Insulin",
       "value": "0",
       "min": 134
+    },
+    {
+      "kind": "variants",
+      "column": "Outcome",
+      "min": 1
     }
   ],
   "must_not_flag": [
     {
       "kind": "convert",
-      "column": "*"
-    },
-    {
-      "kind": "variants",
       "column": "*"
     },
     {

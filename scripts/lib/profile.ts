@@ -1,8 +1,7 @@
 import { listLegacySheets, readLegacySheet } from "../../src/parse/xls.js";
 import { ingestDataset } from "../../src/worker/ingest.js";
 import { computeDQScore, type DQScore } from "../../src/data/score.js";
-import { spellingVariants } from "../../src/data/variants.js";
-import { skipsSimilarity } from "../../src/data/semantic-type.js";
+import { columnVariants } from "../../src/data/variants.js";
 import { scoreSensitivity, type SensitiveFinding } from "../../src/data/sensitivity.js";
 import { embeddedShapes, textProfile } from "../../src/data/text-profile.js";
 import type { Dataset } from "../../src/data/dataset.js";
@@ -41,8 +40,6 @@ export async function profileBuffer(
   const loadMs = performance.now() - started;
   const metas: ColumnMeta[] = dataset.columns.map((column, index) => {
     const profile = dataset.patternProfiles[index] ?? null;
-    const built =
-      column.type === "category" || column.type === "boolean" ? column.categories() : null;
     return {
       name: column.name,
       type: column.type,
@@ -64,13 +61,7 @@ export async function profileBuffer(
       numberSymbols: column.numberSymbols,
       rangeViolation: column.rangeViolation,
       semantic: column.semantic,
-      variants: skipsSimilarity(column.semantic)
-        ? null
-        : built !== null
-          ? spellingVariants(built.labels, built.counts)
-          : column.type === "string" && column.semantic?.type !== "free_text"
-            ? column.spellingVariants()
-            : null,
+      variants: columnVariants(column),
       pattern:
         profile === null
           ? null

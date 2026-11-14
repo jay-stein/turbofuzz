@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-05 — Quality: a repeated key, dates out of order and whitespace variants are reported
+
+- **Status:** Verified (unit, 631+ data-quality tests; bench:dq within budget; corpus tests pass)
+- **Related issue / decision:** 2026-11-14 product assessment: a planted-defect orders table showed a repeating order id, ship dates before order dates and space-padded categories, and none was reported.
+- **What changed:** A column that looks like the key but repeats is a fix item ("order_id looks like the key but 1,437 rows share an id"), kept apart from exact duplicate rows; the Overview says "unique key column" only when that is true. Date orders implied by the column names (ship/order, start/end, birth/death, opened/closed ...) are checked, and rows out of order are listed under Worth reviewing with Show rows (suggested pair checks were previously dropped). Values that differ only by leading or trailing spaces count as spelling variants, and Standardise trims them. The Pima fixture now expects the `Outcome` carriage-return variant.
+- **Files / components changed:** src/data/key-duplicates.ts, pair-checks.ts, archetype.ts, standardise-review.ts, dq-exceptions.ts, dq-rows.ts, column.ts, findings.ts, dq-issues.ts, variants.ts, reference/small-lists.ts; src/parse/infer.ts; src/worker/search.worker.ts; src/ui/app.ts; scripts/lib/profile.ts, check.ts; test/dq-detection-gaps.test.ts (new), test/measure.test.ts, test/fixtures/real-world/pima-named/expect.json
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-04 — Export: Excel workbook (.xlsx) with typed cells, text ids and a frozen filter header
 
 - **Status:** Verified (unit tests; browser spec export-xlsx passed; bench:groups-export about 3 s for 100,000 rows × 30 columns, budget 8 s). Not yet opened in real Excel or LibreOffice.

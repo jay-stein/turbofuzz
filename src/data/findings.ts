@@ -1,4 +1,6 @@
 import { nameHas } from "./name-hints.js";
+import { KEY_MIN_DISTINCT_SHARE, looksLikeKeyName } from "./key-duplicates.js";
+import type { PairOperator } from "./pair-checks.js";
 import type { DatasetStats } from "./stats.js";
 import type { DependencyPair } from "./dependencies.js";
 import type { GroupAnomalyPair } from "./group-anomalies.js";
@@ -21,6 +23,8 @@ export type FindingAction =
     }
   | { kind: "filterDuplicates" }
   | { kind: "keyDuplicates"; columns: number[]; label: string }
+  /** Rows where column a is below column b (a ship date before its order date). */
+  | { kind: "pairCheck"; a: number; b: number; operator: PairOperator }
   | { kind: "filterRange"; column: number; min: number | null; max: number | null }
   | { kind: "filterText"; column: number; query: string }
   | { kind: "cleanNulls"; column: number }
@@ -348,6 +352,9 @@ export function qualityFindings(
     }
   });
 
+  const keyRepeat = keyRepeatFinding(columns, rowCount);
+  if (keyRepeat !== null) findings.push(keyRepeat);
+
   if (stats.duplicateRows > 0) {
     findings.push({
       id: "duplicates",
@@ -375,6 +382,8 @@ export function qualityFindings(
  * dismissals, so neither is repeated here.
  */
 const REVIEW_PREFIXES = ["sentinel.", "negative.", "units.", "key."];
+/** Findings the page lists as "fix" items although no automatic fix exists (a key that repeats). */
+const FIX_PREFIXES = ["keyrepeat."];
 
 /** The advisory, unscored findings for the Quality page, most affected first. */
 export function reviewFindings(
@@ -384,9 +393,53 @@ export function reviewFindings(
 ): Finding[] {
   return qualityFindings(columns, stats, rowCount).filter(
     (finding) =>
-      finding.severity === "review" &&
-      REVIEW_PREFIXES.some((prefix) => finding.id.startsWith(prefix)),
+      (finding.severity === "review" && REVIEW_PREFIXES.some((prefix) => finding.id.startsWith(prefix))) ||
+      (finding.severity === "fix" && FIX_PREFIXES.some((prefix) => finding.id.startsWith(prefix))),
   );
+}
+
+/**
+ * The record key that is not unique: the most distinct key-named column (98%+
+ * distinct) whose values repeat. Silent when a key-named column is already fully
+ * unique (the repeating one is then a reference, not the key) and for columns that
+ * repeat by design (customer_id, 5,000 values in 100,000 rows).
+ */
+export function keyRepeatFinding(columns: readonly ColumnMeta[], rowCount: number): Finding | null {
+  if (rowCount <= 20) return null;
+  let best: { column: number; share: number } | null = null;
+  for (let column = 0; column < columns.length; column++) {
+    const meta = columns[column]!;
+    if (meta.role === "provenance" || !looksLikeKeyName(meta.name)) continue;
+    if (meta.stats.nulls === 0 && meta.stats.distinct === rowCount) return null;
+    const repeats = meta.stats.repeats;
+    const present = rowCount - meta.stats.nulls;
+    if (repeats === undefined || present <= 0) continue;
+    const share = meta.stats.distinct / present;
+    if (share < KEY_MIN_DISTINCT_SHARE) continue;
+    if (best === null || share > best.share) best = { column, share };
+  }
+  if (best === null) return null;
+  const meta = columns[best.column]!;
+  const repeats = meta.stats.repeats!;
+  const present = rowCount - meta.stats.nulls;
+  const noun = meta.name.toLowerCase().replace(/[^a-z0-9]/g, "").endsWith("id") ? "id" : "value";
+  return {
+    id: `keyrepeat.${best.column}`,
+    report: "quality.joinReadiness",
+    severity: "fix",
+    title: `“${meta.name}” looks like the key but ${repeats.rows.toLocaleString()} ${
+      repeats.rows === 1 ? "row shares" : "rows share"
+    } ${noun === "id" ? "an id" : "a value"} with another row (${repeats.values.toLocaleString()} ${noun}${repeats.values === 1 ? "" : "s"})`,
+    evidence: [
+      { metric: "distinct values", value: `${meta.stats.distinct.toLocaleString()} in ${present.toLocaleString()} rows`, n: meta.stats.distinct },
+      { metric: "rows sharing a value", value: repeats.rows.toLocaleString(), n: repeats.rows },
+      { metric: "repeated values", value: repeats.values.toLocaleString(), n: repeats.values },
+      { metric: "not the same as", value: "exact duplicate rows (listed separately): these rows may differ in other columns", n: 1 },
+    ],
+    impact: { rows: repeats.rows, columns: [best.column] },
+    fixLabel: "Show rows",
+    action: { kind: "keyDuplicates", columns: [best.column], label: `Rows sharing a “${meta.name}”` },
+  };
 }
 
 /** Histogram mass either side of 1.0, for the unit-inconsistency heuristic. */

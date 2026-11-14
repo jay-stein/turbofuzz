@@ -240,6 +240,7 @@ test("case variants are found in high-cardinality text columns", () => {
   assert.equal(column.type, "string");
   const variants = column.spellingVariants();
   assert.equal(variants?.groups, 1);
-  assert.equal(variants?.minorityRows, 2 + 0);
+  // "Job 3 " counts too: a pivot groups the padded copy apart, so it is a spelling of its own.
+  assert.equal(variants?.minorityRows, 3);
   assert.equal(column.spellingVariants(), variants);
 });

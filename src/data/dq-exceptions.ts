@@ -11,7 +11,7 @@ export interface ExceptionOptions {
   /** Columns whose values are masked (sensitive-flagged) unless includeRaw is on. */
   maskColumns: ReadonlySet<number>;
   includeRaw: boolean;
-  /** One entry per column: the values that are spelling variants of another value. */
+  /** One entry per column: the values (exactly as stored, spaces kept) that are spelling variants of another value. */
   variantSources: readonly (ReadonlySet<string> | null)[];
   /** Restrict to one check id (for example `validity.3`); null = all checks. */
   checkId: string | null;
@@ -91,7 +91,7 @@ export function collectExceptions(
           continue;
         }
       }
-      if (variants !== null && variants.has(text)) {
+      if (variants !== null && variants.has(raw)) {
         emit(row, index, column, `consistency.variants.${index}`, "consistency", FIX, raw, "Spelling variant of another value");
         continue;
       }

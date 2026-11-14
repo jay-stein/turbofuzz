@@ -1,4 +1,5 @@
 import { BitSet } from "../search/bitset.js";
+import { nameTokens } from "./name-hints.js";
 import type { ColumnData } from "./column.js";
 
 export interface KeyDuplicateResult {
@@ -114,4 +115,38 @@ function keysEqual(
     if (column.raw[a] !== column.raw[b]) return false;
   }
   return true;
+}
+
+/** Whole words that make a column name read as a record key (order_id, invoice_no, ticket_code). */
+const KEY_WORDS = new Set(["id", "ids", "key", "uuid", "guid", "number", "no", "num", "nr", "code", "ref", "reference"]);
+const NOT_KEY_COMPACT = /(paid|valid|void|grid|solid|fluid|rapid|humid|arid|android)$/;
+
+/** Does the column name say it identifies a record? (orderid and OrderID count; "paid" does not.) */
+export function looksLikeKeyName(name: string): boolean {
+  if (nameTokens(name).some((token) => KEY_WORDS.has(token))) return true;
+  const compact = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return compact.length > 3 && compact.endsWith("id") && !NOT_KEY_COMPACT.test(compact);
+}
+
+/** A key column must be at least this distinct before a repeat reads as a defect rather than a foreign key. */
+export const KEY_MIN_DISTINCT_SHARE = 0.98;
+
+/**
+ * Rows that share their value with another row, and how many values repeat, for a
+ * column that is nearly but not fully unique. Null for any other column, so the
+ * O(distinct) walk only runs where a repeat would be news.
+ */
+export function valueRepeats(
+  counts: ReadonlyMap<string, number>,
+  present: number,
+): { rows: number; values: number } | null {
+  if (present <= 20 || counts.size >= present || counts.size < present * KEY_MIN_DISTINCT_SHARE) return null;
+  let rows = 0;
+  let values = 0;
+  for (const count of counts.values()) {
+    if (count < 2) continue;
+    rows += count;
+    values++;
+  }
+  return values === 0 ? null : { rows, values };
 }

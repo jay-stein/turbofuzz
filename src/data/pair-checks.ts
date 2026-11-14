@@ -81,6 +81,22 @@ const PAIR_STEMS: readonly (readonly [string, string])[] = [
   ["max", "min"],
   ["modified", "created"],
   ["finish", "start"],
+  // Lifecycle dates: an order ships after it is placed, a person dies after birth.
+  ["ship", "order"],
+  ["shipped", "ordered"],
+  ["delivery", "order"],
+  ["delivered", "ordered"],
+  ["delivery", "ship"],
+  ["delivered", "shipped"],
+  ["end", "begin"],
+  ["closed", "opened"],
+  ["completed", "started"],
+  ["resolved", "opened"],
+  ["death", "birth"],
+  ["died", "born"],
+  ["checkout", "checkin"],
+  ["arrival", "departure"],
+  ["expiry", "issue"],
 ];
 
 const words = (name: string): string[] =>
@@ -121,5 +137,13 @@ export function suggestPairs(metas: readonly ColumnMeta[]): SuggestedPair[] {
       });
     });
   }
-  return out.slice(0, 4);
+  // Date order first: a ship date before its order date is the defect people most often miss.
+  const time = out.filter((pair) => FAMILY[metas[pair.a]!.type] === "time");
+  return [...time, ...out.filter((pair) => !time.includes(pair))].slice(0, 4);
+}
+
+/** The two columns of a check proposed by suggestPairs, read back from its id; null for any other check. */
+export function suggestedPairColumns(checkId: string): { a: number; b: number } | null {
+  const match = /^consistency\.suggested\.(\d+)\.(\d+)$/.exec(checkId);
+  return match === null ? null : { a: Number(match[1]), b: Number(match[2]) };
 }

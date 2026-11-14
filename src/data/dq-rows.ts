@@ -45,7 +45,7 @@ export function computeRowsAffected(
         continue;
       }
       if (column.nullMask.get(row)) continue;
-      if (minority !== null && minority.has(raw.trim())) {
+      if (minority !== null && minority.has(raw)) {
         bits.set(row);
         continue;
       }

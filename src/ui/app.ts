@@ -5101,6 +5101,9 @@ export class App {
         );
         break;
       }
+      case "pairCheck":
+        this.checkPair(action.a, action.b, action.operator, 0);
+        break;
     }
   }
 

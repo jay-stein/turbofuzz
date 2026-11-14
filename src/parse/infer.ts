@@ -62,6 +62,8 @@ export interface ColumnStats {
   minLength: number | null;
   maxLength: number | null;
   avgLength: number | null;
+  /** Near-unique columns only (98%+ distinct, not unique): rows sharing their value with another row, and how many values repeat. */
+  repeats?: { rows: number; values: number };
 }
 
 const TRUE_VALUES = new Set(["true", "yes", "y", "t", "1"]);

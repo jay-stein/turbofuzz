@@ -84,7 +84,7 @@ import { BitSet } from "../search/bitset.js";
 import { buildRank, orderIds } from "../search/order.js";
 import { clusterSimilar } from "../search/similar.js";
 import { skipsSimilarity } from "../data/semantic-type.js";
-import { spellingVariants } from "../data/variants.js";
+import { columnVariants } from "../data/variants.js";
 import {
   QueryEngine,
   type ColumnFilter,
@@ -2461,14 +2461,7 @@ function handleGetExceptions(message: GetExceptionsRequest): void {
 /** Per column, the values that are spelling variants of another value (null when none). */
 function variantSourcesFor(columns: readonly ColumnData[]): (ReadonlySet<string> | null)[] {
   return columns.map((column) => {
-    if (skipsSimilarity(column.semantic)) return null;
-    let variants: ReturnType<typeof spellingVariants> = null;
-    if (column.type === "category" || column.type === "boolean") {
-      const built = column.categories();
-      variants = spellingVariants(built.labels, built.counts);
-    } else if (column.type === "string" && column.semantic?.type !== "free_text") {
-      variants = column.spellingVariants();
-    }
+    const variants = columnVariants(column);
     return variants === null || variants.mappings.length === 0
       ? null
       : new Set(variants.mappings.map((pair) => pair.from));
@@ -3937,19 +3930,16 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
   const patternProfile = dataset.patternProfiles[index] ?? null;
   let categories: ColumnMeta["categories"] = null;
   let similarGroups = 0;
-  let variants: ColumnMeta["variants"] = null;
+  // Free text is never "one spelling per value"; everything else is checked, spaces kept ("NSW " vs "NSW").
+  const variants: ColumnMeta["variants"] = columnVariants(column);
   if (column.type === "category" || column.type === "boolean") {
     const built = column.categories();
     categories = { labels: built.labels, counts: built.counts };
-    if (!skipsSimilarity(column.semantic)) variants = spellingVariants(built.labels, built.counts);
     if (column.type === "category" && !skipsSimilarity(column.semantic)) {
       similarGroups = clusterSimilar(
         built.labels.map((label, i) => ({ value: label, count: built.counts[i] })),
       ).length;
     }
-  } else if (column.type === "string" && !skipsSimilarity(column.semantic)) {
-    // Free text is never "one spelling per value"; everything else is checked.
-    if (column.semantic?.type !== "free_text") variants = column.spellingVariants();
   }
   return {
     name: column.name,

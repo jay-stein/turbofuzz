@@ -21,13 +21,14 @@ import { isNullWithPolicy, EMPTY_NULL_POLICY, type NullPolicy } from "../parse/n
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { detectSuggestions, type ColumnSuggestion } from "./suggestions.js";
 import { detectHiddenZeros, detectNegativeCodes } from "./hidden-missing.js";
-import { spellingVariantsFromRaw, type VariantSummary } from "./variants.js";
+import { spellingVariants, spellingVariantsFromRaw, type VariantSummary } from "./variants.js";
 import { measureConformance, type Conformance } from "./conformance.js";
 import { summariseDateFormats, type DateFormatSummary } from "./date-formats.js";
 import { summariseNumberSymbols, type NumberSymbolSummary } from "./number-symbols.js";
 import { checkPlausibility, type RangeViolation } from "./plausibility.js";
-import { blocksConversion, inferSemanticType, type Semantic } from "./semantic-type.js";
+import { blocksConversion, inferSemanticType, skipsSimilarity, type Semantic } from "./semantic-type.js";
 import { looksLikeRowIndex } from "./identifier.js";
+import { KEY_MIN_DISTINCT_SHARE, looksLikeKeyName, valueRepeats } from "./key-duplicates.js";
 import { symlog } from "./symlog.js";
 import { valueLength } from "../parse/value-length.js";
 import { isNumericLikeType, type ColumnType } from "../types.js";
@@ -135,6 +136,8 @@ export class ColumnData {
   /** One semantic type shared by every detector (null until inferred). */
   semantic: Semantic | null = null;
   private variantMemo: { value: VariantSummary | null } | null = null;
+  /** Exact counts of the untrimmed values from create(), held only until the variants are first computed. */
+  private rawCounts: Map<string, number> | null = null;
   readonly stats: ColumnStats;
   readonly nullMask: BitSet;
 
@@ -222,6 +225,14 @@ export class ColumnData {
       if (length > maxLength) maxLength = length;
     }
     stats.distinct = counts !== null ? counts.size : (distinct?.size ?? 0);
+    // A nearly unique column (an order id with a few repeats): count the repeats once, here.
+    const repeats =
+      counts !== null
+        ? valueRepeats(counts, presentCount)
+        : stats.distinct < presentCount && stats.distinct >= presentCount * KEY_MIN_DISTINCT_SHARE && looksLikeKeyName(name)
+          ? valueRepeats(countValues(raw, nullMask), presentCount)
+          : null;
+    if (repeats !== null) stats.repeats = repeats;
     if (presentCount > 0) {
       stats.minLength = minLength;
       stats.maxLength = maxLength;
@@ -286,6 +297,11 @@ export class ColumnData {
       { distinct: stats.distinct, nulls: stats.nulls, avgLength: stats.avgLength },
       raw.length,
     );
+    // The exact counts just made are the spelling-variant input: keep them until that first runs,
+    // and only for columns that get one, so identifier and free-text columns hold nothing extra.
+    if (counts !== null && counts.size <= MAX_VARIANT_DISTINCT && wantsVariants(inferred.type, column.semantic)) {
+      column.rawCounts = counts;
+    }
     const noConvert = blocksConversion(column.semantic);
     column.suggestions = options.skipSuggestions
       ? []
@@ -371,12 +387,16 @@ export class ColumnData {
    */
   spellingVariants(): VariantSummary | null {
     if (this.variantMemo === null) {
+      const counts = this.rawCounts;
+      this.rawCounts = null;
       this.variantMemo = {
         // Mostly-unique columns (names, ids) rarely hold variants and cost the most to scan.
         value:
           this.stats.distinct > MAX_VARIANT_DISTINCT
             ? null
-            : spellingVariantsFromRaw(this.raw, (value) => this.isNull(value), MAX_VARIANT_DISTINCT),
+            : counts !== null
+              ? spellingVariants([...counts.keys()], [...counts.values()], this.name)
+              : spellingVariantsFromRaw(this.raw, (value) => this.isNull(value), MAX_VARIANT_DISTINCT, this.name),
       };
     }
     return this.variantMemo.value;
@@ -716,6 +736,19 @@ export class ColumnData {
     }
     return this.cats;
   }
+}
+
+/** The column types and meanings the spelling-variant check runs on (as in columnVariants). */
+function wantsVariants(type: ColumnType, semantic: Semantic | null): boolean {
+  if (skipsSimilarity(semantic)) return false;
+  return type === "category" || type === "boolean" || (type === "string" && semantic?.type !== "free_text");
+}
+
+/** Exact value counts over the present cells (only for the rare numeric near-key column). */
+function countValues(raw: readonly string[], nullMask: BitSet): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (let i = 0; i < raw.length; i++) if (!nullMask.get(i)) counts.set(raw[i], (counts.get(raw[i]) ?? 0) + 1);
+  return counts;
 }
 
 /** Parses a cell into the number space of its column type. */

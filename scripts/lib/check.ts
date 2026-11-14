@@ -2,8 +2,7 @@ import { readFileSync } from "node:fs";
 import { collectExceptions } from "../../src/data/dq-exceptions.js";
 import { evaluateRule, parseRulesFile, ruleToCheck, type Rule, type RuleResult } from "../../src/data/rules.js";
 import { computeDQScore, type DQScore } from "../../src/data/score.js";
-import { spellingVariants } from "../../src/data/variants.js";
-import { skipsSimilarity } from "../../src/data/semantic-type.js";
+import { columnVariants } from "../../src/data/variants.js";
 import { profileBuffer, type Profile } from "./profile.js";
 
 export interface CheckResult {
@@ -59,14 +58,7 @@ export async function runCheck(path: string, options: CheckOptions = {}): Promis
   const score: DQScore = computeDQScore(metas, dataset.stats, dataset.rowCount, {}, checks);
 
   const variantSources = dataset.columns.map((column) => {
-    if (skipsSimilarity(column.semantic)) return null;
-    let variants: ReturnType<typeof spellingVariants> = null;
-    if (column.type === "category" || column.type === "boolean") {
-      const built = column.categories();
-      variants = spellingVariants(built.labels, built.counts);
-    } else if (column.type === "string" && column.semantic?.type !== "free_text") {
-      variants = column.spellingVariants();
-    }
+    const variants = columnVariants(column);
     return variants === null || variants.mappings.length === 0 ? null : new Set(variants.mappings.map((pair) => pair.from));
   });
   // Flagged columns are masked unless the caller overrides; headless has no sensitive scan

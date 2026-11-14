@@ -25,3 +25,15 @@ export const auStates: ReferenceList = { names: AU_STATES, aliases: {} };
 export const usStates: ReferenceList = { names: US_STATES, aliases: {} };
 export const weekdays: ReferenceList = { names: WEEKDAYS, aliases: {} };
 export const months: ReferenceList = { names: MONTHS, aliases: {} };
+
+/** [code, long name] pairs: each state list holds its codes, then the names in the same order. */
+function codeNamePairs(list: readonly string[]): [string, string][] {
+  const half = list.length / 2;
+  return list.slice(0, half).map((code, i) => [code, list[half + i]!]);
+}
+
+/** Code and long name of each state, so "New South Wales" can be offered as NSW (and back). */
+export const stateForms: Readonly<Record<"auState" | "usState", readonly [string, string][]>> = {
+  auState: codeNamePairs(AU_STATES),
+  usState: codeNamePairs(US_STATES),
+};

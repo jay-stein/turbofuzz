@@ -1,6 +1,8 @@
 import type { Finding } from "./findings.js";
 import { IMPACT, TITLES, maskToWords, n, plural } from "./dq-copy.js";
 import { maskValue } from "./mask-value.js";
+import { suggestedPairColumns } from "./pair-checks.js";
+import { recodePairs, showSpaces } from "./variants.js";
 import { columnScore, type ColumnScore, type DQScore, type ScoreCheck } from "./score.js";
 import { TYPE_LABELS, type ColumnType } from "../types.js";
 import type { ColumnMeta } from "../worker/protocol.js";
@@ -25,6 +27,10 @@ export type IssueKind =
   | "empty"
   | "emptyColumn"
   | "duplicates"
+  /** A column that looks like the record key but repeats (different rows, same id). */
+  | "keyDuplicates"
+  /** Two date columns whose order the names imply (ship after order) disagree in some rows. */
+  | "pairOrder"
   | "review"
   | "other";
 
@@ -156,10 +162,10 @@ function distFor(meta: ColumnMeta): DistData | null {
   for (const group of variants?.examples ?? []) {
     const [canonical, ...rest] = group.spellings;
     if (canonical === undefined) continue;
-    now.push({ label: canonical.value, count: canonical.count, cls: "target" });
-    for (const other of rest) now.push({ label: other.value, count: other.count, cls: "variant" });
+    now.push({ label: showSpaces(canonical.value), count: canonical.count, cls: "target" });
+    for (const other of rest) now.push({ label: showSpaces(other.value), count: other.count, cls: "variant" });
     after.push({
-      label: canonical.value,
+      label: canonical.value.trim(),
       count: group.spellings.reduce((sum, s) => sum + s.count, 0),
       cls: "target",
     });
@@ -177,6 +183,50 @@ function examplesFor(meta: ColumnMeta, mask: boolean, values: readonly string[])
   return mask ? shown.map(maskValue) : shown;
 }
 
+/** "ship_date is before order_date in 198 rows": a suggested pair check with failures. */
+function pairOrderIssue(
+  check: ScoreCheck,
+  pair: { a: number; b: number },
+  metas: readonly ColumnMeta[],
+): PageIssue | null {
+  const later = metas[pair.a];
+  const earlier = metas[pair.b];
+  if (later === undefined || earlier === undefined) return null;
+  const compared = check.pass + check.fail;
+  const finding: Finding = {
+    id: `pairorder.${pair.a}.${pair.b}`,
+    report: "quality.constraintViolations",
+    severity: "review",
+    title: check.label,
+    evidence: [{ metric: "rows out of order", value: n(check.fail), n: check.fail }],
+    impact: { rows: check.fail, columns: [pair.a, pair.b] },
+    fixLabel: "Show rows",
+    action: { kind: "pairCheck", a: pair.a, b: pair.b, operator: "gte" },
+  };
+  return {
+    id: `pairorder.${pair.a}.${pair.b}`,
+    severity: "review",
+    kind: "pairOrder",
+    column: pair.a,
+    columnName: later.name,
+    title: `“${later.name}” is ${later.type === "date" || later.type === "datetime" ? "before" : "below"} “${earlier.name}” in ${n(check.fail)} ${plural(check.fail, "row", "rows")}`,
+    evidence: `${n(check.fail)} of ${n(compared)} ${plural(compared, "row", "rows")} with both values. The order is implied by the column names; rows with either value missing are not counted`,
+    impact:
+      later.type === "date" || later.type === "datetime"
+        ? `Durations worked out from these two columns come out negative in ${n(check.fail)} ${plural(check.fail, "row", "rows")}`
+        : null,
+    points: null,
+    examples: [],
+    dist: null,
+    fixes: [],
+    fixLabel: "Show rows",
+    batchSafe: false,
+    check,
+    finding,
+    rows: check.fail,
+  };
+}
+
 /** Builds the single ranked issue list. */
 export function buildIssues(input: IssueInputs): PageIssue[] {
   const { score, metas, rowCount, review, sensitiveColumns } = input;
@@ -189,6 +239,13 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
   // --- spelling variants (merged with placeholders in the same column) ---
   for (const dimension of score.dimensions) {
     for (const check of dimension.checks) {
+      // A name-implied order (ship after order) that some rows break: worth reviewing, never auto-fixed.
+      const pair = check.suggested === true && check.fail > 0 ? suggestedPairColumns(check.id) : null;
+      if (pair !== null) {
+        const pairIssue = pairOrderIssue(check, pair, metas);
+        if (pairIssue !== null) issues.push(pairIssue);
+        continue;
+      }
       if (check.fail === 0 || check.column === null) continue;
       const meta = metas[check.column];
       if (meta === undefined) continue;
@@ -230,8 +287,8 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
           {
             kind: "standardise",
             column,
-            pairs: variants.mappings.map((m) => [m.from, m.to] as [string, string]),
-            preview: [...variants.mappings].sort((a, b) => b.count - a.count).slice(0, 5),
+            pairs: recodePairs(variants.mappings.map((m) => [m.from, m.to] as const)),
+            preview: [...variants.mappings].sort((a, b) => b.count - a.count).slice(0, 5).map((m) => ({ ...m, from: showSpaces(m.from) })),
             ...(variants.detail === undefined ? {} : { groups: variants.detail }),
           },
         ];
@@ -577,10 +634,11 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
     const column = finding.impact.columns[0] ?? null;
     // An impossible value (age 999) is already a fix item; do not list the sentinel twice.
     if (finding.id.startsWith("sentinel.") && column !== null && rangeColumns.has(column)) continue;
+    const keyRepeat = finding.id.startsWith("keyrepeat.");
     issues.push({
       id: `review.${finding.id}`,
-      severity: "review",
-      kind: "review",
+      severity: finding.severity === "fix" ? "fix" : "review",
+      kind: keyRepeat ? "keyDuplicates" : "review",
       column,
       columnName: column === null ? null : (metas[column]?.name ?? null),
       title: finding.title,
@@ -665,7 +723,9 @@ export function buildColumnHealth(
                 ? `${n(issue.rows)} odd`
                 : issue.kind === "empty"
                   ? `${n(issue.rows)} empty`
-                  : `${n(issue.rows)} to review`;
+                  : issue.kind === "keyDuplicates"
+                    ? `${n(issue.rows)} repeated keys`
+                    : `${n(issue.rows)} to review`;
       chips.push(short);
     }
     const sensitive = sensitiveColumns.has(column);

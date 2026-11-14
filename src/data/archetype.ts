@@ -159,7 +159,9 @@ export function detectArchetypes(
   if (rowCount >= 1_000) add("eventLog", 0.1, `${rowCount.toLocaleString()} rows`);
 
   // Orders & transactions.
-  if (idLike.length > 0) add("orders", 0.25, "unique key column");
+  // "unique" only when it is: an order_id that repeats is still the key column, just not a unique one.
+  const uniqueKey = idLike.some((column) => column.stats.distinct === rowCount && column.stats.nulls === 0);
+  if (idLike.length > 0) add("orders", 0.25, uniqueKey ? "unique key column" : "identifier column");
   if (dates.length >= 1) add("orders", 0.2, "transaction date");
   if (moneyLike.length > 0) add("orders", 0.3, "amount/price-style columns");
   else if (numerics.length >= 1) add("orders", 0.1, "numeric measures");
@@ -170,7 +172,7 @@ export function detectArchetypes(
   if (idLike.length > 0 && idLike.length === columns.length - (numerics.length + categories.length)) {
     add("customer", 0.2, "row-per-entity key");
   }
-  if (idLike.length > 0 && numericShare <= 0.34) add("customer", 0.3, "unique key with mostly text attributes");
+  if (idLike.length > 0 && numericShare <= 0.34) add("customer", 0.3, uniqueKey ? "unique key with mostly text attributes" : "identifier with mostly text attributes");
   const contactLike = columnsMatching(columns, ["email", "phone", "name", "customer", "address", "postcode", "zip"]);
   if (contactLike.length > 0) add("customer", 0.25, "contact-style columns");
 

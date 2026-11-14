@@ -1,3 +1,5 @@
+import { recodePairs } from "./variants.js";
+
 /**
  * State behind the one-by-one spelling review. Each group starts with its most
  * common spelling as the standard and approved; the user can pick another spelling
@@ -20,12 +22,12 @@ export function initGroups(groups: readonly { spellings: readonly Spelling[] }[]
     .filter((group) => group.spellings.length >= 2)
     .map((group) => ({
       spellings: group.spellings.map((s) => ({ ...s })),
-      standard: group.spellings[0]!.value,
+      standard: group.spellings[0]!.value.trim(),
       approved: true,
     }));
 }
 
-/** from -> to for every approved group's spellings that differ from the standard. */
+/** from -> to for every approved group's spellings that differ from the standard (keyed for the trimming recode step). */
 export function pairsFor(groups: readonly ReviewGroup[]): [string, string][] {
   const pairs: [string, string][] = [];
   for (const group of groups) {
@@ -34,7 +36,7 @@ export function pairsFor(groups: readonly ReviewGroup[]): [string, string][] {
       if (spelling.value !== group.standard) pairs.push([spelling.value, group.standard]);
     }
   }
-  return pairs;
+  return recodePairs(pairs);
 }
 
 /** Cells that would change in this group (the rows holding a non-standard spelling). */
@@ -59,7 +61,7 @@ export function swapStandard(group: ReviewGroup): void {
 
 export function resetToMostCommon(groups: ReviewGroup[]): void {
   for (const group of groups) {
-    group.standard = group.spellings[0]!.value;
+    group.standard = group.spellings[0]!.value.trim();
     group.approved = true;
   }
 }
