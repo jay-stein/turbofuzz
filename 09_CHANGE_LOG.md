@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-13 — Filters: Enter chooses in the + Add filter picker; fuzzy filters have a Strict / Normal / Loose control
+
+- **Status:** Verified (unit tests)
+- **Related issue / decision:** 2026-11-14 product assessment: the add-filter picker needed the mouse; fuzzy matching had one fixed looseness.
+- **What changed:** Enter, the arrow keys and Escape work in the + Add filter picker. Fuzzy filters have a Looseness control: Strict 0.88, Normal 0.72 (the default, unchanged) and Loose 0.6. Freezing columns already existed (column menu: "Freeze columns up to here").
+- **Not covered yet:** ranking results by closeness needs worker work and is not done.
+- **Files / components changed:** src/ui/list-nav.ts (new), src/ui/filters.ts, src/search/fuzzy-index.ts, src/search/query-engine.ts, src/ui/app.ts, src/styles.css; test/list-nav.test.ts, test/fuzzy-looseness.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-12 — Import: a PDF, image or other binary file is refused instead of loading as garbage columns
 
 - **Status:** Verified (unit tests)

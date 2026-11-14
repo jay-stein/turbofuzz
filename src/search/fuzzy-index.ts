@@ -37,6 +37,12 @@ export interface FuzzyIndexStats {
 
 const NGRAM_SIZE = 2;
 
+/** How loose a fuzzy filter is: "normal" is the long-standing default and is never stored on a filter. */
+export type FuzzyLooseness = "strict" | "normal" | "loose";
+
+/** The Jaro-Winkler score a word must reach to count as a match. */
+export const FUZZY_THRESHOLDS: Record<FuzzyLooseness, number> = { strict: 0.88, normal: 0.72, loose: 0.6 };
+
 /**
  * Token-level fuzzy index.
  *

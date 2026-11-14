@@ -1,6 +1,7 @@
 import { clear, el } from "./dom.js";
 import { RangeSlider } from "./range-slider.js";
 import { isNumericLikeType, isTemporalType, type TextMode } from "../types.js";
+import type { FuzzyLooseness } from "../search/fuzzy-index.js";
 import {
   formatDurationMs,
   fromDateTimeInputValue,
@@ -261,6 +262,22 @@ export class FilterPanel {
       modeSelect.append(option);
     }
 
+    // How close a word must be: Strict keeps near-identical spellings, Loose lets more through.
+    const looseSelect = el("select", {
+      class: "mode-select looseness-select",
+      title: "How close a word must be to match",
+      "aria-label": `Looseness for ${meta.name}`,
+    }) as HTMLSelectElement;
+    for (const [value, label] of [["strict", "Strict"], ["normal", "Normal"], ["loose", "Loose"]] as const) {
+      const option = el("option", { value }, [label]) as HTMLOptionElement;
+      if (value === (current?.looseness ?? "normal")) option.selected = true;
+      looseSelect.append(option);
+    }
+    const syncLooseness = (): void => {
+      looseSelect.classList.toggle("hidden", modeSelect.value !== "fuzzy");
+    };
+    syncLooseness();
+
     const input = el("input", {
       class: "text-input",
       type: "text",
@@ -274,7 +291,14 @@ export class FilterPanel {
       const query = input.value;
       this.callbacks.onFilter(
         index,
-        query.trim() === "" ? null : { kind: "text", mode: modeSelect.value as TextMode, query },
+        query.trim() === ""
+          ? null
+          : {
+              kind: "text",
+              mode: modeSelect.value as TextMode,
+              query,
+              ...(modeSelect.value === "fuzzy" && looseSelect.value !== "normal" ? { looseness: looseSelect.value as FuzzyLooseness } : {}),
+            },
       );
       cardActive(body, this.filters.has(index));
     };
@@ -357,10 +381,12 @@ export class FilterPanel {
       }
     });
     modeSelect.addEventListener("change", () => {
+      syncLooseness();
       apply();
     });
+    looseSelect.addEventListener("change", apply);
 
-    body.append(modeSelect, input, suggest);
+    body.append(modeSelect, looseSelect, input, suggest);
     return body;
   }
 

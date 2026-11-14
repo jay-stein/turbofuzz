@@ -17985,3 +17985,7 @@ button.cmp-change-name:hover {
 /* Pages that set their own button colour (Time Series) still get readable fix buttons. */
 .page-empty .page-empty-actions .primary { color: var(--primary-fg); }
 .page-empty .page-empty-actions .ghost { color: var(--text); }
+
+.filter-menu-list .context-item.active {
+  background: var(--panel-2);
+}

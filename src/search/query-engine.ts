@@ -1,10 +1,11 @@
 import { BitSet } from "./bitset.js";
 import { normalize } from "./normalize.js";
+import { FUZZY_THRESHOLDS, type FuzzyLooseness } from "./fuzzy-index.js";
 import type { Dataset } from "../data/dataset.js";
 import type { TextMode } from "../types.js";
 
 export type ColumnFilter =
-  | { kind: "text"; mode: TextMode; query: string }
+  | { kind: "text"; mode: TextMode; query: string; looseness?: FuzzyLooseness }
   | { kind: "range"; min: number | null; max: number | null }
   | {
       kind: "compare";
@@ -199,7 +200,7 @@ export class QueryEngine {
         }
 
         if (filter.mode === "fuzzy") {
-          return column.fuzzyIndex().search(filter.query).rowBits;
+          return column.fuzzyIndex().search(filter.query, { threshold: FUZZY_THRESHOLDS[filter.looseness ?? "normal"] }).rowBits;
         }
 
         return this.textBits(columnIndex, query, filter.mode === "exact");

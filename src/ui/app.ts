@@ -87,6 +87,7 @@ import type { AggregateMessage, CleanUpdate, ColumnMeta, PivotMessage, Correlati
 import { clear, el, svgIcon } from "./dom.js";
 import { openDedupeMenu } from "./dedupe-menu.js";
 import { openMenu, type MenuItem } from "./menu.js";
+import { listKey } from "./list-nav.js";
 import { buildColumnCard } from "./summary-band.js";
 import { Overview, STATS_ICON, delimiterLabel } from "./overview.js";
 import type { DatasetStats } from "../data/stats.js";
@@ -6817,8 +6818,21 @@ export class App {
     const onPointerDown = (event: PointerEvent): void => {
       if (!menu.contains(event.target as Node)) close();
     };
+    let active = 0;
+    let picks: number[] = [];
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") close();
+      const step = listKey(event.key, active, picks.length);
+      if (step.kind === "close") close();
+      else if (step.kind === "move") {
+        event.preventDefault();
+        active = step.active;
+        Array.from(list.children).forEach((item, i) => item.classList.toggle("active", i === active));
+        list.children[active]?.scrollIntoView({ block: "nearest" });
+      } else if (step.kind === "pick") {
+        event.preventDefault();
+        close();
+        this.focusFilterColumn(picks[step.index]!);
+      }
     };
 
     const renderList = (): void => {
@@ -6829,10 +6843,12 @@ export class App {
         input.value,
         (entry) => entry.meta.name,
       );
-      ranked.forEach(({ meta, index }) => {
+      picks = ranked.map((entry) => entry.index);
+      active = 0;
+      ranked.forEach(({ meta, index }, i) => {
         const item = el(
           "button",
-          { class: "context-item", type: "button", role: "menuitem" },
+          { class: i === 0 ? "context-item active" : "context-item", type: "button", role: "menuitem" },
           [meta.name],
         ) as HTMLButtonElement;
         item.addEventListener("click", () => {
