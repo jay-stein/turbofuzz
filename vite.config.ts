@@ -20,6 +20,8 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(version),
     __APP_BUILD__: JSON.stringify(gitBuild()),
+    // UTC date the config was loaded: the build date, or the server start under `vite dev`.
+    __APP_BUILD_DATE__: JSON.stringify(new Date().toISOString().slice(0, 10)),
   },
   build: {
     target: "es2022",

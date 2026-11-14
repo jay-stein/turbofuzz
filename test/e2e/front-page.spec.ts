@@ -28,6 +28,7 @@ test("the front page opens on one table, explains stacking, and keeps the Swiss 
   await open(page);
   await expect(page.getByRole("heading", { name: "Dropping several files?" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "An analyst's Swiss Army knife for tables" })).toBeAttached();
+  await expect(page.getByTestId("version-line")).toHaveText(/^Version \d+\.\d+\.\d+ · build [0-9a-f]{7,}\+? · updated \d{1,2} [A-Z][a-z]{2} \d{4}$/);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/front-single.png`, fullPage: true });
 
   await choice(page, /Compare two tables/).click();

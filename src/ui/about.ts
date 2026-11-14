@@ -3,6 +3,7 @@
  * in this browser, who made it, and the work it stands on. Plain DOM, no requests.
  */
 
+import { APP_BUILD, APP_BUILD_DATE, APP_VERSION } from "../data/provenance.js";
 import { el } from "./dom.js";
 
 const AUTHOR = {
@@ -54,10 +55,26 @@ export function buildAbout(): HTMLElement {
   ]);
 }
 
-/** Version details: a placeholder until releases are numbered. */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "2026-11-14" as "14 Nov 2026"; null for anything that is not a plain ISO date. */
+export function formatBuildDate(iso: string | null): string | null {
+  const match = iso === null ? null : /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  const month = match === null ? undefined : MONTHS[Number(match[2]) - 1];
+  return match === null || month === undefined ? null : `${Number(match[3])} ${month} ${match[1]}`;
+}
+
+/** "Version 0.1.0 · build abc1234 · updated 14 Nov 2026"; a build without those facts reads "development build". */
+export function versionLine(version: string, build: string | null, date: string | null): string {
+  const updated = formatBuildDate(date);
+  if (build === null && updated === null) return `Version ${version} · development build`;
+  return ["Version " + version, build === null ? null : `build ${build}`, updated === null ? null : `updated ${updated}`].filter((part) => part !== null).join(" · ");
+}
+
+/** The Version card: which build this is and when the code was last built. */
 export function buildVersion(): HTMLElement {
   return el("section", { class: "about-card about-version", "aria-labelledby": "version-title" }, [
     el("div", { class: "about-eyebrow", id: "version-title" }, ["Version"]),
-    el("p", { class: "about-dim" }, ["Version details and release notes are to come."]),
+    el("p", { class: "about-version-line", "data-testid": "version-line" }, [versionLine(APP_VERSION, APP_BUILD, APP_BUILD_DATE)]),
   ]);
 }

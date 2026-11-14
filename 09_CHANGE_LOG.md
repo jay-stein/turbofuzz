@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-14 — About: the front page shows the version, build and last-updated date
+
+- **Status:** Verified (unit tests; browser spec front-page updated). Not yet seen in a browser by eye.
+- **Related issue / decision:** the Version card said "Version details and release notes are to come."
+- **What changed:** The Version card reads "Version 0.1.0 · build abc1234 · updated 14 Nov 2026". The date is the build date, not the viewer's date, and the card says "development build" when the build constants are absent. The Data Quality report's "Computed by" line adds "built <date>". The version number is unchanged at 0.1.0 (the owner decides when it moves).
+- **Files / components changed:** src/ui/about.ts, src/data/provenance.ts, vite.config.ts, src/ui/app.ts; test/about-version.test.ts, test/e2e/front-page.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-13 — Filters: Enter chooses in the + Add filter picker; fuzzy filters have a Strict / Normal / Loose control
 
 - **Status:** Verified (unit tests)

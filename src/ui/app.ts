@@ -148,7 +148,7 @@ import {
   type DQScoreConfig,
   type ScoreCheck,
 } from "../data/score.js";
-import { APP_BUILD, APP_VERSION, buildProvenance, fingerprintBytes, type Fingerprint, type ProvenanceFile, type ReportProvenance } from "../data/provenance.js";
+import { APP_BUILD, APP_BUILD_DATE, APP_VERSION, buildProvenance, fingerprintBytes, type Fingerprint, type ProvenanceFile, type ReportProvenance } from "../data/provenance.js";
 import { builtInNullTokens } from "../parse/null-tokens.js";
 import {
   SCORE_VERSION,
@@ -6327,7 +6327,7 @@ export class App {
           ? null
           : `${this.metas[this.freshnessRule.column]?.name ?? "a date column"} no older than ${this.freshnessRule.days} day${this.freshnessRule.days === 1 ? "" : "s"}`,
       rules: this.rules.length,
-      tool: { version: APP_VERSION, build: APP_BUILD },
+      tool: { version: APP_VERSION, build: APP_BUILD, built: APP_BUILD_DATE },
     });
   }
 

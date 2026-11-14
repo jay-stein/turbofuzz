@@ -12,6 +12,9 @@ declare const __APP_BUILD__: string;
 export const APP_VERSION: string = typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "dev";
 /** The commit the build was made from ("+" marks uncommitted changes), or null when unknown. */
 export const APP_BUILD: string | null = typeof __APP_BUILD__ === "string" && __APP_BUILD__ !== "" ? __APP_BUILD__ : null;
+declare const __APP_BUILD_DATE__: string;
+/** The UTC date the build was made, as YYYY-MM-DD, or null when unknown. */
+export const APP_BUILD_DATE: string | null = typeof __APP_BUILD_DATE__ === "string" && __APP_BUILD_DATE__ !== "" ? __APP_BUILD_DATE__ : null;
 
 /** Files above this are not fingerprinted: reading one a second time would double the memory it uses. */
 export const HASH_LIMIT_BYTES = 512 * 1024 * 1024;
@@ -72,7 +75,7 @@ export interface ReportProvenance {
     freshness: string | null;
     rules: number;
   };
-  tool: { name: string; version: string; build: string | null };
+  tool: { name: string; version: string; build: string | null; built?: string | null };
 }
 
 /** SHA-256 as lower-case hex; throws where the browser has no crypto (an insecure page). */
@@ -137,7 +140,7 @@ export interface ProvenanceInput {
   reviewedChecks: number;
   freshness: string | null;
   rules: number;
-  tool: { version: string; build: string | null };
+  tool: { version: string; build: string | null; built?: string | null };
 }
 
 export function buildProvenance(input: ProvenanceInput): ReportProvenance {
@@ -217,6 +220,6 @@ export function provenanceRows(p: ReportProvenance): [string, string][] {
   if (p.scoring.reviewedChecks > 0) rows.push(["Issues reviewed and set aside", count(p.scoring.reviewedChecks, "check")]);
   if (p.scoring.freshness !== null) rows.push(["Freshness rule", p.scoring.freshness]);
   if (p.scoring.rules > 0) rows.push(["Own rules", count(p.scoring.rules, "rule")]);
-  rows.push(["Computed by", `${p.tool.name} ${p.tool.version}${p.tool.build === null ? "" : ` (build ${p.tool.build})`}, in the browser`]);
+  rows.push(["Computed by", `${p.tool.name} ${p.tool.version}${p.tool.build === null ? "" : ` (build ${p.tool.build})`}${p.tool.built == null ? "" : `, built ${p.tool.built}`}, in the browser`]);
   return rows;
 }
