@@ -16,6 +16,7 @@ import type { TextProfile } from "../data/text-profile.js";
 import type { DistributionChange } from "../data/distribution.js";
 import type { ColumnPairing, CompareRules } from "../data/compare/types.js";
 import type { KeyColumnStat, KeySuggestion } from "../data/compare/keys.js";
+import type { PairSuggestion } from "../data/compare/pair-suggest.js";
 import type { CompareReport } from "../data/compare/report.js";
 import type { RowFilter, RowWindow } from "../data/compare/view.js";
 import type { DiffColumn, DiffOp, DiffSummary } from "../data/compare/diffs.js";
@@ -1325,6 +1326,8 @@ export interface CompareSetupRequest {
   manual: { a: number; b: number }[];
   ignore?: { a: number[]; b: number[] };
   rules: CompareRules;
+  /** False once the person has undone an automatic pairing: columns that look renamed are then only suggested. */
+  autoPair?: boolean;
 }
 
 export interface CompareSetupMessage {
@@ -1336,6 +1339,10 @@ export interface CompareSetupMessage {
   keys: KeySuggestion[];
   /** Every paired column judged as a key, for choosing one by hand. */
   keyStats?: KeyColumnStat[];
+  /** Columns only one side has that look like the same column under two names. */
+  pairSuggestions?: PairSuggestion[];
+  /** The one such pair that was paired automatically (it is in `pairing` as a hand-made pair), or null. */
+  autoPaired?: PairSuggestion | null;
   ms: number;
 }
 
@@ -1380,6 +1387,10 @@ export interface CompareDiffsRequest {
   op: DiffOp;
   start: number;
   end: number;
+  /** Only rows where something changed (on by default). */
+  changedOnly?: boolean;
+  /** Which column's difference orders the rows (an index into the pairing; null: the column with the most changes) and which way. */
+  sort?: { pair: number | null; dir: "desc" | "asc" };
 }
 
 export interface CompareDiffsMessage {
@@ -1393,6 +1404,12 @@ export interface CompareDiffsMessage {
   total: number;
   labels: string[];
   values: Float64Array;
+  /** Matched rows, and how many of them changed. */
+  matchedTotal?: number;
+  changedTotal?: number;
+  /** The column the rows are ordered by (an index into the pairing) and the direction, as chosen or defaulted. */
+  sortPair?: number | null;
+  sortDir?: "desc" | "asc";
 }
 
 /** The next or previous difference after `from` in the filtered rows (-1 when none). */
@@ -1450,6 +1467,18 @@ export interface CompareExportMessage {
   tables: ChangeTables;
 }
 
+/** The rows that differ as one table to open in the workspace: `_change`, the key, then each column that changed. */
+export interface CompareDifferencesRequest {
+  type: "compareDifferences";
+  requestId: number;
+}
+
+export interface CompareDifferencesMessage {
+  type: "compareDifferences";
+  requestId: number;
+  table: { headers: string[]; rows: string[][] };
+}
+
 /** Clear data: the worker drops the table and everything built on it. */
 export interface ClearDataRequest {
   type: "clearData";
@@ -1502,6 +1531,7 @@ export type WorkerRequest =
   | CompareShiftRequest
   | CompareGroupsRequest
   | CompareExportRequest
+  | CompareDifferencesRequest
   | MemoryRequest
   | ClearDataRequest
   | LoadRequest
@@ -1890,6 +1920,7 @@ export type WorkerResponse =
   | CompareShiftMessage
   | CompareGroupsMessage
   | CompareExportMessage
+  | CompareDifferencesMessage
   | MemoryMessage
   | DataClearedMessage
   | ErrorMessage;

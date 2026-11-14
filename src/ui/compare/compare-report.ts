@@ -8,6 +8,8 @@ import type { KeyChoice } from "./compare-setup.js";
 import type { RowFilter } from "../../data/compare/view.js";
 
 export interface ReportInput {
+  /** A column pair made automatically because their values match, with the share that match; shown with a way to undo it. */
+  autoPaired?: { a: string; b: string; overlap: number } | null;
   setup: CompareSetupMessage;
   report: CompareReport;
   ms: number;
@@ -18,6 +20,56 @@ export interface ReportInput {
 export interface ReportActions {
   /** Opens the side-by-side rows under a filter. */
   rows(filter: RowFilter): void;
+  /** Undoes the automatic pairing and goes back to the setup. */
+  undoAutoPair?(): void;
+  /** Builds the caution about whole-row matching, or null when there is none. */
+  caution?(): HTMLElement | null;
+}
+
+/** What the caution under whole-row matching can do. */
+export interface CautionActions {
+  /** Pairs a column of A with one of B (indexes into each side) and compares again. */
+  pair(a: number, b: number): void;
+  changeMatch(): void;
+}
+
+/** "99.5%": one decimal unless it is whole. */
+export function overlapText(overlap: number): string {
+  const text = (overlap * 100).toFixed(1);
+  return `${text.endsWith(".0") ? text.slice(0, -2) : text}%`;
+}
+
+/**
+ * Shown on the result pages when rows were matched on whole content while
+ * each side has columns the other lacks: a renamed key column would make
+ * every changed row look like one removed and one added.
+ */
+export function pairingCaution(setup: CompareSetupMessage, key: KeyChoice, actions: CautionActions): HTMLElement | null {
+  const { onlyA, onlyB } = setup.pairing;
+  if (key.kind !== "content" || onlyA.length === 0 || onlyB.length === 0) return null;
+  const names = (info: CompareSetupMessage["a"], indexes: number[]): string => {
+    const shown = indexes.slice(0, 3).map((index) => info.columns[index]?.name ?? "?");
+    return shown.join(", ") + (indexes.length > 3 ? ` and ${indexes.length - 3} more` : "");
+  };
+  const box = el("section", { class: "cmp-warn cmp-caution", role: "note", "aria-label": "No key was used" }, [
+    el("h2", {}, ["Rows were matched on whole content"]),
+    el("p", {}, ["A changed row shows as one removed and one added, and no cell changes are listed."]),
+  ]);
+  const suggestions = setup.pairSuggestions ?? [];
+  if (suggestions.length > 0) {
+    for (const found of suggestions.slice(0, 3)) {
+      const a = setup.a.columns[found.a]?.name ?? "?";
+      const b = setup.b.columns[found.b]?.name ?? "?";
+      const button = el("button", { type: "button", class: "link" }, ["Pair them and compare again"]);
+      button.addEventListener("click", () => actions.pair(found.a, found.b));
+      box.append(el("p", {}, [`${a} (A) and ${b} (B) look like the same column: ${overlapText(found.overlap)} of the values match. `, button]));
+    }
+  } else {
+    const change = el("button", { type: "button", class: "link" }, ["Change in setup"]);
+    change.addEventListener("click", () => actions.changeMatch());
+    box.append(el("p", {}, [`${names(setup.a, onlyA)} (A) and ${names(setup.b, onlyB)} (B) are not paired. If one is the same column as another, pair them and choose a key. `, change]));
+  }
+  return box;
 }
 
 const nf = new Intl.NumberFormat("en");
@@ -56,6 +108,15 @@ export function describeRun(input: ReportInput): string {
   if (!rules.emptyEqualsEmpty) parts.push("empty ≠ empty");
   parts.push(`compared in ${ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`}`);
   return parts.join(" · ");
+}
+
+/** "id in A paired with customer_id in B: 99.5% of values match. Undo" */
+function autoPairLine(input: ReportInput, actions: ReportActions): HTMLElement | string {
+  const auto = input.autoPaired;
+  if (auto === null || auto === undefined) return "";
+  const undo = el("button", { type: "button", class: "link" }, ["Undo"]);
+  undo.addEventListener("click", () => actions.undoAutoPair?.());
+  return el("p", { class: "cmp-note cmp-autopair" }, [`${auto.a} in A paired with ${auto.b} in B: ${overlapText(auto.overlap)} of values match. `, undo]);
 }
 
 /** A count that opens its rows on the side-by-side screen. */
@@ -237,7 +298,7 @@ export function renderReport(host: HTMLElement, input: ReportInput, actions: Rep
   const share = (n: number): string => (rows.matched === 0 ? "" : `${percent(n, rows.matched)} of matched rows`);
   const page = el("div", { class: "cmp-page cmp-report" });
   page.append(
-    el("div", { class: "cmp-intro" }, [el("h1", { tabindex: "-1" }, ["What changed"]), el("p", {}, [describeRun(input)])]),
+    el("div", { class: "cmp-intro" }, [el("h1", { tabindex: "-1" }, ["What changed"]), el("p", {}, [describeRun(input)]), autoPairLine(input, actions)]),
     el("div", { class: "cmp-tiles" }, [
       tile("Identical", nf.format(rows.identical), share(rows.identical), "same", () => actions.rows({ show: "identical", pairs: [] })),
       tile("Changed", nf.format(rows.changed), share(rows.changed), "changed", () => actions.rows({ show: "changed", pairs: [] })),
@@ -249,6 +310,8 @@ export function renderReport(host: HTMLElement, input: ReportInput, actions: Rep
     ]),
     composition(report),
   );
+  const caution = actions.caution?.() ?? null;
+  if (caution !== null) page.append(caution);
   const warn = warnings(report);
   if (warn !== null) page.append(warn);
   const side = el("div", { class: "cmp-report-side" }, [columnsCard(report)]);

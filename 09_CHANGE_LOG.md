@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-09 — Compare: a renamed key column is paired automatically; Value differences opens on changed rows; Analyse the differences
+
+- **Status:** Verified (unit: 35 tests; browser spec compare.spec, all 19 passed; bench gates for the new work within budget; older compare gates ran over budget under load and are to be re-checked)
+- **Related issue / decision:** DEC-2026-11-14-03 (auto-pair a renamed key only when exactly one candidate makes a key). Columns were paired by name only.
+- **What changed:** Cause: `id` and `customer_id` stayed unpaired, no key was suggested and rows fell back to whole-row matching, so a changed row showed as one removed plus one added (0 changed / 1,720 removed / 2,920 added instead of 1,420 / 300 / 1,500). Now one clear candidate (at least 90% of B's distinct values found in A, at least 20 distinct values, and it makes a key) is paired automatically, with an Undo and a banner; otherwise it is suggested. Whole-row results carry a visible caution. Value differences opens on the rows that changed, largest first, with a count and sortable headers. Deep dive adds "Analyse the differences": one table of _change, key, A, B and B − A.
+- **Files / components changed:** src/data/compare/* (pair-suggest.ts new), src/ui/compare/*, src/worker/protocol.ts, src/worker/search.worker.ts, src/ui/worker-client.ts, src/ui/app.ts, src/styles.css; bench/compare.ts; test/compare-pairing.test.ts (new), test/e2e/compare.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-08 — Charts: reference lines draw on every chart with a value axis; a single bar or series can be recoloured, highlighted or labelled
 
 - **Status:** Verified (unit: 175 chart tests; browser specs chart-reference-line and chart-mark-colour passed)

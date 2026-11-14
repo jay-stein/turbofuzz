@@ -76,6 +76,7 @@ import type {
   CompareShiftMessage,
   CompareGroupsMessage,
   CompareExportMessage,
+  CompareDifferencesMessage,
   MemoryMessage,
   DataClearedMessage,
   CompareFoundMessage,
@@ -209,16 +210,16 @@ export class SearchWorkerClient {
     return this.request<CompareSetupMessage>({ type: "compareLoad", ...options }, options.buffer === undefined ? [] : [options.buffer]);
   }
 
-  compareSetup(manual: { a: number; b: number }[], rules: CompareRules, ignore?: { a: number[]; b: number[] }): Promise<CompareSetupMessage> {
-    return this.request<CompareSetupMessage>({ type: "compareSetup", manual, ignore, rules });
+  compareSetup(manual: { a: number; b: number }[], rules: CompareRules, ignore?: { a: number[]; b: number[] }, autoPair = true): Promise<CompareSetupMessage> {
+    return this.request<CompareSetupMessage>({ type: "compareSetup", manual, ignore, rules, autoPair });
   }
 
   compareRun(manual: { a: number; b: number }[], keyPairs: number[] | null, rules: CompareRules, ignore?: { a: number[]; b: number[] }, byPosition = false): Promise<CompareResultMessage> {
     return this.request<CompareResultMessage>({ type: "compareRun", manual, ignore, keyPairs, byPosition, rules });
   }
 
-  compareDiffs(op: DiffOp, start: number, end: number): Promise<CompareDiffsMessage> {
-    return this.request<CompareDiffsMessage>({ type: "compareDiffs", op, start, end });
+  compareDiffs(op: DiffOp, start: number, end: number, changedOnly = false, sort?: { pair: number | null; dir: "desc" | "asc" }): Promise<CompareDiffsMessage> {
+    return this.request<CompareDiffsMessage>({ type: "compareDiffs", op, start, end, changedOnly, sort });
   }
 
   compareRows(filter: RowFilter, start: number, end: number): Promise<CompareRowsMessage> {
@@ -235,6 +236,10 @@ export class SearchWorkerClient {
 
   compareGroups(group: number, measure: number | null, agg: GroupMeasure): Promise<CompareGroupsMessage> {
     return this.request<CompareGroupsMessage>({ type: "compareGroups", group, measure, agg });
+  }
+
+  compareDifferences(): Promise<CompareDifferencesMessage> {
+    return this.request<CompareDifferencesMessage>({ type: "compareDifferences" });
   }
 
   compareExport(): Promise<CompareExportMessage> {

@@ -139,3 +139,60 @@ export function diffWindow(
   }
   return { start: from, total: positions.length, labels, values };
 }
+
+/** The number column with the most changed rows (an index into pairing.pairs), the first on a tie; null when no number column changed. */
+export function mostChangedColumn(columns: readonly DiffColumn[], match: MatchResult): number | null {
+  let best: number | null = null;
+  let most = 0;
+  for (const column of columns) {
+    const count = match.changed[column.pair]!.count();
+    if (count > most) {
+      most = count;
+      best = column.pair;
+    }
+  }
+  return best;
+}
+
+/**
+ * The positions ordered by the size of one column's difference (its distance from the neutral value,
+ * so a fall counts as much as a rise): largest first, or smallest first. Rows with no difference
+ * there (a blank, or dividing by zero) always come last; ties keep their order.
+ */
+export function sortDiffPositions(
+  a: CompareSide,
+  b: CompareSide,
+  pairing: ColumnPairing,
+  match: MatchResult,
+  pair: number,
+  positions: Int32Array,
+  op: DiffOp,
+  dir: "desc" | "asc",
+): Int32Array {
+  const column = pairing.pairs[pair]!;
+  const x = a.columns[column.a]!.numbers();
+  const y = b.columns[column.b]!.numbers();
+  const centre = diffCenter(op);
+  const n = positions.length;
+  const size = new Float64Array(n);
+  let defined = 0;
+  const order = new Uint32Array(n);
+  for (let i = 0; i < n; i++) {
+    const at = positions[i]!;
+    const v = diffValue(op, x[match.aRow[at]!]!, y[match.bRow[at]!]!);
+    if (v === v) {
+      size[i] = Math.abs(v - centre);
+      order[defined++] = i;
+    } else {
+      size[i] = NaN;
+    }
+  }
+  // Undefined rows go after the sorted ones, in their own order.
+  let tail = defined;
+  for (let i = 0; i < n; i++) if (size[i] !== size[i]) order[tail++] = i;
+  const sign = dir === "desc" ? -1 : 1;
+  order.subarray(0, defined).sort((p, q) => sign * (size[p]! - size[q]!) || p - q);
+  const out = new Int32Array(n);
+  for (let i = 0; i < n; i++) out[i] = positions[order[i]!]!;
+  return out;
+}

@@ -12,6 +12,10 @@ export interface ValueDiffsState {
   op: DiffOp;
   colour: ColourMap;
   scope: ColourScope;
+  /** Only the rows where something changed. */
+  changedOnly: boolean;
+  /** The column whose difference orders the rows (an index into the pairing; null: the one with the most changes) and the direction. */
+  sort: { pair: number | null; dir: "desc" | "asc" };
 }
 
 export interface ValueDiffsOptions {
@@ -19,6 +23,8 @@ export interface ValueDiffsOptions {
   state: ValueDiffsState;
   /** Remembers the choices so the sheet comes back as it was left. */
   onState(state: ValueDiffsState): void;
+  /** A caution about how rows were matched, shown above the sheet. */
+  caution?: HTMLElement | null;
 }
 
 const nf = new Intl.NumberFormat("en");
@@ -85,7 +91,7 @@ export class ValueDiffs {
   private readonly toolbar: HTMLElement;
   private readonly view: HTMLElement;
   private state: ValueDiffsState;
-  private meta: { columns: DiffColumn[]; summary: DiffSummary[]; labelName: string; total: number } | null = null;
+  private meta: { columns: DiffColumn[]; summary: DiffSummary[]; labelName: string; total: number; matchedTotal: number; changedTotal: number; sortPair: number | null; sortDir: "desc" | "asc" } | null = null;
   private block: CompareDiffsMessage | null = null;
   private pending = 0;
   private seq = 0;
@@ -98,7 +104,7 @@ export class ValueDiffs {
     this.state = { ...options.state };
     this.toolbar = el("div", { class: "cmp-vd-toolbar" });
     this.view = el("div", { class: "cmp-view" });
-    this.element = el("div", { class: "cmp-vd" }, [this.toolbar, this.view]);
+    this.element = el("div", { class: "cmp-vd" }, [...(options.caution ? [options.caution] : []), this.toolbar, this.view]);
     void this.load();
   }
 
@@ -117,9 +123,18 @@ export class ValueDiffs {
     this.seq++;
     this.block = null;
     try {
-      const first = await this.options.client.compareDiffs(this.state.op, 0, BLOCK);
+      const first = await this.options.client.compareDiffs(this.state.op, 0, BLOCK, this.state.changedOnly, this.state.sort);
       if (this.disposed) return;
-      this.meta = { columns: first.columns, summary: first.summary, labelName: first.labelName, total: first.total };
+      this.meta = {
+        columns: first.columns,
+        summary: first.summary,
+        labelName: first.labelName,
+        total: first.total,
+        matchedTotal: first.matchedTotal ?? first.total,
+        changedTotal: first.changedTotal ?? first.total,
+        sortPair: first.sortPair ?? null,
+        sortDir: first.sortDir ?? "desc",
+      };
       this.block = first;
       this.build();
     } catch (error) {
@@ -153,7 +168,17 @@ export class ValueDiffs {
       this.choose({ scope: scope.value as ColourScope });
       this.build();
     });
+    const only = el("input", { type: "checkbox" }) as HTMLInputElement;
+    only.checked = this.state.changedOnly;
+    only.addEventListener("change", () => {
+      this.choose({ changedOnly: only.checked });
+      void this.load();
+    });
+    const meta = this.meta;
+    const count = meta === null ? "" : `${nf.format(meta.changedTotal)} of ${nf.format(meta.matchedTotal)} rows changed`;
     return [
+      el("label", { class: "cmp-check cmp-vd-only" }, [only, "Only rows that changed"]),
+      el("span", { class: "cmp-vd-count", role: "status" }, [count]),
       el("label", { class: "cmp-field" }, [el("span", {}, ["Show"]), op]),
       el("label", { class: "cmp-field" }, [el("span", {}, ["Colour"]), colour]),
       el("label", { class: "cmp-field" }, [el("span", {}, [""]), scope]),
@@ -190,7 +215,8 @@ export class ValueDiffs {
       return;
     }
     if (meta.total === 0) {
-      this.view.replaceChildren(el("p", { class: "cmp-empty-rows" }, ["No rows were found in both files, so there is nothing to subtract."]));
+      const none = meta.matchedTotal === 0 ? "No rows were found in both files, so there is nothing to subtract." : "No row found in both files has changed. Untick Only rows that changed to see them all.";
+      this.view.replaceChildren(el("p", { class: "cmp-empty-rows" }, [none]));
       return;
     }
     const template = `${LABEL_WIDTH}px ${meta.columns.map(() => `${COLUMN_WIDTH}px`).join(" ")}`;
@@ -199,10 +225,17 @@ export class ValueDiffs {
       ...meta.columns.map((column, c) => {
         const s = meta.summary[c]!;
         const note = s.n === 0 ? "no values" : `mean ${formatDiff(this.state.op, s.mean)}`;
-        return el("span", { class: "cmp-vd-col", title: `${column.name}: ${note}, from ${formatDiff(this.state.op, s.min)} to ${formatDiff(this.state.op, s.max)} over ${nf.format(s.n)} rows` }, [
+        const sorted = meta.sortPair === column.pair;
+        const button = el("button", { type: "button", class: "cmp-vd-col", "aria-sort": sorted ? (meta.sortDir === "desc" ? "descending" : "ascending") : "none", title: `${column.name}: ${note}, from ${formatDiff(this.state.op, s.min)} to ${formatDiff(this.state.op, s.max)} over ${nf.format(s.n)} rows. Click to order the rows by the size of this difference.` }, [
           el("span", { class: "cmp-vd-name" }, [column.name]),
+          el("span", { class: "cmp-vd-sort", "aria-hidden": "true" }, [sorted ? (meta.sortDir === "desc" ? "▼" : "▲") : ""]),
           el("span", { class: "cmp-vd-mean" }, [note]),
         ]);
+        button.addEventListener("click", () => {
+          this.choose({ sort: { pair: column.pair, dir: sorted && meta.sortDir === "desc" ? "asc" : "desc" } });
+          void this.load();
+        });
+        return button;
       }),
     ]);
     const body = el("div", { class: "cmp-grid-body" });
@@ -233,7 +266,7 @@ export class ValueDiffs {
       this.pending = start + 1;
       const seq = ++this.seq;
       try {
-        const next = await this.options.client.compareDiffs(this.state.op, start, start + Math.max(BLOCK, last - first));
+        const next = await this.options.client.compareDiffs(this.state.op, start, start + Math.max(BLOCK, last - first), this.state.changedOnly, this.state.sort);
         if (seq !== this.seq || this.disposed) return;
         this.block = next;
         this.pending = 0;

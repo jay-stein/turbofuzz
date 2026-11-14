@@ -16670,6 +16670,49 @@ button.cmp-change-name:hover {
   flex-direction: column;
   min-width: 0;
 }
+
+/* Value differences: sortable column heads, the changed-only toggle and count; the renamed-column notices. */
+.cmp-vd-col {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+}
+.cmp-vd-col:hover .cmp-vd-name {
+  text-decoration: underline;
+}
+.cmp-vd-sort {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: var(--fs-sm);
+  color: var(--accent);
+}
+.cmp-vd-only {
+  align-self: center;
+}
+.cmp-vd-count {
+  align-self: center;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.cmp-autopair,
+.cmp-pair-suggest {
+  margin: 0 0 12px;
+}
+.cmp-pair-suggest p {
+  margin: 0 0 4px;
+}
+.cmp-caution {
+  margin-bottom: 12px;
+}
+.cmp-caution p {
+  margin: 4px 0;
+}
 .cmp-vd-name {
   overflow: hidden;
   text-overflow: ellipsis;

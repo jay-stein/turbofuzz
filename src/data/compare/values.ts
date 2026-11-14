@@ -7,7 +7,7 @@ import type { CompareColumn, CompareRules } from "./types.js";
  */
 export type CompareFamily = "number" | "date" | "time" | "duration" | "text";
 
-function familyOf(type: ColumnType): CompareFamily {
+export function familyOf(type: ColumnType): CompareFamily {
   switch (type) {
     case "integer":
     case "number":

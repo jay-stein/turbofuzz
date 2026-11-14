@@ -7171,9 +7171,9 @@ export class App {
         const steps = this.lastLoaded === null ? 0 : this.stepEntries().length;
         if (side === "a" || steps === 0) return true;
         return openConfirm({
-          title: `Open B and close the comparison?`,
-          body: `B is loaded in place of “${this.datasetName}”, which is cleared, including its ${steps} Recipe step${steps === 1 ? "" : "s"}. To keep them, Cancel and save the Recipe first.`,
-          confirmLabel: "Open B",
+          title: side === "differences" ? `Open the differences and close the comparison?` : `Open B and close the comparison?`,
+          body: `${side === "differences" ? "The rows that differ are" : "B is"} loaded in place of “${this.datasetName}”, which is cleared, including its ${steps} Recipe step${steps === 1 ? "" : "s"}. To keep them, Cancel and save the Recipe first.`,
+          confirmLabel: side === "differences" ? "Open the differences" : "Open B",
           danger: true,
         });
       },
@@ -7188,7 +7188,7 @@ export class App {
         if (b === null) return;
         this.clearData();
         const opened = b.resolved === null ? this.loadFile(b.file) : this.load({ buffer: b.resolved.buffer, name: b.resolved.name, source: "file" });
-        void opened.then(() => this.setAction("Comparison closed: B is open for a deep dive. To compare again, use Load more → Compare with a file"));
+        void opened.then(() => this.setAction(`Comparison closed: ${side === "differences" ? "the differences are" : "B is"} open for a deep dive. To compare again, use Load more → Compare with a file`));
       },
     });
     this.compareMode = mode;

@@ -20,6 +20,8 @@ export interface SideBySideOptions {
   onState(state: { filter: RowFilter; layout: GridLayout; changedColumnsOnly: boolean }): void;
   /** "Change…" beside how rows were matched: back to the setup's Match rows on. */
   onChangeMatch?(): void;
+  /** A caution about how rows were matched, shown above the toolbar. */
+  caution?: HTMLElement | null;
 }
 
 /** How the rows were matched, in words: the key column(s) (with B's name when it differs), row position, or whole rows. */
@@ -168,7 +170,7 @@ export class SideBySide {
       group.append(button);
     }
     bar.append(group);
-    const wrap = el("div", { class: "cmp-toolbar-wrap" }, [bar, this.matchLine()]);
+    const wrap = el("div", { class: "cmp-toolbar-wrap" }, [...(this.options.caution ? [this.options.caution] : []), bar, this.matchLine()]);
     const columns = this.columnChips();
     if (columns !== null) wrap.append(columns);
     return this.withRest(bar, wrap);

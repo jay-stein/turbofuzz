@@ -3,17 +3,18 @@ import type { CompareReport } from "../../data/compare/report.js";
 import type { CompareSetupMessage, CompareSideInfo } from "../../worker/protocol.js";
 import { el, svgIcon } from "../dom.js";
 import type { SearchWorkerClient } from "../worker-client.js";
-import { renderReport } from "./compare-report.js";
+import { pairingCaution, renderReport, type CautionActions, type ReportInput } from "./compare-report.js";
 import { SideBySide, type GridLayout } from "./compare-grid.js";
 import type { RowFilter } from "../../data/compare/view.js";
 import type { ShiftReport } from "../../data/compare/shift.js";
 import { ShiftView, type GroupChoice } from "./compare-shift.js";
-import { changesWorkbook, download, exportBaseName, reportHtml, tableCsv } from "./compare-export.js";
+import { changesWorkbook, download, exportBaseName, fileStem, reportHtml, tableCsv } from "./compare-export.js";
 import { openMenu } from "../menu.js";
 import { memoryGauge, type MemoryMonitor } from "../memory-gauge.js";
 import { resolveSource, unreadableReason, type ResolvedSource } from "../source-resolver.js";
 import { ValueDiffs, type ValueDiffsState } from "./compare-values.js";
 import { renderSetup, type KeyChoice, type SetupState } from "./compare-setup.js";
+import type { PairSuggestion } from "../../data/compare/pair-suggest.js";
 
 export interface CompareModeOptions {
   client: SearchWorkerClient;
@@ -30,10 +31,13 @@ export interface CompareModeOptions {
   /** Called after compare mode has closed: both datasets are cleared. */
   onExit(): void;
   /** Asked before a deep dive: false keeps compare mode open (opening B replaces A, so work on A is asked about). */
-  confirmDeepDive(side: "a" | "b"): Promise<boolean>;
+  confirmDeepDive(side: DeepDiveSide): Promise<boolean>;
   /** Called after compare mode has closed for a deep dive on one dataset; for B, the file it was read from. */
-  onDeepDive(side: "a" | "b", b: DeepDiveSource | null): void;
+  onDeepDive(side: DeepDiveSide, b: DeepDiveSource | null): void;
 }
+
+/** What a deep dive opens: A, B, or the rows that differ as one table (read from `resolved` like B). */
+export type DeepDiveSide = "a" | "b" | "differences";
 
 /** Where B can be read again for a deep dive: the file as chosen, or (for a workbook or archive) the table taken from it. */
 export interface DeepDiveSource {
@@ -56,12 +60,14 @@ export class CompareMode {
   private readonly files: HTMLElement;
   private stage: "setup" | "result" = "setup";
   /** The last result, with the key and rules it was run with (setup may change them afterwards). */
-  private report: { report: CompareReport; ms: number; key: KeyChoice; rules: CompareRules } | null = null;
+  private report: { report: CompareReport; ms: number; key: KeyChoice; rules: CompareRules; autoPaired: PairSuggestion | null } | null = null;
+  /** Once the automatic pairing of a renamed column is undone, columns that look renamed are only suggested. */
+  private noAutoPair = false;
   private readonly state: SetupState;
   /** Which result tab is open, and how the side-by-side view was left. */
   private tab: "report" | "rows" | "values" | "shift" = "rows";
   /** How the Value differences sheet was left: the operation, the colour map and its scale. */
-  private valueState: ValueDiffsState = { op: "sub", colour: "coolwarm", scope: "column" };
+  private valueState: ValueDiffsState = { op: "sub", colour: "coolwarm", scope: "column", changedOnly: true, sort: { pair: null, dir: "desc" } };
   private valueDiffs: ValueDiffs | null = null;
   /** Big Picture, fetched once per comparison, and the group view last chosen. */
   private shift: ShiftReport | null = null;
@@ -90,6 +96,7 @@ export class CompareMode {
       ignore: { a: [], b: [] },
       key: { kind: "content" },
       rules: DEFAULT_RULES,
+      autoPaired: null,
       busy: null,
       error: null,
     };
@@ -164,10 +171,15 @@ export class CompareMode {
           onState: (state) => {
             this.valueState = state;
           },
+          caution: pairingCaution(setup, result.key, this.cautionActions()),
         });
         host.append(this.valueDiffs.element);
       } else if (this.tab === "report") {
-        renderReport(host, { setup, report: result.report, ms: result.ms, key: result.key, rules: result.rules }, { rows: (filter) => this.openRows(filter) });
+        renderReport(
+          host,
+          { setup, report: result.report, ms: result.ms, key: result.key, rules: result.rules, autoPaired: this.autoPairedNames(result.autoPaired) },
+          { rows: (filter) => this.openRows(filter), undoAutoPair: () => this.undoAutoPair(), caution: () => pairingCaution(setup, result.key, this.cautionActions()) },
+        );
       } else {
         this.sideBySide = new SideBySide({
           client: this.options.client,
@@ -179,6 +191,7 @@ export class CompareMode {
             this.rows = state;
           },
           onChangeMatch: () => this.showSetup("match"),
+          caution: pairingCaution(setup, result.key, this.cautionActions()),
         });
         host.append(this.sideBySide.element);
         this.sideBySide.focus();
@@ -190,6 +203,7 @@ export class CompareMode {
         pickB: (file) => void this.pickB(file),
         pickBoth: (a, b) => void this.pickA(a).then(() => (this.state.a !== null && this.state.error === null ? this.pickB(b) : undefined)),
         setManual: (manual) => void this.setManual(manual),
+        undoAutoPair: () => this.undoAutoPair(),
         setIgnore: (ignore) => void this.setIgnore(ignore),
         setKey: (key) => {
           this.state.key = key;
@@ -241,6 +255,7 @@ export class CompareMode {
       openMenu(dive, [
         { label: `Analyse A: ${setup.a.name}`, title: "Closes the comparison and keeps A as the loaded data, ready for the table, quality, pivot and charts", action: () => void this.deepDive("a") },
         { label: `Analyse B: ${setup.b.name}`, title: "Closes the comparison and loads B as the data, replacing A", action: () => void this.deepDive("b") },
+        { label: "Analyse the differences", title: "Closes the comparison and opens the rows that differ as one table: what changed, the key, and each changed column in A, in B and (numbers) B − A", action: () => void this.deepDive("differences") },
       ]);
     });
     const exportButton = el("button", { type: "button", class: "ghost small", "aria-haspopup": "menu" }, ["Export ▾"]);
@@ -312,8 +327,41 @@ export class CompareMode {
     this.render();
   }
 
+  private cautionActions(): CautionActions {
+    return {
+      pair: (a, b) => void this.pairAndRun(a, b),
+      changeMatch: () => this.showSetup("match"),
+    };
+  }
+
+  private autoPairedNames(auto: PairSuggestion | null): { a: string; b: string; overlap: number } | null {
+    const setup = this.state.setup;
+    if (auto === null || setup === null) return null;
+    return { a: setup.a.columns[auto.a]?.name ?? "?", b: setup.b.columns[auto.b]?.name ?? "?", overlap: auto.overlap };
+  }
+
+  /** Takes back the automatic pairing: the setup is worked out again with the columns only suggested. */
+  private undoAutoPair(): void {
+    const auto = this.state.autoPaired;
+    if (auto === null) return;
+    this.noAutoPair = true;
+    // From the report too: the setup is where the pair is now only suggested.
+    void this.setManual(this.state.manual.filter((m) => m.a !== auto.a || m.b !== auto.b)).then(() => this.showSetup());
+  }
+
+  /** From the caution: pair two columns, then compare again on the key that gives. */
+  private async pairAndRun(a: number, b: number): Promise<void> {
+    await this.setManual([...this.state.manual, { a, b }]);
+    if (this.state.error === null) await this.run();
+  }
+
   private applySetup(setup: CompareSetupMessage): void {
     this.state.setup = setup;
+    if (setup.autoPaired) {
+      // The worker paired a renamed column: keep the pair with the hand-made ones so every later request carries it.
+      this.state.autoPaired = setup.autoPaired;
+      this.state.manual = [...this.state.manual, { a: setup.autoPaired.a, b: setup.autoPaired.b }];
+    }
     this.state.a = setup.a;
     this.state.b = setup.b;
     const first = setup.keys[0];
@@ -345,6 +393,8 @@ export class CompareMode {
     this.state.setup = null;
     this.state.manual = [];
     this.state.ignore = { a: [], b: [] };
+    this.state.autoPaired = null;
+    this.noAutoPair = false;
     this.bSource = null;
     this.render();
   }
@@ -369,6 +419,8 @@ export class CompareMode {
       void this.options.memory.refresh();
       this.state.manual = [];
       this.state.ignore = { a: [], b: [] };
+      this.state.autoPaired = null;
+      this.noAutoPair = false;
       this.applySetup(setup);
       this.state.busy = null;
       this.render();
@@ -380,8 +432,13 @@ export class CompareMode {
   private async setManual(manual: { a: number; b: number }[]): Promise<void> {
     this.state.manual = manual;
     this.stale = true;
+    const auto = this.state.autoPaired;
+    if (auto !== null && !manual.some((m) => m.a === auto.a && m.b === auto.b)) {
+      this.state.autoPaired = null;
+      this.noAutoPair = true;
+    }
     try {
-      this.applySetup(await this.options.client.compareSetup(manual, this.state.rules, this.state.ignore));
+      this.applySetup(await this.options.client.compareSetup(manual, this.state.rules, this.state.ignore, !this.noAutoPair));
       this.render();
     } catch (error) {
       this.fail(error instanceof Error ? error.message : "Could not pair the columns.");
@@ -393,7 +450,7 @@ export class CompareMode {
     this.state.ignore = ignore;
     this.stale = true;
     try {
-      this.applySetup(await this.options.client.compareSetup(this.state.manual, this.state.rules, ignore));
+      this.applySetup(await this.options.client.compareSetup(this.state.manual, this.state.rules, ignore, !this.noAutoPair));
       this.render();
     } catch (error) {
       this.fail(error instanceof Error ? error.message : "Could not update the columns.");
@@ -408,7 +465,7 @@ export class CompareMode {
       const keyPairs = this.state.key.kind === "pairs" ? this.state.key.pairs : null;
       const result = await this.options.client.compareRun(this.state.manual, keyPairs, this.state.rules, this.state.ignore, this.state.key.kind === "position");
       this.state.busy = null;
-      this.report = { report: result.report, ms: result.ms, key: this.state.key, rules: this.state.rules };
+      this.report = { report: result.report, ms: result.ms, key: this.state.key, rules: this.state.rules, autoPaired: this.state.autoPaired };
       this.stale = false;
       this.stage = "result";
       this.tab = "rows";
@@ -441,19 +498,47 @@ export class CompareMode {
     box.querySelector<HTMLInputElement>('input[name="cmp-key"]:checked')?.focus({ preventScroll: true });
   }
 
+  private exportInput(): ReportInput {
+    const result = this.report!;
+    return { setup: this.state.setup!, report: result.report, ms: result.ms, key: result.key, rules: result.rules };
+  }
+
   /** Leaves comparing for the normal analysis tools on one dataset (A stays loaded; B is loaded in its place). */
-  private async deepDive(side: "a" | "b"): Promise<void> {
+  private async deepDive(side: DeepDiveSide): Promise<void> {
     if (this.closed || this.state.setup === null) return;
     if (side === "b" && this.bSource === null) return;
+    let source: DeepDiveSource | null = side === "b" ? this.bSource : null;
+    if (side === "differences") {
+      const result = this.report;
+      if (result === null) return;
+      const rows = result.report.rows;
+      if (rows.changed + rows.onlyA + rows.onlyB === 0) {
+        this.exportNote.textContent = "No rows differ, so there is nothing to analyse.";
+        return;
+      }
+    }
     if (!(await this.options.confirmDeepDive(side))) return;
     if (this.closed) return;
+    if (side === "differences") {
+      // Read before the comparison is cleared: the same rows and statuses as the Changes exports, one line per row.
+      try {
+        const { table } = await this.options.client.compareDifferences();
+        const input = this.exportInput();
+        const buffer = new TextEncoder().encode(tableCsv(table)).buffer;
+        const name = `differences_${fileStem(input.setup.a.name)}_vs_${fileStem(input.setup.b.name)}.csv`;
+        source = { file: new File([buffer], name, { type: "text/csv" }), resolved: { name, buffer: buffer.slice(0) } };
+      } catch (error) {
+        this.exportNote.textContent = error instanceof Error ? `Could not open the differences: ${error.message}` : "Could not open the differences.";
+        return;
+      }
+    }
     this.closed = true;
     this.sideBySide?.dispose();
     this.valueDiffs?.dispose();
     await this.options.client.compareClear().catch(() => undefined);
     void this.options.memory.refresh();
     this.element.remove();
-    this.options.onDeepDive(side, side === "b" ? this.bSource : null);
+    this.options.onDeepDive(side, source);
   }
 
   private async exit(): Promise<void> {

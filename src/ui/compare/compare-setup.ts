@@ -4,6 +4,8 @@ import { TYPE_LABELS } from "../../types.js";
 import type { CompareSetupMessage, CompareSideInfo } from "../../worker/protocol.js";
 import { el, svgIcon } from "../dom.js";
 import { TYPE_FAMILY, TYPE_GLYPHS } from "../type-glyphs.js";
+import type { PairSuggestion } from "../../data/compare/pair-suggest.js";
+import { overlapText } from "./compare-report.js";
 
 /** How rows are matched: on these column pairs (indexes into the pairing), or on whole rows. */
 export type KeyChoice = { kind: "pairs"; pairs: number[] } | { kind: "content" } | { kind: "position" };
@@ -19,6 +21,8 @@ export interface SetupState {
   ignore: { a: number[]; b: number[] };
   key: KeyChoice;
   rules: CompareRules;
+  /** The pair of columns paired automatically because their values match (until undone). */
+  autoPaired: PairSuggestion | null;
   /** What is being read right now ("Reading orders.csv…"), or null. */
   busy: string | null;
   error: string | null;
@@ -30,6 +34,8 @@ export interface SetupActions {
   /** Two files dropped at once: the earlier name is A, the later B. */
   pickBoth(a: File, b: File): void;
   setManual(manual: { a: number; b: number }[]): void;
+  /** Takes back the automatic pairing; the columns are then only suggested. */
+  undoAutoPair(): void;
   setIgnore(ignore: { a: number[]; b: number[] }): void;
   setKey(key: KeyChoice): void;
   setRules(rules: CompareRules): void;
@@ -200,6 +206,30 @@ function keyColumnList(setup: CompareSetupMessage, stats: readonly KeyColumnStat
   ]);
 }
 
+/** The renamed-column notice: a pairing made for the person (with Undo), or columns that look like one (with a button to pair them). */
+function pairNotice(state: SetupState, setup: CompareSetupMessage, actions: SetupActions): HTMLElement | null {
+  const nameA = (index: number): string => setup.a.columns[index]?.name ?? "?";
+  const nameB = (index: number): string => setup.b.columns[index]?.name ?? "?";
+  const auto = state.autoPaired;
+  if (auto !== null) {
+    const undo = el("button", { class: "link", type: "button" }, ["Undo"]);
+    undo.addEventListener("click", () => actions.undoAutoPair());
+    return el("p", { class: "cmp-note cmp-autopair", role: "status" }, [
+      el("strong", {}, [nameA(auto.a)]), " in A paired with ", el("strong", {}, [nameB(auto.b)]),
+      ` in B: ${overlapText(auto.overlap)} of values match, so it is the key. `, undo,
+    ]);
+  }
+  const found = (setup.pairSuggestions ?? []).slice(0, 3);
+  if (found.length === 0) return null;
+  const box = el("div", { class: "cmp-note warn cmp-pair-suggest", role: "status" });
+  for (const one of found) {
+    const pair = el("button", { class: "link", type: "button" }, ["Pair them"]);
+    pair.addEventListener("click", () => actions.setManual([...state.manual, { a: one.a, b: one.b }]));
+    box.append(el("p", {}, [el("strong", {}, [nameA(one.a)]), " (A) and ", el("strong", {}, [nameB(one.b)]), ` (B) look like the same column: ${overlapText(one.overlap)} of the values match. `, pair]));
+  }
+  return box;
+}
+
 /** "Match rows on": the suggested keys, any other paired column, or whole rows. */
 function keySection(state: SetupState, setup: CompareSetupMessage, actions: SetupActions): HTMLElement {
   const box = section("Match rows on");
@@ -353,7 +383,7 @@ function columnSection(state: SetupState, setup: CompareSetupMessage, actions: S
       notes.push("Key");
       tone = "key";
     }
-    if (pair.manual) notes.push("Paired by hand");
+    if (pair.manual) notes.push(state.autoPaired?.a === pair.a && state.autoPaired.b === pair.b ? "Paired automatically: the values match" : "Paired by hand");
     else if (a.name !== b.name) notes.push("Name differs only in case or spacing");
     if (a.type !== b.type) {
       notes.push(`Type: ${TYPE_LABELS[a.type]} → ${TYPE_LABELS[b.type]}`);
@@ -499,7 +529,7 @@ export function renderSetup(host: HTMLElement, state: SetupState, actions: Setup
         el("span", {}, [`Matching on ${keyText} · ${setup.pairing.pairs.length} column pair${setup.pairing.pairs.length === 1 ? "" : "s"}`]),
       ]),
     ]);
-    const main = el("div", { class: "cmp-main" }, [keySection(state, setup, actions), goRow, columnSection(state, setup, actions)]);
+    const main = el("div", { class: "cmp-main" }, [...[pairNotice(state, setup, actions)].filter((node): node is HTMLElement => node !== null), keySection(state, setup, actions), goRow, columnSection(state, setup, actions)]);
     page.append(el("div", { class: "cmp-columns-layout" }, [main, el("aside", { class: "cmp-aside" }, [rulesSection(state, actions)])]));
   }
   host.replaceChildren(page);

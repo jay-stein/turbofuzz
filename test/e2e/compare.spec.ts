@@ -443,17 +443,19 @@ test("matching on row position, then Value differences: B minus A, % change, and
   const cells = mode.locator(".cmp-vd-cell");
   // n, amount and qty are numbers on both sides: B - A by default.
   await expect(mode.locator(".cmp-vd-name")).toHaveText(["n", "amount", "qty"]);
-  await expect(cells).toHaveText(["0", "+10", "0", "0", "−50", "+5", "0", "0", "−20"].map((t) => t.replace("−", "-")).map((t) => t));
+  // Only the rows that changed, the largest change in the column with the most changes first (amount: -50, +10, then the unchanged 0).
+  await expect(mode.locator(".cmp-vd-count")).toHaveText("3 of 3 rows changed");
+  await expect(cells).toHaveText(["0", "−50", "+5", "0", "+10", "0", "0", "0", "−20"].map((t) => t.replace("−", "-")));
   // Coloured from a diverging map: the rise is warm (red-ish), the fall cool (blue-ish).
-  const rise = await cells.nth(1).evaluate((node) => getComputedStyle(node).backgroundColor);
-  const fall = await cells.nth(4).evaluate((node) => getComputedStyle(node).backgroundColor);
+  const rise = await cells.nth(4).evaluate((node) => getComputedStyle(node).backgroundColor);
+  const fall = await cells.nth(1).evaluate((node) => getComputedStyle(node).backgroundColor);
   const [rr, , rb] = rise.match(/\d+/g)!.map(Number);
   const [fr, , fb] = fall.match(/\d+/g)!.map(Number);
   expect(rr!).toBeGreaterThan(rb!);
   expect(fb!).toBeGreaterThan(fr!);
   await mode.getByRole("combobox", { name: "Difference" }).selectOption({ label: "% change (B vs A)" });
-  await expect(cells.nth(1)).toHaveText("+10%");
-  await expect(cells.nth(4)).toHaveText("-25%");
+  await expect(cells.nth(4)).toHaveText("+10%");
+  await expect(cells.nth(1)).toHaveText("-25%");
   await mode.getByRole("combobox", { name: "Colour map" }).selectOption("none");
   await expect(cells.nth(1)).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 });
@@ -476,4 +478,57 @@ test("Deep dive: from a comparison, analyse A or B on its own with all the tools
     await expect(page.locator(".count").first()).toContainText("4 rows");
     await expect(page.locator("body")).not.toHaveClass(/compare-active/);
   }
+});
+
+const ids = Array.from({ length: 40 }, (_, i) => `C${String(i + 1).padStart(4, "0")}`);
+const renamedA = ["id,amount,qty", ...ids.map((id, i) => `${id},${100 + (i % 10)},${i % 5}`)].join("\n");
+// B: the key is called customer_id; the first two rows are gone, two are new and the amounts of C0005 (+7) and C0006 (+90) changed.
+const renamedB = [
+  "customer_id,amount,qty",
+  ...ids.slice(2).map((id, i) => `${id},${100 + ((i + 2) % 10) + (id === "C0005" ? 7 : id === "C0006" ? 90 : 0)},${(i + 2) % 5}`),
+  "C0901,5,0",
+  "C0902,6,1",
+].join("\n");
+
+test("a renamed key column is paired automatically, said so on the setup and the report, and the differences are right", async ({ page }) => {
+  await compareFromFront(page, file("before.csv", renamedA), file("after.csv", renamedB));
+  const mode = page.getByRole("region", { name: "Compare two datasets" });
+  await mode.getByRole("button", { name: "Report", exact: true }).click();
+  await expect(mode.locator(".cmp-autopair")).toContainText("id in A paired with customer_id in B");
+  await expect(mode.locator(".cmp-tile-value")).toHaveText(["36", "2", "2", "2", "40 → 40"]);
+  await expect(mode.locator(".cmp-caution")).toHaveCount(0);
+  // Undo goes back to the setup with the pair suggested, not made, and no key.
+  await mode.locator(".cmp-autopair").getByRole("button", { name: "Undo" }).click();
+  await expect(mode.locator(".cmp-pair-suggest")).toContainText("look like the same column");
+  await mode.getByRole("button", { name: "Compare", exact: true }).click();
+  await expect(mode.locator(".cmp-caution")).toContainText("look like the same column");
+  await mode.getByRole("button", { name: "Pair them and compare again" }).click();
+  await expect(mode.locator(".cmp-caution")).toHaveCount(0);
+  await mode.getByRole("button", { name: "Report", exact: true }).click();
+  await expect(mode.locator(".cmp-tile-value")).toHaveText(["36", "2", "2", "2", "40 → 40"]);
+});
+
+test("Value differences open on rows that changed, largest first, with a count, a toggle and header sorting", async ({ page }) => {
+  await compareFromFront(page, file("before.csv", renamedA), file("after.csv", renamedB));
+  const mode = page.getByRole("region", { name: "Compare two datasets" });
+  await mode.getByRole("button", { name: "Value differences" }).click();
+  await expect(mode.locator(".cmp-vd-count")).toHaveText("2 of 38 rows changed");
+  await expect(mode.locator(".cmp-vd-label").first()).toHaveText("C0006");
+  await expect(mode.locator(".cmp-vd-label")).toHaveCount(2);
+  await mode.getByLabel("Only rows that changed").uncheck();
+  await expect(mode.locator(".cmp-vd-label").first()).toHaveText("C0006");
+  await expect(mode.locator(".cmp-vd-label").nth(5)).toBeVisible();
+  await mode.getByRole("button", { name: /^amount/ }).click();
+  await expect(mode.getByRole("button", { name: /^amount/ })).toHaveAttribute("aria-sort", "ascending");
+});
+
+test("Deep dive: Analyse the differences opens one table of the rows that differ, with _change, the key and A, B and B − A", async ({ page }) => {
+  await compareFromFront(page, file("before.csv", renamedA), file("after.csv", renamedB));
+  const mode = page.getByRole("region", { name: "Compare two datasets" });
+  await mode.getByRole("button", { name: "Deep dive" }).click();
+  await page.getByRole("menuitem", { name: "Analyse the differences" }).click();
+  await expect(mode).toHaveCount(0);
+  await page.getByRole("tab", { name: "Table" }).click();
+  await expect.poll(() => page.locator(".table-header .th-label").allInnerTexts()).toEqual(expect.arrayContaining(["_change", "id", "amount (A)", "amount (B)", "amount (B − A)", "qty"]));
+  await expect(page.locator(".count").first()).toContainText("6 rows");
 });

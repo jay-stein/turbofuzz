@@ -4,6 +4,8 @@ import { suggestKeys } from "../src/data/compare/keys.js";
 import { matchRows } from "../src/data/compare/match.js";
 import { buildReport } from "../src/data/compare/report.js";
 import { filterPositions, rowWindow } from "../src/data/compare/view.js";
+import { diffColumns, diffWindow, mostChangedColumn, sortDiffPositions } from "../src/data/compare/diffs.js";
+import { suggestColumnPairs } from "../src/data/compare/pair-suggest.js";
 import { columnShifts, groupShift } from "../src/data/compare/shift.js";
 import { DEFAULT_RULES, compareColumn, type CompareSide } from "../src/data/compare/types.js";
 import { measure, ms } from "./bench-utils.js";
@@ -101,6 +103,36 @@ const middle = Math.floor(changedRows.length / 2);
 gate(`side-by-side window of 100 changed rows, ${ROWS.toLocaleString()} rows`, BUDGET.window, () => {
   rowWindow(a, b, pairing, match, changedRows, middle, middle + 100);
 }, 20);
+
+// Value differences: the first screen is the changed rows, largest change first (sorted once per choice, then windows are cheap).
+const diffCols = diffColumns(a, b, pairing);
+const sortPair = mostChangedColumn(diffCols, match)!;
+let sorted = changedRows;
+gate(`value differences: order the changed rows by size, ${ROWS.toLocaleString()} rows`, Math.max(100, 400 * scale), () => {
+  sorted = sortDiffPositions(a, b, pairing, match, sortPair, changedRows, "sub", "desc");
+});
+gate(`value differences: window of 200 rows, ${ROWS.toLocaleString()} rows`, 16, () => {
+  diffWindow(a, b, pairing, match, diffCols, [0], sorted, 0, 200, "sub");
+}, 20);
+{
+  const matched = filterPositions(match, { show: "matched", pairs: [] });
+  gate(`value differences: order every matched row (header click, unfiltered), ${ROWS.toLocaleString()} rows`, Math.max(600, 2500 * scale), () => {
+    sortDiffPositions(a, b, pairing, match, sortPair, matched, "sub", "desc");
+  }, 2);
+}
+// A renamed key column: the pairing is suggested from the first rows, and the best few are read in full.
+{
+  const renamedB: CompareSide = { ...b, columns: b.columns.map((column, i) => (i === 0 ? { ...column, name: "customer_ref" } : column)) };
+  const renamedPairing = pairColumns(a, renamedB);
+  let found = 0;
+  gate(`suggest a renamed key column, ${ROWS.toLocaleString()} rows`, Math.max(300, 1000 * scale), () => {
+    found = suggestColumnPairs(a, renamedB, renamedPairing, DEFAULT_RULES).length;
+  });
+  if (found !== 1) {
+    console.log(`FAIL expected one renamed-column suggestion, got ${found}`);
+    failed = true;
+  }
+}
 
 gate(`what shifted (every column), ${ROWS.toLocaleString()} rows`, BUDGET.shift, () => {
   columnShifts(a, b, pairing, new Set([0]));

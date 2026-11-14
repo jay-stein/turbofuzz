@@ -67,13 +67,14 @@ import {
 import { isParquetName, readParquetGrid } from "../parse/parquet.js";
 import { columnNameKey, pairColumns } from "../data/compare/columns.js";
 import { keyColumnStats, suggestKeys } from "../data/compare/keys.js";
+import { suggestColumnPairs, type PairSuggestion } from "../data/compare/pair-suggest.js";
 import { matchRows } from "../data/compare/match.js";
 import { buildReport } from "../data/compare/report.js";
 import { DEFAULT_RULES, compareColumn, type ColumnPair, type ColumnPairing, type CompareSide, type MatchResult } from "../data/compare/types.js";
 import { filterPositions, findDifference, rowWindow, type RowFilter } from "../data/compare/view.js";
 import { columnShifts, groupShift, type ShiftReport } from "../data/compare/shift.js";
-import { diffColumns, diffWindow, summariseDiffs, type DiffOp, type DiffSummary } from "../data/compare/diffs.js";
-import { changeTables } from "../data/compare/export.js";
+import { diffColumns, diffWindow, mostChangedColumn, sortDiffPositions, summariseDiffs, type DiffOp, type DiffSummary } from "../data/compare/diffs.js";
+import { changeTables, differencesTable } from "../data/compare/export.js";
 import { estimateTableBytes } from "../data/memory.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import { orderFormat, parseDate, type DateOrder } from "../parse/dates.js";
@@ -349,6 +350,12 @@ async function handle(message: WorkerRequest): Promise<void> {
     case "compareGroups": {
       const run = compareRun();
       post({ type: "compareGroups", requestId: message.requestId, groups: groupShift(run.a, compare!.bSide, run.pairing, message.group, message.measure, message.agg) });
+      break;
+    }
+    case "compareDifferences": {
+      const run = compareRun();
+      const keyPairs = run.match.mode === "key" ? run.keyPairs : null;
+      post({ type: "compareDifferences", requestId: message.requestId, table: differencesTable(run.a, compare!.bSide, run.pairing, run.match, keyPairs) });
       break;
     }
     case "compareClear":
@@ -1017,7 +1024,7 @@ function memoryBreakdown(): { dataBytes: number; undoBytes: number; cacheBytes: 
 let compare: {
   b: Dataset;
   bSide: CompareSide;
-  run?: { a: CompareSide; pairing: ColumnPairing; match: MatchResult; filtered: Map<string, Int32Array>; keyPairs: number[]; shift?: ShiftReport; diffs?: { op: DiffOp; summary: DiffSummary[] } };
+  run?: { a: CompareSide; pairing: ColumnPairing; match: MatchResult; filtered: Map<string, Int32Array>; keyPairs: number[]; shift?: ShiftReport; diffs?: { op: DiffOp; summary: DiffSummary[]; sorted?: { key: string; positions: Int32Array } } };
 } | null = null;
 
 function compareRun(): NonNullable<NonNullable<typeof compare>["run"]> {
@@ -1046,16 +1053,27 @@ function handleCompareRows(message: CompareRowsRequest): void {
 function handleCompareDiffs(message: CompareDiffsRequest): void {
   const run = compareRun();
   const b = compare!.bSide;
-  const positions = filteredRows({ show: "matched", pairs: [] });
+  const matched = filteredRows({ show: "matched", pairs: [] });
   const columns = diffColumns(run.a, b, run.pairing);
   // The summaries (and so the colour scale) are worked out once per operation, over every matched row.
   if (run.diffs === undefined || run.diffs.op !== message.op) {
-    run.diffs = { op: message.op, summary: summariseDiffs(run.a, b, run.pairing, columns, positions, run.match, message.op) };
+    run.diffs = { op: message.op, summary: summariseDiffs(run.a, b, run.pairing, columns, matched, run.match, message.op) };
+  }
+  // Only the rows that changed (the default), ordered by the size of the change in one column: the one with most changes unless another was chosen.
+  const changed = filteredRows({ show: "changed", pairs: [] });
+  const base = message.changedOnly === true ? changed : matched;
+  const dir = message.sort?.dir ?? "desc";
+  const sortPair = message.sort === undefined ? null : (message.sort.pair ?? mostChangedColumn(columns, run.match));
+  let positions = base;
+  if (sortPair !== null && columns.some((column) => column.pair === sortPair)) {
+    const key = `${message.op}:${message.changedOnly === true}:${sortPair}:${dir}`;
+    if (run.diffs.sorted?.key !== key) run.diffs.sorted = { key, positions: sortDiffPositions(run.a, b, run.pairing, run.match, sortPair, base, message.op, dir) };
+    positions = run.diffs.sorted.positions;
   }
   const window = diffWindow(run.a, b, run.pairing, run.match, columns, run.match.mode === "key" ? run.keyPairs : [], positions, message.start, message.end, message.op);
   const labelName = run.match.mode === "key" ? run.keyPairs.map((index) => run.a.columns[run.pairing.pairs[index]!.a]!.name).join(" · ") : "Row";
   post(
-    { type: "compareDiffs", requestId: message.requestId, columns, summary: run.diffs.summary, labelName, start: window.start, total: window.total, labels: window.labels, values: window.values },
+    { type: "compareDiffs", requestId: message.requestId, columns, summary: run.diffs.summary, labelName, start: window.start, total: window.total, labels: window.labels, values: window.values, matchedTotal: matched.length, changedTotal: changed.length, sortPair, sortDir: dir },
     [window.values.buffer],
   );
 }
@@ -1123,15 +1141,33 @@ function handleCompareSetup(message: CompareSetupRequest): void {
   const { dataset: current } = state();
   if (compare === null) throw new Error("No dataset to compare with");
   const a = compareSideA(current);
-  const pairing = pairColumns(a, compare.bSide, message.manual, message.ignore);
+  let pairing = pairColumns(a, compare.bSide, message.manual, message.ignore);
+  let keys = suggestKeys(a, compare.bSide, pairing, message.rules);
+  // A column only A has and one only B has, with the same values: the same column renamed. With one such pair, and no key until it is paired, it is paired here; otherwise it is only suggested.
+  let suggestions = suggestColumnPairs(a, compare.bSide, pairing, message.rules);
+  let autoPaired: PairSuggestion | null = null;
+  const only = suggestions.length === 1 ? suggestions[0]! : null;
+  if (only !== null && only.keyLike && keys.length === 0 && message.autoPair !== false) {
+    const paired = pairColumns(a, compare.bSide, [...message.manual, { a: only.a, b: only.b }], message.ignore);
+    const pairedKeys = suggestKeys(a, compare.bSide, paired, message.rules);
+    const index = paired.pairs.findIndex((pair) => pair.a === only.a && pair.b === only.b);
+    if (pairedKeys.some((key) => key.pairs.length === 1 && key.pairs[0] === index)) {
+      pairing = paired;
+      keys = pairedKeys;
+      autoPaired = only;
+      suggestions = [];
+    }
+  }
   post({
     type: "compareSetup",
     requestId: message.requestId,
     a: sideInfo(a),
     b: sideInfo(compare.bSide),
     pairing,
-    keys: suggestKeys(a, compare.bSide, pairing, message.rules),
+    keys,
     keyStats: keyColumnStats(a, compare.bSide, pairing, message.rules),
+    pairSuggestions: suggestions,
+    autoPaired,
     ms: performance.now() - started,
   });
 }
