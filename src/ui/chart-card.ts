@@ -157,6 +157,8 @@ export class ChartCard {
   /** The bar, bin or cell clicked: highlighted, with Filter to this offered beside it. */
   selectedRegion: HitRegion | null = null;
   selectionBar: HTMLElement | null = null;
+  /** The reserved strip above the plot that holds the selection bar (Chart page only). */
+  selectionSlot: HTMLElement | null = null;
   /** Plot top the docked height was last worked out from: a legend appearing moves it. */
   private dockedTop = -1;  focusOverlay: HTMLElement | null = null;
   readonly focusPlaceholder = document.createComment("chart-focus");
@@ -1669,7 +1671,9 @@ export class ChartCard {
       this.dockedTop = top;
       // The playback bar sits under the plot when there are frames to step through.
       const playback = (this.animationResult?.frames.length ?? 0) > 1 ? 48 : 0;
-      cap = Math.max(300, Math.round(window.innerHeight - top - 74 - playback));
+      // The selection strip sits above the canvas inside the wrap.
+      const strip = this.selectionSlot?.offsetHeight ?? 0;
+      cap = Math.max(300, Math.round(window.innerHeight - top - 74 - playback - strip));
       cssHeight = Math.min(cap, Math.round(cssWidth * 0.8));
     }
     const dpr = window.devicePixelRatio || 1;
@@ -1689,6 +1693,14 @@ export class ChartCard {
     this.drawReferenceLines(ctx);
     this.drawBrushOverlay(ctx);
     this.drawSelection(ctx);
+    if (this.selectionSlot !== null) {
+      const selectable = this.hitRegions.some((region) => region.mark !== undefined || region.actions.length > 0);
+      if (this.selectionSlot.classList.contains("hidden") === selectable) {
+        this.selectionSlot.classList.toggle("hidden", !selectable);
+        // The strip changed the room the plot has: size it again.
+        if (this.options.docked === true) this.scheduleRender(true);
+      }
+    }
     // Drawing can add a legend above the plot; then the height above was worked out too low.
     if (this.options.docked === true && this.focusOverlay === null && wrap !== null) {
       const scroller = this.root.closest(".workspace-body");

@@ -8034,6 +8034,10 @@ select.chart-number {
 .chart-selection.picking { flex-wrap: wrap; }
 .chart-selection .chart-mark-colors { flex-basis: 100%; }
 
+/* On the Chart page the bar sits in a strip above the plot, never over the data. */
+.chart-selection-slot { min-height: 32px; margin-bottom: 6px; display: flex; align-items: flex-start; min-width: 0; }
+.chart-selection-slot .chart-selection { position: static; flex-wrap: wrap; max-width: 100%; box-shadow: none; box-sizing: border-box; }
+
 .chart-selection-name {
   min-width: 0;
   overflow: hidden;

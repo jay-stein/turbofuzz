@@ -109,7 +109,10 @@ export function dock(card: ChartCard, head: HTMLElement, quickRow: HTMLElement, 
   }
 
   card.selectionBar = el("div", { class: "chart-selection hidden", role: "group", "aria-label": "Selected in the chart" });
-  canvasWrap.append(card.selectionBar);
+  // A strip above the plot, kept at one row while the chart has marks to select, so choosing
+  // one never covers data and the plot does not jump; the colour row opens as a second row.
+  card.selectionSlot = el("div", { class: "chart-selection-slot hidden" }, [card.selectionBar]);
+  canvasWrap.prepend(card.selectionSlot);
 
   for (const type of ["pointerdown", "focusin"] as const) {
     card.root.addEventListener(type, () => card.noteBeforeChange(), true);

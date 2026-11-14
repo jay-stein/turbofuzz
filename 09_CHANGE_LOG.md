@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-17 — Chart: the selected-bar controls sit above the plot, never over it
+
+- **Status:** Verified (unit 116 chart tests; browser: chart-mark-colour, chart-reference-line, chart-customize; screenshots in light, dark and a 760 px window)
+- **Related issue / decision:** a visual check of CHG-2026-11-14-08 found the selection bar and its colour row floating over the top of the plot, hiding the data labels and the top gridline.
+- **What changed:** the selection bar now sits in a strip above the plot. One row is reserved whenever the chart has something clickable, so the plot does not jump when a bar is clicked; opening Colour… adds a second row that pushes the plot down. The docked chart height allows for the strip.
+- **Not covered:** the "Reset view" pill (shown only when zoomed) can overlap the close button of a long selection bar while zoomed.
+- **Files / components changed:** src/ui/chart-card.ts, src/ui/chart-card-settings.ts, src/styles.css
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-16 — Recipe: exported scripts name the pandas and Polars versions they were written for and tested with
 
 - **Status:** Verified (unit tests; parity harness on the pinned pandas 3.1.1 and Polars 2.1.0, and also on pandas 2.3.3, Polars 2.0.0 and 1.44.2). The Recipe drawer line not yet seen in a browser.
