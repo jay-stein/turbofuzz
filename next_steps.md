@@ -182,7 +182,7 @@ result set, streamed in 20k-row chunks. Good foundation.
 Recommended additions, in order of value-per-bloat:
 
 1. **TSV / JSON Lines** — trivial variants of the existing `buildCsv`, effectively free.
-2. ~~**XLSX (write)**~~ — decided against (2026-10-30): not a good export format.
+2. **XLSX (write)** — done (2026-11-14, DEC-2026-11-14-01): typed cells, direct-XML writer; it reverses the 2026-10-30 removal.
 3. **Parquet** — the right "typed" format long-term, but a writer (hyparquet /
    parquet-wasm / `@dsnp/parquetjs`) is a real dependency. **Load it lazily via
    dynamic `import()`** so it never affects initial load or the happy path.
@@ -376,9 +376,9 @@ and Transform, and it reuses the exact patterns the codebase already establishes
   (blue) button with a hint line, and "Apply transforms" stays disabled until
   the staged list differs from what is applied.
 - **Export formats beyond CSV** — CSV, semicolon CSV, TSV, JSON and JSON Lines
-  ship (with gzip/zip). **XLSX export was removed on 2026-10-30 and will not
-  come back**: it is a poor interchange format (type guessing, row cap, no
-  streaming). Reading Excel files on import is unchanged. Parquet would need a
+  ship (with gzip/zip). **XLSX export was reinstated on 2026-11-14** with typed
+  cells and ids kept as text (DEC-2026-11-14-01); the 2026-10-30 version wrote
+  every cell as text. Reading Excel files on import is unchanged. Parquet would need a
   lazy writer and is only worth doing on real demand.
 - **Null-resolution steps in the steps list** — treating tokens like `-999`
   as missing is applied but is not shown or undoable in the steps drawer yet.

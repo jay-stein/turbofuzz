@@ -23,6 +23,39 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-14-03 — Compare auto-pairs a renamed key only when exactly one candidate makes a key
+
+- **Status:** Proposed (2026-11-14; shipped, awaiting owner approval)
+- **Context:** Columns were paired by name only, so `id` vs `customer_id` stayed unpaired, no key was suggested and rows fell back to whole-row matching (a changed row showed as one removed plus one added).
+- **Decision:** A column only A has and one only B has are paired automatically when exactly one such candidate exists (at least 90% of B's distinct values found in A, at least 20 distinct values) and the pair makes a key; the pairing shows a banner with Undo. With several candidates they are only suggested. Whole-row results carry a visible caution.
+- **Alternatives considered:** Always suggest, never pair; pair every candidate above the threshold.
+- **Trade-offs:** One wrong automatic pairing is possible; Undo and the banner make it visible and reversible.
+- **Features / journeys affected:** F-051
+- **Revisit trigger:** A wrong automatic pairing reported, or people undoing it often.
+- **Date / owner:** 2026-11-14 / owner to confirm
+
+### DEC-2026-11-14-02 — The headline Data Quality score is held to the share of clean rows
+
+- **Status:** Proposed (2026-11-14; shipped, awaiting owner approval)
+- **Context:** A table with 10% failing rows read 99.3 "good": the weighted mean of per-check scores hides failures spread across rows.
+- **Decision:** Headline = min(weighted mean, 100 × (1 − failing-row share)²). Per-dimension and per-column scores are unchanged. Checks set aside leave the row count. The hero states the reason ("Fair because 10% of rows fail at least one check") and the Rows affected tile states the limit.
+- **Alternatives considered:** Leave the mean; a linear row ceiling; a band cap only.
+- **Trade-offs:** Legitimate placeholders such as "Unknown" count as failing rows, so some tables score lower than an analyst would judge. Corpus bands moved for aac-shelter, ask-a-manager and bank-churners.
+- **Features / journeys affected:** F-DQ-01, F-DQ-04
+- **Revisit trigger:** The ceiling proves too strict on real tables with legitimate placeholders.
+- **Date / owner:** 2026-11-14 / owner to confirm
+
+### DEC-2026-11-14-01 — XLSX export reinstated, with typed cells from a direct-XML writer
+
+- **Status:** Proposed (2026-11-14; shipped, awaiting owner approval); reverses the 2026-10-30 decision to remove XLSX export
+- **Context:** The removed version wrote every cell as text. Analysts still want a workbook they can open directly.
+- **Decision:** Export writes .xlsx in the worker with direct XML and fflate: numbers, dates and booleans are typed; identifier and text columns stay text; text is never a formula; header bold, frozen, with autofilter; over 1,048,575 rows continue on numbered sheets.
+- **Alternatives considered:** SheetJS to write (10–30 s per 3M cells); keep CSV only.
+- **Trade-offs:** A small writer of our own to maintain; not yet opened in real Excel or LibreOffice.
+- **Features / journeys affected:** F-035
+- **Revisit trigger:** A workbook that Excel or LibreOffice reports as damaged, or the writer exceeding its bench budget.
+- **Date / owner:** 2026-11-14 / owner to confirm
+
 ### DEC-2026-11-08-03 — Compare is a one-off: Exit clears both datasets
 
 - **Status:** Accepted (owner, 2026-11-08)
