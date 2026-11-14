@@ -681,6 +681,11 @@ export function syncOptions(card: ChartCard): void {
       select.append(placeholder);
     } else if (selected >= 0) {
       select.value = String(selected);
+    } else if (keepEmpty) {
+      // No coordinates chosen: say so, rather than the browser showing the first number column as if it were in use.
+      const none = card.option("-1", "— none —");
+      select.prepend(none);
+      select.value = "-1";
     }
   }
 

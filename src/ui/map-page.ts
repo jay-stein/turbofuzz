@@ -5,7 +5,7 @@
  * markers and cities layer. Nothing is fetched. Markers are kept per dataset in this browser only (IndexedDB).
  */
 
-import { detectGeoPair, matchGeoName } from "../data/geo.js";
+import { detectGeoPair, detectPlaceColumn, matchGeoName } from "../data/geo.js";
 import { emptyState, EMPTY_ICONS } from "./empty-state.js";
 import { listNames, measureColumnNames } from "./tab-availability.js";
 import type { ColumnMeta } from "../worker/protocol.js";
@@ -194,6 +194,8 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   let visible = false;
   let datasetKey = "";
   let pending: Partial<ChartCardConfig> | null = null;
+  /** A new table without coordinates but with a column of place names opens on Choropleth, once. */
+  let placeDefaultDue = true;
 
   /** Clearing is offered while boundaries are loaded, wherever the map is on screen. */
   function syncBoundaryButtons(): void {
@@ -273,6 +275,13 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
       applyMarkers();
       void applyCities();
     }
+    const place = detectPlaceColumn(metas);
+    if (placeDefaultDue) {
+      placeDefaultDue = false;
+      // County, State, Country... with no latitude/longitude: the map that works is regions from a boundary
+      // file, and Choropleth puts "Drop a boundary file here" on the map itself.
+      if (pending === null && geo === null && place !== null && card.getConfig().x === -1 && card.mapMode !== "regions") card.setMapMode("regions");
+    }
     pending = null;
     const names = coordinateNames(card.getConfig());
     noCoordinates = names === "";
@@ -283,30 +292,46 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
       const lat = metas.find((m) => numeric(m) && matchGeoName(m.name) === "lat")?.name;
       const lon = metas.find((m) => numeric(m) && matchGeoName(m.name) === "lon")?.name;
       const numbers = measureColumnNames(metas);
+      const placeName = place !== null ? metas[place]?.name : undefined;
+      const chooseCoords = {
+        label: "Choose latitude and longitude",
+        title: numbers.length > 0 ? `Number columns you could pick: ${listNames(numbers)}` : "Pick the two columns that hold the coordinates",
+        run: () => {
+          latPick.scrollIntoView({ block: "center", behavior: "smooth" });
+          latPick.focus();
+        },
+      };
+      const loadBoundaries = {
+        label: "Load boundaries…",
+        title: "A GeoJSON file or a zipped Shapefile; its regions are matched to your table by name",
+        run: () => boundaries.click(),
+      };
       empty.replaceChildren(
-        emptyState({
-          layout: "banner",
-          icon: EMPTY_ICONS.map,
-          title: "No rows on the map: this table has no coordinates",
-          lead: "The map places each row from a latitude and a longitude column, in degrees. Columns are only used when their names say so, so a price or an age is never taken for a coordinate.",
-          needs: [
-            { ok: lat !== undefined, label: "A latitude column", detail: lat ?? "named lat or latitude: none found" },
-            { ok: lon !== undefined, label: "A longitude column", detail: lon ?? "named lon, lng or longitude: none found" },
-          ],
-          actions: [
-            {
-              label: "Choose latitude and longitude",
-              title: numbers.length > 0 ? `Number columns you could pick: ${listNames(numbers)}` : "Pick the two columns that hold the coordinates",
-              primary: true,
-              run: () => {
-                latPick.scrollIntoView({ block: "center", behavior: "smooth" });
-                latPick.focus();
-              },
-            },
-            { label: "Load boundaries…", title: "A table of named places can still be mapped: colour regions from a boundary file", run: () => boundaries.click() },
-          ],
-          foot: "The map below still shows your markers and the cities layer.",
-        }),
+        placeName !== undefined
+          ? emptyState({
+              layout: "banner",
+              icon: EMPTY_ICONS.map,
+              title: `Map this table by ${placeName}`,
+              lead: `${placeName} holds place names, so a boundary file can colour each region by your rows: a GeoJSON file or a zipped Shapefile whose regions carry the same names. Dots for each row would need latitude and longitude columns, which this table does not have.`,
+              needs: [
+                { ok: true, label: "A column of place names", detail: placeName },
+                { ok: false, label: "A boundary file", detail: "load one, or drop it anywhere on the map below" },
+              ],
+              actions: [{ ...loadBoundaries, primary: true }, chooseCoords],
+              foot: "The map below still shows your markers and the cities layer.",
+            })
+          : emptyState({
+              layout: "banner",
+              icon: EMPTY_ICONS.map,
+              title: "No rows on the map: this table has no coordinates",
+              lead: "The map places each row from a latitude and a longitude column, in degrees. Columns are only used when their names say so, so a price or an age is never taken for a coordinate. A table of named places can be mapped from a boundary file instead.",
+              needs: [
+                { ok: lat !== undefined, label: "A latitude column", detail: lat ?? "named lat or latitude: none found" },
+                { ok: lon !== undefined, label: "A longitude column", detail: lon ?? "named lon, lng or longitude: none found" },
+              ],
+              actions: [{ ...chooseCoords, primary: true }, loadBoundaries],
+              foot: "The map below still shows your markers and the cities layer, and takes a boundary file dropped on it.",
+            }),
       );
     }
     sub.textContent = names;
@@ -407,6 +432,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
       const key = options.datasetName();
       if (key !== datasetKey) {
         datasetKey = key;
+        placeDefaultDue = true;
         titleInput.value = "";
         card?.setMapTitle("");
         markersPanel.set({ markers: [], customs: [] });

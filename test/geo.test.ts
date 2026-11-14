@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   detectGeoPair,
+  detectPlaceColumn,
   parseLatitude,
   parseLongitude,
 } from "../src/data/geo.js";
@@ -146,4 +147,13 @@ test("misspelled coordinate names still detect", () => {
 
   const alt = detectGeoPair([num("altitude", 10, 500), num("longitude", 144.8, 145.1)]);
   assert.equal(alt, null, "altitude is not latitude, even one edit away");
+});
+
+test("detectPlaceColumn finds a text column named for places, by whole word", () => {
+  const wind = [meta({ name: "No", type: "integer" }), meta({ name: "Installed Capacity (MW)" }), meta({ name: "County", type: "category" }), meta({ name: "Year", type: "integer" })];
+  assert.equal(detectPlaceColumn(wind), 2);
+  assert.equal(detectPlaceColumn([meta({ name: "state_name", type: "string" })]), 0);
+  assert.equal(detectPlaceColumn([meta({ name: "Statement", type: "string" }), meta({ name: "product", type: "category" })]), null);
+  // A numeric column named for places is a code, not names.
+  assert.equal(detectPlaceColumn([meta({ name: "region", type: "integer" })]), null);
 });

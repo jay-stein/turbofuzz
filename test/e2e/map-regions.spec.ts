@@ -48,6 +48,24 @@ test("the map's kinds are pictures: Markers, Heat grid and Choropleth, and Choro
   await expect(card.locator(".chart-note")).toContainText("places from");
 });
 
+test("a table of place names with no coordinates opens on Choropleth, asking for a boundary file", async ({ page }) => {
+  const card = await openMap(page, WIND);
+  await expect(page.getByRole("radio", { name: "Choropleth" })).toHaveAttribute("aria-checked", "true");
+  await expect(card.locator(".map-drop")).toContainText("Drop a boundary file here");
+  await expect(page.locator(".map-empty")).toBeHidden();
+  // Back on Markers the banner leads with boundaries, and the empty coordinates read as none.
+  await page.getByRole("radio", { name: "Markers" }).click();
+  await expect(page.locator(".map-empty .page-empty-title")).toHaveText("Map this table by County");
+  await expect(page.locator(".map-empty .page-empty-actions button").first()).toHaveText("Load boundaries…");
+  for (const axis of ["X column", "Y column"]) {
+    await expect(card.getByRole("combobox", { name: axis })).toHaveValue("-1");
+    await expect(card.getByRole("combobox", { name: axis }).locator("option:checked")).toHaveText("— none —");
+  }
+  await page.getByRole("radio", { name: "Choropleth" }).click();
+  await load(card, counties());
+  await expect(card.locator(".map-step").nth(1)).toContainText("NAME_1 = County");
+});
+
 test("a file dropped on the map loads, from any kind of map, and a clear match needs no asking", async ({ page }) => {
   const card = await openMap(page, WIND);
   const canvas = card.locator(".chart-canvas-wrap");
