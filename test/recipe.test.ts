@@ -241,3 +241,25 @@ test("keep only numbers and keep only text export as helpers the pandas script d
   assert.match(recipe, /df\["price"\] = df\["price"\]\.map\(lambda v: _keep_number\(v, ","\) if isinstance\(v, str\) else v\)/);
   assert.match(recipe, /^def _keep_text\(v\):$/m);
 });
+
+const mixedDateInput = {
+  cleans: [{ name: "order_date", ops: [{ kind: "toDate", order: "dmy" }] }],
+  transforms: [],
+  schema: [
+    { name: "postcode", numeric: false, type: "identifier" },
+    { name: "qty", numeric: true, type: "integer" },
+    { name: "order_date", numeric: false, type: "date" },
+  ],
+} as const;
+
+test("pandas date clean reads every layout in a mixed column and keeps what it cannot read", () => {
+  const { code } = pandasRecipeScript(mixedDateInput as never);
+  assert.match(code, /_parsed = pd\.to_datetime\(df\["order_date"\], format="mixed", dayfirst=True, utc=True, errors="coerce"\)/);
+  assert.match(code, /df\["order_date"\] = _parsed\.dt\.strftime\("%Y-%m-%d"\)\.where\(_parsed\.notna\(\), df\["order_date"\]\)/);
+});
+
+test("pandas reader keeps identifier and date columns as text, numbers untouched", () => {
+  const { code } = pandasRecipeScript(mixedDateInput as never);
+  assert.match(code, /df = pd\.read_csv\("input\.csv", dtype=\{"postcode": str, "order_date": str\}\)/);
+  assert.doesNotMatch(code, /"qty": str/);
+});

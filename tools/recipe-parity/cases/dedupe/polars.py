@@ -8,7 +8,7 @@
 import polars as pl
 
 # Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).
-df = pl.read_csv("input.csv")
+df = pl.read_csv("input.csv", schema_overrides={"city": pl.Utf8, "status": pl.Utf8})
 
 # Transform
 df = df.unique(keep="first", maintain_order=True)

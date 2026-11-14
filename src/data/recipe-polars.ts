@@ -13,6 +13,7 @@ import {
   type TransformOp,
 } from "./transform-ops.js";
 import {
+  readAsTextColumns,
   supportHeaderLines,
   type RecipeScript,
   type SupportEntry,
@@ -70,6 +71,40 @@ function captureGroupCount(source: string): number {
 /** `df = df.with_columns(expr.alias("name"))` for one column update. */
 function assign(expression: string, name: string): string {
   return `df = df.with_columns(${expression}.alias(${py(name)}))`;
+}
+
+/** The first of `_tf_formats` that reads each value of the column. */
+function mixedDateExpr(name: string): string {
+  return `pl.coalesce([_tf_read(${py(name)}, f) for f in _tf_formats])`;
+}
+
+/** Writes the parsed date as text and leaves a value that did not parse as it was, like the app. */
+function keepUnreadable(parsed: string, column: string, name: string, stamp: string): string {
+  return assign(`pl.coalesce(${parsed}.dt.strftime(${py(stamp)}), ${column})`, name);
+}
+
+/**
+ * Every layout the app reads on its own, as strptime formats (day-first or month-first
+ * decides the numeric d/m/y order). `_tf_formats` is tried in order; the first that
+ * reads a value wins.
+ */
+function mixedDateReader(monthFirst: boolean): string[] {
+  const dm = (sep: string, year: string): string => (monthFirst ? `%m${sep}%d${sep}${year}` : `%d${sep}%m${sep}${year}`);
+  const formats = [
+    "%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d",
+    "%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M",
+    "%Y-%m-%d %H:%M:%S%.f%#z", "%Y-%m-%dT%H:%M:%S%.f%#z",
+    dm("/", "%Y"), dm("-", "%Y"), dm(".", "%Y"),
+    `${dm("/", "%Y")} %H:%M`, `${dm("/", "%Y")} %H:%M:%S`,
+    dm("/", "%y"), dm("-", "%y"), dm(".", "%y"),
+    "%d %b %Y", "%d-%b-%Y", "%b %d, %Y", "%d %B %Y", "%B %d, %Y",
+  ];
+  return [
+    `_tf_formats = [${formats.map(py).join(", ")}]`,
+    "def _tf_read(name, fmt):",
+    "    parsed = pl.col(name).str.to_datetime(fmt, strict=False, time_zone=\"UTC\")",
+    "    return pl.when(parsed.dt.year() >= 100).then(parsed)  # %Y also takes 2-digit years; %y reads those",
+  ];
 }
 
 function polarsCleanLines(
@@ -230,9 +265,17 @@ function polarsCleanLines(
         ].join("\n");
       case "toDate":
       case "toDateTime": {
-        const { expr, review } = polarsDateExpr(column, op.order, op.kind === "toDateTime" ? ", time_zone=\"UTC\"" : "");
-        if (review !== null) entries[entries.length - 1] = { ...entries[entries.length - 1], status: "manual_step_required", note: review };
-        return assign(expr, name);
+        const stamp = op.kind === "toDateTime" ? "%Y-%m-%dT%H:%M:%SZ" : "%Y-%m-%d";
+        if (op.order !== undefined && op.order.startsWith("fmt:")) {
+          const { expr, review } = polarsDateExpr(column, op.order, ", time_zone=\"UTC\"");
+          if (review !== null) entries[entries.length - 1] = { ...entries[entries.length - 1], status: "manual_step_required", note: review };
+          return keepUnreadable(expr, column, name, stamp);
+        }
+        // Automatic reading: a column can mix layouts, and one format would null the rest.
+        return [
+          ...mixedDateReader(op.order === "mdy"),
+          keepUnreadable(mixedDateExpr(name), column, name, stamp),
+        ].join("\n");
       }
       case "cast":
         entries[entries.length - 1] = {
@@ -279,6 +322,7 @@ function polarsTypeLines(
   entries: SupportEntry[],
 ): string[] {
   const lines: string[] = [];
+  let readerDefined = false;
   for (const { name, type } of types) {
     const column = col(name);
     switch (type) {
@@ -291,12 +335,16 @@ function polarsTypeLines(
         entries.push({ label: `type: ${name} → number`, status: "supported" });
         break;
       case "date":
-        lines.push(assign(`${column}.str.to_datetime(strict=False).dt.date()`, name));
-        entries.push({ label: `type: ${name} → date`, status: "supported" });
+        if (!readerDefined) lines.push(...mixedDateReader(true));
+        readerDefined = true;
+        lines.push(assign(`${mixedDateExpr(name)}.dt.replace_time_zone(None).dt.date()`, name));
+        entries.push({ label: `type: ${name} → date`, status: "supported_with_warning", note: "values like 03/04/2024 are read month first; the type step does not record an order" });
         break;
       case "datetime":
-        lines.push(assign(`${column}.str.to_datetime(strict=False)`, name));
-        entries.push({ label: `type: ${name} → datetime`, status: "supported" });
+        if (!readerDefined) lines.push(...mixedDateReader(true));
+        readerDefined = true;
+        lines.push(assign(`${mixedDateExpr(name)}.dt.replace_time_zone(None)`, name));
+        entries.push({ label: `type: ${name} → datetime`, status: "supported_with_warning", note: "values like 03/04/2024 are read month first; the type step does not record an order" });
         break;
       case "time":
         lines.push(assign(`${column}.str.to_time(strict=False)`, name));
@@ -1188,6 +1236,14 @@ function polarsTransformLines(
  * per-step support report the pandas generator produces. Native pl.Date /
  * pl.Datetime / pl.Time / pl.Duration are used; naive timestamps stay naive.
  */
+/** The reader call: text and identifier columns stay text (0800 does not become 800). */
+function polarsReadLines(schema: RecipeInput["schema"]): string[] {
+  const text = readAsTextColumns(schema);
+  if (text.length === 0) return ['df = pl.read_csv("input.csv")'];
+  const overrides = text.map((name) => `${py(name)}: pl.Utf8`).join(", ");
+  return [`df = pl.read_csv("input.csv", schema_overrides={${overrides}})`];
+}
+
 export function polarsRecipeScript(input: RecipeInput): RecipeScript {
   const entries: SupportEntry[] = [];
   const body: string[] = [];
@@ -1248,7 +1304,7 @@ export function polarsRecipeScript(input: RecipeInput): RecipeScript {
     "import polars as pl",
     "",
     "# Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).",
-    'df = pl.read_csv("input.csv")',
+    ...polarsReadLines(input.schema),
   ];
   const code = [...header, "", ...setup, ...body].join("\n");
   return { target: "polars", code, entries };

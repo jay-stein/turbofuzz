@@ -8,7 +8,7 @@
 import polars as pl
 
 # Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).
-df = pl.read_csv("input.csv")
+df = pl.read_csv("input.csv", schema_overrides={"city": pl.Utf8})
 
 # Transform
 df = df.unpivot(index=["city"], on=["jan", "feb"], variable_name="month", value_name="sales")

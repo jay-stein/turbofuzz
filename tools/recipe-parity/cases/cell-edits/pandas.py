@@ -10,7 +10,7 @@
 import pandas as pd
 
 # Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).
-df = pd.read_csv("input.csv")
+df = pd.read_csv("input.csv", dtype={"name": str, "region": str})
 
 # Clean: region
 df.iloc[0, df.columns.get_loc("region")] = "West"  # was "North"

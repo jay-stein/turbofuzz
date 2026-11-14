@@ -10,7 +10,7 @@
 import pandas as pd
 
 # Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).
-df = pd.read_csv("input.csv")
+df = pd.read_csv("input.csv", dtype={"note": str})
 
 # Clean: amount
 df["amount"] = pd.to_numeric(df["amount"].str.replace(".", "", regex=False).str.replace(",", ".", regex=False).str.replace(r"[^0-9eE+\-.]", "", regex=True), errors="coerce")

@@ -10,7 +10,7 @@
 import pandas as pd
 
 # Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).
-df = pd.read_csv("input.csv")
+df = pd.read_csv("input.csv", dtype={"city": str})
 
 # Transform
 df = df.groupby("city", as_index=False)["sales"].mean()

@@ -8,7 +8,7 @@
 import polars as pl
 
 # Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).
-df = pl.read_csv("input.csv")
+df = pl.read_csv("input.csv", schema_overrides={"name": pl.Utf8, "region": pl.Utf8})
 
 # Clean: region
 df = df.with_columns(pl.when(pl.int_range(pl.len()) == 0).then(pl.lit("West")).otherwise(pl.col("region")).alias("region"))  # was "North"

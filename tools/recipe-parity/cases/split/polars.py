@@ -9,7 +9,7 @@
 import polars as pl
 
 # Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).
-df = pl.read_csv("input.csv")
+df = pl.read_csv("input.csv", schema_overrides={"code": pl.Utf8})
 
 # Transform
 _split = pl.col("code").str.split("-")

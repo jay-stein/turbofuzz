@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-01 — Recipe: exported pandas and Polars scripts read mixed-format dates and keep leading zeros
+
+- **Status:** Verified (unit; parity harness in pandas 2.3.3 and Polars, 12 cases; 100,000-row file: 99,433 dates parsed, was 97,440)
+- **Related issue / decision:** 2026-11-14 product assessment, P0: the exported pandas date step nulled 1,993 dd/mm/yyyy dates the app had converted; a bare read_csv turned postcode 0800 into 800.
+- **What changed:** Date and datetime steps in both scripts read a column that holds more than one layout (yyyy-mm-dd beside dd/mm/yyyy), in the app's day/month order, and leave a value they cannot read as it was. The reader line names the columns the app holds as text, identifier or date so they are read as text. New parity case mixed-dates-identifiers; the other cases were regenerated.
+- **Not covered yet:** pandas turns N/A and similar into missing on read where the app keeps the text; time-bucket and cohort steps still parse with one inferred layout; a date type change records no day/month order.
+- **Files / components changed:** src/data/recipe.ts, src/data/recipe-polars.ts, src/data/recipe-support.ts; tools/recipe-parity; test/recipe*.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-11-01 — Charts: field rail, pivot-source charts, plain aggregate words, data drawer, and chart-card split into modules
 
 - **Status:** Verified (1,497 unit tests; full e2e run, 242 passed before the last stale-spec fixes; bench:chart at 200k rows)

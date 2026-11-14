@@ -8,7 +8,7 @@
 import polars as pl
 
 # Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).
-df = pl.read_csv("input.csv")
+df = pl.read_csv("input.csv", schema_overrides={"note": pl.Utf8})
 
 # Clean: amount
 df = df.with_columns(pl.col("amount").str.replace_all(".", "", literal=True).str.replace_all(",", ".", literal=True).str.replace_all(r"[^0-9eE+\-.]", "").cast(pl.Float64, strict=False).alias("amount"))

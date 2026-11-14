@@ -10,7 +10,7 @@
 import pandas as pd
 
 # Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).
-df = pd.read_csv("input.csv")
+df = pd.read_csv("input.csv", dtype={"name": str, "city": str})
 
 # Clean: name
 df["name"] = df["name"].str.strip().str.replace(r"\s+", " ", regex=True)

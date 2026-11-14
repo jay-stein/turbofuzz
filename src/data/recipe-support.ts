@@ -4,6 +4,8 @@
  * never silently drop an applied step.
  */
 
+import type { ColumnType } from "../types.js";
+
 export type RecipeTarget = "pandas" | "polars";
 
 export type SupportStatus = "supported" | "supported_with_warning" | "manual_step_required";
@@ -68,4 +70,19 @@ export function supportHeaderLines(entries: readonly SupportEntry[]): string[] {
     lines.push(`#   ! ${entry.label}${entry.note === undefined ? "" : ` — ${entry.note}`}`);
   }
   return lines;
+}
+
+/** Types a default CSV reader would wrongly turn into numbers (0800 → 800, 20240315 → 20,240,315). */
+const READ_AS_TEXT: ReadonlySet<ColumnType> = new Set(["identifier", "string", "category", "date", "datetime", "time"]);
+
+/**
+ * Names of the columns the app holds as text or identifiers (leading zeroes, digit-only
+ * dates) so the script's reader can be told not to guess a numeric type for them.
+ */
+export function readAsTextColumns(schema: readonly { name: string; type?: ColumnType }[]): string[] {
+  const names: string[] = [];
+  for (const { name, type } of schema) {
+    if (type !== undefined && READ_AS_TEXT.has(type) && !names.includes(name)) names.push(name);
+  }
+  return names;
 }

@@ -9,6 +9,7 @@ import {
   type TransformOp,
 } from "./transform-ops.js";
 import {
+  readAsTextColumns,
   supportHeaderLines,
   type RecipeScript,
   type SupportEntry,
@@ -605,7 +606,16 @@ function cleanLines(
       case "toDateTime": {
         const { args, review } = pandasDateArgs(op.order);
         if (review !== null) entries[entries.length - 1] = { ...entries[entries.length - 1], status: "manual_step_required", note: review };
-        return `${column} = pd.to_datetime(${column}, ${args}${op.kind === "toDateTime" ? ", utc=True" : ""}, errors="coerce")`;
+        // A column can hold several layouts (2024-03-05 and 05/03/2024). Without
+        // format="mixed" pandas infers one layout from the first value and turns
+        // every value in another layout into NaT.
+        const parseArgs = args.startsWith("dayfirst") ? `format="mixed", ${args}` : args;
+        const stamp = op.kind === "toDateTime" ? "%Y-%m-%dT%H:%M:%SZ" : "%Y-%m-%d";
+        // The app leaves a value it cannot read as it was; so does this, rather than blanking it.
+        return [
+          `_parsed = pd.to_datetime(${column}, ${parseArgs}, utc=True, errors="coerce")`,
+          `${column} = _parsed.dt.strftime(${py(stamp)}).where(_parsed.notna(), ${column})`,
+        ].join("\n");
       }
       case "cast":
         entries[entries.length - 1] = {
@@ -1080,11 +1090,11 @@ function typeLines(
         entries.push({ label: `type: ${name} → ${type}`, status: "supported" });
         break;
       case "date":
-        lines.push(`${column} = pd.to_datetime(${column}, errors="coerce").dt.date`);
+        lines.push(`${column} = pd.to_datetime(${column}, errors="coerce", format="mixed").dt.date`);
         entries.push({ label: `type: ${name} → date`, status: "supported" });
         break;
       case "datetime":
-        lines.push(`${column} = pd.to_datetime(${column}, errors="coerce")`);
+        lines.push(`${column} = pd.to_datetime(${column}, errors="coerce", format="mixed")`);
         entries.push({ label: `type: ${name} → datetime`, status: "supported" });
         break;
       case "time":
@@ -1129,6 +1139,18 @@ function typeLines(
     }
   }
   return lines;
+}
+
+/**
+ * The reader call. Columns the app holds as text or identifiers are read as text so
+ * 0800 does not become 800. `str` (not "string") keeps missing values as NaN, which
+ * the generated steps expect.
+ */
+function pandasReadLines(schema: readonly ColumnSchema[]): string[] {
+  const text = readAsTextColumns(schema);
+  if (text.length === 0) return ['df = pd.read_csv("input.csv")'];
+  const dtype = text.map((name) => `${py(name)}: str`).join(", ");
+  return [`df = pd.read_csv("input.csv", dtype={${dtype}})`];
 }
 
 /**
@@ -1200,7 +1222,7 @@ export function pandasRecipeScript(input: RecipeInput): RecipeScript {
     "import pandas as pd",
     "",
     "# Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).",
-    'df = pd.read_csv("input.csv")',
+    ...pandasReadLines(input.schema),
   ];
   const code = [...header, "", ...setup, ...body].join("\n");
   return { target: "pandas", code, entries };

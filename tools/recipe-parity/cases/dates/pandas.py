@@ -10,9 +10,9 @@
 import pandas as pd
 
 # Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).
-df = pd.read_csv("input.csv")
+df = pd.read_csv("input.csv", dtype={"when": str})
 
 # Logical types
-df["when"] = pd.to_datetime(df["when"], errors="coerce").dt.date
+df["when"] = pd.to_datetime(df["when"], errors="coerce", format="mixed").dt.date
 
 df.to_csv("cleaned.csv", index=False)

@@ -8,7 +8,7 @@
 import polars as pl
 
 # Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).
-df = pl.read_csv("input.csv")
+df = pl.read_csv("input.csv", schema_overrides={"name": pl.Utf8, "city": pl.Utf8})
 
 # Clean: name
 df = df.with_columns(pl.col("name").str.strip_chars().str.replace_all(r"\s+", " ").alias("name"))

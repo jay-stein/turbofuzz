@@ -83,6 +83,21 @@ const CASES: CaseSpec[] = [
     types: [{ column: 0, type: "date" }],
   },
   {
+    name: "mixed-dates-identifiers",
+    description: "day-first and ISO dates in one column, an impossible date, blanks, and a postcode that keeps its leading zero",
+    headers: ["postcode", "order_date"],
+    rows: [
+      ["0800", "2024-03-05"],
+      ["2000", "13/03/2024"],
+      ["0200", "05/03/2024"],
+      ["3000", "00/00/0000"],
+      ["0801", ""],
+      ["4000", "31/02/2024"],
+      ["5000", "2024-12-31"],
+    ],
+    cleans: [{ column: 1, ops: [{ kind: "toDate", order: "dmy" }] }],
+  },
+  {
     name: "dedupe",
     description: "keep the first copy of each duplicated row",
     headers: ["city", "status"],

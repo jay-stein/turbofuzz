@@ -110,8 +110,8 @@ test("Polars quotes column names safely and parses temporal types natively", () 
     transforms: [],
     schema: [],
   });
-  assert.match(script.code, /pl\.col\("first name"\)\.str\.to_datetime\(strict=False\)\.dt\.date\(\)/);
-  assert.match(script.code, /pl\.col\("odd \\"quoted\\""\)\.str\.to_datetime\(strict=False\)/);
+  assert.match(script.code, /pl\.coalesce\(\[_tf_read\("first name", f\) for f in _tf_formats\]\)\.dt\.replace_time_zone\(None\)\.dt\.date\(\)/);
+  assert.match(script.code, /_tf_read\("odd \\"quoted\\"", f\)/);
   assert.match(script.code, /pl\.col\("sûr_name"\)\.str\.to_time\(strict=False\)/);
   assert.match(script.code, /pl\.col\("elapsed"\)\.str\.to_duration\(strict=False\)/);
   assert.match(script.code, /“flag” was read as boolean/);
@@ -195,4 +195,27 @@ test("Polars reports regex splits without groups as manual", () => {
       (entry) => entry.status === "manual_step_required" && /no groups/.test(entry.label),
     ),
   );
+});
+
+const mixedDateInput = {
+  cleans: [{ name: "order_date", ops: [{ kind: "toDate", order: "dmy" }] }],
+  transforms: [],
+  schema: [
+    { name: "postcode", numeric: false, type: "identifier" },
+    { name: "qty", numeric: true, type: "integer" },
+    { name: "order_date", numeric: false, type: "date" },
+  ],
+} as const;
+
+test("Polars date clean coalesces every layout in a mixed column, day first, and keeps unreadable text", () => {
+  const { code } = polarsRecipeScript(mixedDateInput as never);
+  assert.match(code, /_tf_formats = \["%Y-%m-%d".*"%d\/%m\/%Y".*"%d\/%m\/%y"/);
+  assert.doesNotMatch(code, /"%m\/%d\/%Y"/);
+  assert.match(code, /pl\.coalesce\(pl\.coalesce\(\[_tf_read\("order_date", f\) for f in _tf_formats\]\)\.dt\.strftime\("%Y-%m-%d"\), pl\.col\("order_date"\)\)/);
+  assert.match(polarsRecipeScript({ ...mixedDateInput, cleans: [{ name: "order_date", ops: [{ kind: "toDate", order: "mdy" }] }] } as never).code, /"%m\/%d\/%Y"/);
+});
+
+test("Polars reader keeps identifier and date columns as text", () => {
+  const { code } = polarsRecipeScript(mixedDateInput as never);
+  assert.match(code, /df = pl\.read_csv\("input\.csv", schema_overrides=\{"postcode": pl\.Utf8, "order_date": pl\.Utf8\}\)/);
 });
