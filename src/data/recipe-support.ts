@@ -9,6 +9,42 @@ import { builtInNullTokens } from "../parse/null-tokens.js";
 
 export type RecipeTarget = "pandas" | "polars";
 
+/**
+ * Library versions the generated scripts were run against by the parity harness
+ * (tools/recipe-parity). They must equal the pins in tools/recipe-parity/requirements.txt:
+ * run_parity.py refuses other versions and test/recipe-versions.test.ts compares the two.
+ */
+export const TESTED_PANDAS = "3.1.1";
+export const TESTED_POLARS = "2.1.0";
+/** Oldest versions the harness was also run on and passed. Anything older is untested. */
+export const MIN_VERIFIED_PANDAS = "2.3.3";
+export const MIN_VERIFIED_POLARS = "1.44.2";
+
+const LIBRARY: Record<RecipeTarget, { name: string; tested: string; min: string }> = {
+  pandas: { name: "pandas", tested: TESTED_PANDAS, min: MIN_VERIFIED_PANDAS },
+  polars: { name: "Polars", tested: TESTED_POLARS, min: MIN_VERIFIED_POLARS },
+};
+
+/** "3.1.1" → "3.1". */
+function minor(version: string): string {
+  return version.split(".").slice(0, 2).join(".");
+}
+
+/** Script header lines naming the library version the script is written for and was tested with. */
+export function versionHeaderLines(target: RecipeTarget): string[] {
+  const { name, tested, min } = LIBRARY[target];
+  const major = Number(tested.split(".")[0]);
+  return [
+    `# Written for ${name} ${minor(tested)} (tested with ${name} ${tested}). Install: pip install "${target}>=${minor(tested)},<${major + 1}"`,
+    `#   Also passes the same checks on ${name} ${min}; versions older than that are untested.`,
+  ];
+}
+
+/** "tested with pandas 3.1.1" — shown beside the language picker in the Recipe drawer. */
+export function testedVersionLine(target: RecipeTarget): string {
+  return `Tested with ${LIBRARY[target].name} ${LIBRARY[target].tested}`;
+}
+
 export type SupportStatus = "supported" | "supported_with_warning" | "manual_step_required";
 
 export interface SupportEntry {
@@ -47,10 +83,11 @@ export function supportSummary(entries: readonly SupportEntry[]): SupportSummary
 /** Human line for the Recipe drawer: what the exporter can and cannot do. */
 export function supportHint(target: RecipeTarget, entries: readonly SupportEntry[]): string {
   const { supported, warnings, manual } = supportSummary(entries);
-  if (entries.length === 0) return `No steps to export as ${target}.`;
+  if (entries.length === 0) return `No steps to export as ${target}. ${testedVersionLine(target)}.`;
   const parts = [`${supported + warnings} of ${entries.length} steps export as executable ${target}`];
   if (warnings > 0) parts.push(`${warnings} with a documented limitation`);
   if (manual > 0) parts.push(`${manual} need manual translation`);
+  parts.push(testedVersionLine(target));
   return parts.join(" · ");
 }
 

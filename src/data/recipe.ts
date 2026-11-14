@@ -12,6 +12,7 @@ import {
   missingTokenSetup,
   readAsTextColumns,
   supportHeaderLines,
+  versionHeaderLines,
   typeDateEntry,
   type RecipeScript,
   type SupportEntry,
@@ -1326,7 +1327,7 @@ export function pandasRecipeScript(input: RecipeInput): RecipeScript {
   const needsRe = body.some((line) => /\bre\./.test(line));
   const header = [
     "# TurboFuzz pandas recipe — generated from the applied Recipe.",
-    "# Requirements: pip install pandas  (pandas >= 2.0 for format=\"mixed\" parsing)",
+    ...versionHeaderLines("pandas"),
     "#   Dates: year-first values are read with format=\"ISO8601\" before format=\"mixed\", because on",
     "#   pandas 3 format=\"mixed\" with dayfirst=True reads 2024-03-05 as 3 May (both need pandas >= 2.0).",
     "# Input: the app does not record the source file format; point the reader at your data.",

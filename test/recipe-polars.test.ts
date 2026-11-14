@@ -18,7 +18,8 @@ test("golden Polars script: cleans, null policy, types, transforms", () => {
     ],
   });
   const expected = String.raw`# TurboFuzz Polars recipe — generated from the applied Recipe.
-# Requirements: pip install polars  (polars >= 1.0)
+# Written for Polars 2.1 (tested with Polars 2.1.0). Install: pip install "polars>=2.1,<3"
+#   Also passes the same checks on Polars 1.44.2; versions older than that are untested.
 # Input: the app does not record the source file format; point the reader at your data.
 # Conventions: date → pl.Date; datetime → pl.Datetime (naive stays naive);
 #   time → pl.Time; duration → pl.Duration; unparseable values → null (strict=False).

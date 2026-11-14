@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-16 — Recipe: exported scripts name the pandas and Polars versions they were written for and tested with
+
+- **Status:** Verified (unit tests; parity harness on the pinned pandas 3.1.1 and Polars 2.1.0, and also on pandas 2.3.3, Polars 2.0.0 and 1.44.2). The Recipe drawer line not yet seen in a browser.
+- **Related issue / decision:** a script said only "pandas >= 2.0", although behaviour differs between pandas 2 and 3.
+- **What changed:** Script headers read "Written for pandas 3.1 (tested with pandas 3.1.1)" and "Written for Polars 2.1 (tested with Polars 2.1.0)", with the older versions that also pass. The parity harness pins pandas==3.1.1 and polars==2.1.0 and refuses to run on other versions unless run with --unpinned; a unit test checks that the pins equal the constants in the app. The Recipe drawer's support line ends with "Tested with ...".
+- **Files / components changed:** src/data/recipe-support.ts, src/data/recipe.ts, src/data/recipe-polars.ts; tools/recipe-parity/requirements.txt, run_parity.py, README.md and regenerated case headers; test/recipe-versions.test.ts (new), test/recipe.test.ts, test/recipe-polars.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-15 — Recipe: exported scripts read every date layout the app reads, blank its missing-value markers, keep milliseconds, read the detected day/month order, and run time-bucket, date-part and cohort aggregates
 
 - **Status:** Verified (unit tests; parity harness, 21 cases pass)

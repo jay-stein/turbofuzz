@@ -21,6 +21,21 @@ python -m venv .venv-recipe-parity
 
 On macOS/Linux use `.venv-recipe-parity/bin/python`.
 
+## Versions
+
+`requirements.txt` pins the exact pandas and Polars versions the scripts were
+last run on. Every exported script names them in its header ("Written for
+pandas 3.1 (tested with pandas 3.1.1)"), built from `TESTED_PANDAS` /
+`TESTED_POLARS` in `src/data/recipe-support.ts`; `test/recipe-versions.test.ts`
+fails if those constants and the pins disagree, and `run_parity.py` exits 3 if
+the installed versions differ from the pins.
+
+To move to a new release: install it, run the harness, fix any emitter
+difference, then update the pin and the constant together. To check an older
+version for the "also passes" line (`MIN_VERIFIED_*`), run in a separate venv
+with `run_parity.py --unpinned` and record the version on the "Also verified"
+line of `requirements.txt`.
+
 The runner exits non-zero on any difference and prints the failing cell, so it
 can be wired into CI once a Python environment with `pandas` and `polars` is
 available. The Node test suite (`test/recipe.test.ts`,

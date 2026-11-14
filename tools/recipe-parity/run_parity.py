@@ -7,22 +7,56 @@ Usage (from the repo root, after generating cases):
     npx tsx tools/recipe-parity/make_cases.ts
     python tools/recipe-parity/run_parity.py
 
-Requires:
+Requires the exact versions pinned in requirements.txt:
     pip install -r tools/recipe-parity/requirements.txt
+
+The run stops if the installed pandas or Polars differs from the pin, so the
+"tested with" versions printed in every exported script cannot drift from what
+was actually run. To check an older version (for the "also passes" line), use
+--unpinned: the run is then labelled as not a tested-version result.
 """
 
 from __future__ import annotations
 
 import csv
 import math
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from importlib import metadata
 from pathlib import Path
 
 CASES_DIR = Path(__file__).resolve().parent / "cases"
+REQUIREMENTS = Path(__file__).resolve().parent / "requirements.txt"
 TARGETS = ("pandas", "polars")
+
+
+def pinned_versions() -> dict[str, str]:
+    pins: dict[str, str] = {}
+    for line in REQUIREMENTS.read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r"(pandas|polars)==(\S+)", line.strip())
+        if match:
+            pins[match.group(1)] = match.group(2)
+    return pins
+
+
+def version_problems() -> list[str]:
+    problems: list[str] = []
+    pins = pinned_versions()
+    for package in TARGETS:
+        pin = pins.get(package)
+        if pin is None:
+            problems.append(f"requirements.txt has no {package}==<version> pin")
+            continue
+        try:
+            installed = metadata.version(package)
+        except metadata.PackageNotFoundError:
+            installed = "not installed"
+        if installed != pin:
+            problems.append(f"{package} {installed} is installed but requirements.txt pins {pin}")
+    return problems
 
 
 def read_csv(path: Path) -> tuple[list[str], list[dict[str, str]]]:
@@ -112,6 +146,19 @@ def main() -> int:
     if not CASES_DIR.exists():
         print("No cases found — run: npx tsx tools/recipe-parity/make_cases.ts")
         return 2
+    installed = ", ".join(f"{package} {metadata.version(package)}" for package in TARGETS)
+    problems = version_problems()
+    if problems and "--unpinned" not in sys.argv[1:]:
+        print("VERSION MISMATCH: this run would not test the versions the scripts claim:")
+        for problem in problems:
+            print(f"  {problem}")
+        print("Install the pins (pip install -r tools/recipe-parity/requirements.txt),")
+        print("or update requirements.txt and TESTED_* in src/data/recipe-support.ts together.")
+        return 3
+    if problems:
+        print(f"UNPINNED RUN on {installed}: not the tested versions; result is informational.")
+    else:
+        print(f"Running on the pinned versions: {installed}")
     all_ok = True
     for case_dir in sorted(path for path in CASES_DIR.iterdir() if path.is_dir()):
         print(f"case {case_dir.name}")
