@@ -123,6 +123,7 @@ import {
   openLargeLoadDialog,
   SAMPLE_ROWS,
 } from "./load-guard.js";
+import { loadDetailText, percentOf, type LoadReport } from "./load-indicator.js";
 import { isParquetName } from "../parse/parquet.js";
 import { openRecipeMapping } from "./recipe-mapping.js";
 import { openExportPanel } from "./export-panel.js";
@@ -708,6 +709,9 @@ export class App {
   private loadTitle!: HTMLElement;
   private loadDetail!: HTMLElement;
   private loadBar!: HTMLElement;
+  private loadStartedAt = 0;
+  private loadReport: LoadReport = { detail: "" };
+  private loadTicker: number | null = null;
   private loadCancel!: HTMLButtonElement;
   /** Banner note recorded when a large load is taken as a sample. */
   private sampleNote: string | null = null;
@@ -1121,7 +1125,7 @@ export class App {
     card.append(singlePane, this.comparePane, privacy);
 
     this.loadPanel = el("div", {
-      class: "load-progress hidden",
+      class: "load-progress load-progress-floating hidden",
       role: "status",
       "aria-live": "polite",
     });
@@ -1144,7 +1148,8 @@ export class App {
     this.loadCancel.title = "Stop this import — the current data stays loaded";
     this.loadCancel.addEventListener("click", () => this.cancelLoad());
     this.loadPanel.append(loadHead, loadTrack, this.loadCancel);
-    singlePane.append(this.loadPanel);
+    // Floating on the app root, so it shows over a loaded table when data is replaced.
+    this.root.append(this.loadPanel);
 
     const fileInput = el("input", {
       type: "file",
@@ -1848,6 +1853,9 @@ export class App {
     this.generation++;
     this.sends.clear();
     this.hideTablePicker();
+    // Reloads and appends start here without a pick step: the panel must show on every path.
+    if (this.loadPanel.classList.contains("hidden")) this.showLoadProgress(options.name, null);
+    this.loadCancel.disabled = false;
     this.setLoadingText(
       options.files !== undefined && options.files.length > 1
         ? `Parsing ${options.files.length} files.`
@@ -2588,6 +2596,8 @@ export class App {
     this.loading = true;
     this.generation++;
     this.sends.clear();
+    if (this.loadPanel.classList.contains("hidden")) this.showLoadProgress(name, null);
+    this.loadCancel.disabled = false;
     this.setLoadingText("Building table…");
     this.setImportSource(null);
 
@@ -2639,11 +2649,16 @@ export class App {
     this.loadTitle.textContent = `Processing ${name}${
       bytes === null ? "" : ` · ${formatBytes(bytes)}`
     }`;
+    this.loadStartedAt = performance.now();
+    this.loadPanel.classList.remove("hidden");
     this.setLoadDetail("Reading file…", null, null);
-    this.loadCancel.disabled = false;
+    // Cancel works once the worker has the load; before that the file is only being read here.
+    this.loadCancel.disabled = !this.loading;
     this.statusEl.textContent = "";
     this.statusEl.classList.remove("error");
-    this.loadPanel.classList.remove("hidden");
+    // The table underneath is about to be replaced: show it as such, not live and idle.
+    this.workspace.classList.add("is-replacing");
+    this.loadTicker ??= window.setInterval(() => this.renderLoadDetail(), 500);
   }
 
   /** Stops the in-flight import at the worker's next checkpoint. */
@@ -2655,16 +2670,25 @@ export class App {
   }
 
   private hideLoadProgress(): void {
+    const wasShown = !this.loadPanel.classList.contains("hidden");
     this.loadPanel.classList.add("hidden");
+    this.workspace.classList.remove("is-replacing");
+    if (this.loadTicker !== null) window.clearInterval(this.loadTicker);
+    this.loadTicker = null;
+    // The worker let go of a cancelled parse; show the memory as it is now.
+    if (wasShown) void this.memory.refresh();
   }
 
   private setLoadDetail(text: string, current: number | null, total: number | null): void {
-    this.loadDetail.textContent = text;
-    const determinate = current !== null && total !== null && total > 0;
-    this.loadBar.classList.toggle("indeterminate", !determinate);
-    this.loadBar.style.width = determinate
-      ? `${Math.round((current / total) * 100)}%`
-      : "";
+    this.loadReport = { detail: text, current: current ?? undefined, total: total ?? undefined };
+    this.renderLoadDetail();
+  }
+
+  private renderLoadDetail(): void {
+    const percent = percentOf(this.loadReport);
+    this.loadDetail.textContent = loadDetailText(this.loadReport, this.loadStartedAt, performance.now());
+    this.loadBar.classList.toggle("indeterminate", percent === null);
+    this.loadBar.style.width = percent === null ? "" : `${percent}%`;
   }
 
   /** Routes load-flow text to the panel while it is visible, else the status line. */

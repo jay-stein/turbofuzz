@@ -125,6 +125,11 @@ export async function buildDatasetAsync(
       for (let row = start; row < end; row++) target[row] = rows[row]?.[c] ?? "";
     }
     for (let row = start; row < end; row++) rows[row] = null as unknown as string[];
+    onProgress?.({
+      detail: `Splitting rows into columns: ${end.toLocaleString()} of ${rowCount.toLocaleString()} rows`,
+      current: end,
+      total: rowCount,
+    });
     await yieldTick();
   }
 

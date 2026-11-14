@@ -1,6 +1,7 @@
 import "../data/display-locale.js";
 import { setNumberLocale } from "../data/display-locale.js";
 import { setDateTieBreak } from "../parse/conventions.js";
+import { createProgressThrottle } from "../parse/progress-throttle.js";
 import { detectSuggestions } from "../data/suggestions.js";
 import { ColumnData } from "../data/column.js";
 import { isGroupableColumn } from "../data/groupable.js";
@@ -262,6 +263,8 @@ let activeLoad: { requestId: number; cancelled: boolean } | null = null;
 
 const FIRST_PAGE_ROWS = 40;
 
+const loadProgressGate = createProgressThrottle(250);
+
 /** Progress tied to one load, so the client can drop messages from old loads. */
 function postLoadProgress(
   requestId: number,
@@ -272,6 +275,9 @@ function postLoadProgress(
     total?: number;
   },
 ): void {
+  // A few reports a second keep the main thread free; a new phase always goes out.
+  const finished = progress.current !== undefined && progress.current === progress.total;
+  if (!loadProgressGate(`${requestId}:${progress.phase}`, finished)) return;
   post({
     type: "progress",
     requestId,

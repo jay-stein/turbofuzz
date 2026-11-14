@@ -126,3 +126,30 @@ test("big loads report phased progress tied to the load request", async () => {
     assert.ok(phases.has(phase), `expected a ${phase} progress event`);
   }
 });
+
+test("a big text load reports the rows read so far, and a cancel lands while it is still reading", async () => {
+  await ensureWorker();
+  const lines = ["id,name,qty"];
+  for (let i = 0; i < 300_000; i++) lines.push(`${i},"item ${i}",${i % 7}`);
+  const text = lines.join("\n");
+
+  send({ type: "load", requestId: 20, name: "slow", delimiter: "auto", hasHeaders: true, text });
+  for (let i = 0; i < 2000; i++) {
+    await flush();
+    if (responses.some((entry) => entry.type === "progress" && entry.requestId === 20 && /so far/.test(String(entry.detail)))) break;
+  }
+  const reading = responses.find((entry) => entry.type === "progress" && entry.requestId === 20 && /so far/.test(String(entry.detail)));
+  assert.ok(reading !== undefined, "rows read so far are reported");
+  assert.ok(Number(reading.total) > 0 && Number(reading.current) <= Number(reading.total));
+
+  send({ type: "cancelLoad" });
+  for (let i = 0; i < 2000; i++) {
+    await flush();
+    if (responses.some((entry) => entry.type === "loadCancelled" && entry.requestId === 20)) break;
+  }
+  find("loadCancelled", 20);
+  assert.equal(responses.some((entry) => entry.type === "loaded" && entry.requestId === 20), false);
+  send({ type: "getRows", requestId: 21, start: 0, end: 1 });
+  await flush();
+  assert.ok(find("rows", 21) !== undefined, "the earlier data still answers");
+});

@@ -925,6 +925,27 @@ textarea:focus {
   align-self: flex-start;
 }
 
+/* Above the front page (.paste-view, 45) and under dialogs (50), so Cancel is always reachable. */
+.load-progress-floating {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px));
+  z-index: 46;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.35);
+}
+
+.load-progress-floating.hidden {
+  display: none;
+}
+
+/* The loaded table while a file is replacing it. */
+.workspace.is-replacing {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 @keyframes load-spin {
   to {
     transform: rotate(360deg);

@@ -7,6 +7,8 @@ import type { NumberLocale } from "../parse/numbers.js";
 import {
   measureRagged,
   parseDelimited,
+  parseDelimitedAsync,
+  type ParsedTable,
   structureTable,
   type RaggedInfo,
 } from "../parse/parse.js";
@@ -90,7 +92,10 @@ function buildProgress(options: IngestOptions): (progress: {
  * Decode + parse + header detection. Reports `read` and `parse` progress;
  * the caller reports `infer` before building columns.
  */
-function prepareGrid(options: IngestOptions): PreparedGrid {
+function prepareGrid(
+  options: IngestOptions,
+  done?: { encoding: FileEncoding | null; parsed: ParsedTable },
+): PreparedGrid {
   if (options.table !== undefined) {
     const { headers, rows, ragged } = structureTable(
       options.table.rows,
@@ -100,9 +105,9 @@ function prepareGrid(options: IngestOptions): PreparedGrid {
   }
 
   let text = options.text;
-  let encoding: FileEncoding | null = null;
+  let encoding: FileEncoding | null = done?.encoding ?? null;
 
-  if (text === undefined && options.buffer !== undefined) {
+  if (done === undefined && text === undefined && options.buffer !== undefined) {
     options.onProgress?.({ phase: "read", detail: "Reading file…" });
     const decoded = decodeText(options.buffer);
     text = decoded.text;
@@ -112,7 +117,7 @@ function prepareGrid(options: IngestOptions): PreparedGrid {
   const source = text ?? "";
 
   // JSON is structure-carrying, so it bypasses delimiter/header detection.
-  if (isJsonName(options.name)) {
+  if (done === undefined && isJsonName(options.name)) {
     options.onProgress?.({ phase: "parse", detail: "Parsing JSON…" });
     const grid = parseJsonGrid(source, options.hasHeaders);
     return {
@@ -124,7 +129,7 @@ function prepareGrid(options: IngestOptions): PreparedGrid {
       numberPrior: "dot",
     };
   }
-  if (looksLikeJson(source, options.delimiter)) {
+  if (done === undefined && looksLikeJson(source, options.delimiter)) {
     try {
       options.onProgress?.({ phase: "parse", detail: "Parsing JSON…" });
       const grid = parseJsonGrid(source, options.hasHeaders);
@@ -141,15 +146,17 @@ function prepareGrid(options: IngestOptions): PreparedGrid {
     }
   }
 
-  options.onProgress?.({ phase: "parse" });
+  if (done === undefined) options.onProgress?.({ phase: "parse" });
   // Keep the raw row lengths: the final width is only known after header
   // detection, and raggedness is measured against that width below.
-  const parsed = parseDelimited(source, {
-    delimiter: options.delimiter,
-    hasHeaders: false,
-    normalizeRows: false,
-    ...(options.maxRows === undefined ? {} : { preview: options.maxRows }),
-  });
+  const parsed =
+    done?.parsed ??
+    parseDelimited(source, {
+      delimiter: options.delimiter,
+      hasHeaders: false,
+      normalizeRows: false,
+      ...(options.maxRows === undefined ? {} : { preview: options.maxRows }),
+    });
 
   // Semicolon delimiters and windows-1252 are strong European-locale signals,
   // so numeric columns with ambiguous separators lean towards decimal commas.
@@ -174,6 +181,56 @@ function prepareGrid(options: IngestOptions): PreparedGrid {
   }
 
   return { headers, rows, encoding, delimiter: parsed.delimiter, ragged, numberPrior };
+}
+
+const yieldTick = (): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
+/**
+ * `prepareGrid` for the worker: big delimited text is read in chunks that
+ * report rows so far and let a cancel land. Null when cancelled.
+ */
+async function prepareGridAsync(
+  options: IngestOptions,
+  control: IngestControl,
+): Promise<PreparedGrid | null> {
+  if (options.table !== undefined || options.maxRows !== undefined) return prepareGrid(options);
+  let text = options.text;
+  let encoding: FileEncoding | null = null;
+  if (text === undefined && options.buffer !== undefined) {
+    options.onProgress?.({ phase: "read", detail: "Reading file…" });
+    // Let the "Reading" report out before the decode holds the thread.
+    await yieldTick();
+    if (control.cancelled?.() === true) return null;
+    const decoded = decodeText(options.buffer);
+    text = decoded.text;
+    encoding = decoded.encoding;
+    await yieldTick();
+    if (control.cancelled?.() === true) return null;
+  }
+  const source = text ?? "";
+  const plain = { ...options, text: source, buffer: undefined };
+  if (isJsonName(options.name) || looksLikeJson(source, options.delimiter)) {
+    return { ...prepareGrid(plain), encoding };
+  }
+  const parsed = await parseDelimitedAsync(
+    source,
+    { delimiter: options.delimiter, hasHeaders: false, normalizeRows: false },
+    {
+      cancelled: control.cancelled,
+      onChunk: (rows, chars, total) =>
+        options.onProgress?.({
+          phase: "parse",
+          detail: `Reading rows: ${rows.toLocaleString()} so far`,
+          current: chars,
+          total,
+        }),
+    },
+  );
+  if (parsed === null) return null;
+  return prepareGrid(plain, { encoding, parsed });
 }
 
 export function ingestDataset(options: IngestOptions): IngestResult {
@@ -206,7 +263,8 @@ export async function ingestDatasetAsync(
   options: IngestOptions,
   control: IngestControl = {},
 ): Promise<IngestResult | null> {
-  const prepared = prepareGrid(options);
+  const prepared = await prepareGridAsync(options, control);
+  if (prepared === null) return null;
   options.onProgress?.({ phase: "infer", detail: "Inferring schema…" });
   const dataset = await buildDatasetAsync(
     options.name,
@@ -259,8 +317,8 @@ export async function ingestFilesAsync(
       current: index,
       total: files.length,
     });
-    prepared.push(
-      prepareGrid({
+    const grid = await prepareGridAsync(
+      {
         name: file.name,
         delimiter: options.delimiter,
         hasHeaders: options.hasHeaders,
@@ -270,9 +328,11 @@ export async function ingestFilesAsync(
         // One layout for every file: appended files must share a format.
         headerLayout: options.headerLayout,
         onProgress: options.onProgress,
-      }),
+      },
+      control,
     );
-    if (control.cancelled?.() === true) return null;
+    if (grid === null || control.cancelled?.() === true) return null;
+    prepared.push(grid);
   }
 
   const headers = [...prepared[0].headers];

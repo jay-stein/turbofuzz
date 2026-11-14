@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-14-11 — Import: large loads show rows read, elapsed time and Cancel over the dimmed table
+
+- **Status:** Verified (unit: 13 + 64 tests; browser spec load-progress passed, after the first-load Cancel fix with z-index 46)
+- **Related issue / decision:** 2026-11-14 product assessment: replacing a big table showed no indicator for about 89 s.
+- **What changed:** The progress panel lived inside the hidden intake card, and the worker parsed in one synchronous call that could not see Cancel. Now a floating panel shows rows read, a percentage where one can be known, elapsed time and Cancel on every load path, and the old table is dimmed. The parse reads in 4M-character chunks with no measurable slowdown (100k rows: 254–296 ms plain vs 251–272 ms chunked; 500k: 1,571–1,833 vs 1,615–1,632 ms). Cancel works during read, parse and column build.
+- **Not covered yet:** Cancel during the synchronous stats phase.
+- **Files / components changed:** src/parse/parse.ts, src/parse/progress-throttle.ts (new), src/worker/ingest.ts, src/worker/search.worker.ts, src/data/build.ts, src/ui/load-indicator.ts (new), src/ui/app.ts, src/styles.css; test/load-indicator.test.ts, test/import-progress.test.ts, test/worker-load-cancel.test.ts, test/e2e/load-progress.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-14
+
 ### CHG-2026-11-14-10 — Table: the time in the results bar is the time the user waited; first use of a column says it is preparing
 
 - **Status:** Verified (unit: 6 + 19 tests). Not measured end-to-end in the browser.
