@@ -587,23 +587,43 @@ function writeOnly(book: XlsxBuilder, name: string, side: CompareSide, match: Ma
 
 // ---------------------------------------------------------------- Similar keys
 
-/** Rows paired by similar key text, those to review first: what each side called it, how close, and what else agrees. */
+/**
+ * Every row paired by similar key text, the least trusted first: the row in each file, what each side called it, how alike the
+ * spellings are, a confidence and the reasons for it, so an analyst can see each leap taken to pair two rows.
+ */
 function writeSimilar(book: XlsxBuilder, name: string, fuzzy: NonNullable<MatchResult["fuzzy"]>, sheetRows: number): void {
   const style = (spec: StyleSpec): number => book.styles.style(spec);
-  const sheet = book.sheet({ name, tabColor: "F59E0B", widths: [34, 34, 12, 22, 26], freeze: { rows: 1, cols: 0 }, landscape: true, fitWidth: true, printTitleRows: [1, 1] });
-  sheet.row(1, ["Key in A", "Key in B", "Similar", "Other columns", "Check"], headerStyle(book, P.greyFill, P.ink), 22);
-  const ordered = [...fuzzy.pairs].sort((x, y) => (x.tier === y.tier ? x.score - y.score : x.tier === "review" ? -1 : 1));
-  const written = Math.min(ordered.length, Math.max(0, sheetRows - 2));
-  const review = style({ fill: P.amberStrong, color: P.amberInk, bold: true, align: "center" });
-  const sure = style({ align: "center" });
+  const sheet = book.sheet({ name, tabColor: "F59E0B", widths: [8, 8, 34, 34, 11, 13, 90], freeze: { rows: 2, cols: 0 }, landscape: true, fitWidth: true, printTitleRows: [1, 2] });
+  const head = headerStyle(book, P.greyFill, P.ink);
+  const total = fuzzy.pairs.length;
+  const low = fuzzy.pairs.filter((pair) => pair.confidence === "Low").length;
+  const medium = fuzzy.pairs.filter((pair) => pair.confidence === "Medium").length;
+  sheet.row(
+    1,
+    [`${nf.format(total)} rows were paired by similar key, not an exact one: ${nf.format(total - low - medium)} high confidence, ${nf.format(medium)} medium, ${nf.format(low)} low. Least trusted first. Row numbers count data rows, not the header. A reason that says "differs" means a value changed between the files.`],
+    [style({ italic: true, color: P.dim, wrap: true, valign: "top" })],
+    36,
+  );
+  sheet.row(2, ["Row in A", "Row in B", "Key in A", "Key in B", "Similar", "Confidence", "Why this pairing was made"], head, 22);
+  const ordered = [...fuzzy.pairs].sort((x, y) => confidenceRank(x.confidence) - confidenceRank(y.confidence) || x.score - y.score);
+  const written = Math.min(ordered.length, Math.max(0, sheetRows - 3));
+  const centre = style({ align: "center" });
+  const grade = {
+    High: style({ fill: P.greenStrong, color: "14532D", bold: true, align: "center" }),
+    Medium: style({ fill: P.amberStrong, color: P.amberInk, bold: true, align: "center" }),
+    Low: style({ fill: P.redStrong, color: "7F1D1D", bold: true, align: "center" }),
+  } as const;
   ordered.slice(0, written).forEach((pair, index) => {
-    sheet.row(
-      index + 2,
-      [pair.aKey, pair.bKey, `${Math.round(pair.score * 100)}%`, pair.checked === 0 ? "none to check" : `${pair.agree} of ${pair.checked} agree`, pair.tier === "review" ? (pair.ambiguous ? "Review: another row was as close" : "Review") : "Confident"],
-      [0, 0, sure, 0, pair.tier === "review" ? review : sure],
-    );
+    sheet.row(index + 3, [pair.aRow + 1, pair.bRow + 1, pair.aKey, pair.bKey, `${Math.round(pair.score * 100)}%`, pair.confidence, pair.reason], [centre, centre, 0, 0, centre, grade[pair.confidence], style({ wrap: true, valign: "top" })]);
   });
-  sheet.end({ autoFilter: `A1:E${Math.max(1, written + 1)}` });
+  if (written < ordered.length) {
+    sheet.row(written + 3, [`Only the first ${nf.format(written)} of ${nf.format(ordered.length)} pairings are listed here: a sheet cannot hold more.`], style({ bold: true, fill: P.amberFill, color: P.amberInk }));
+  }
+  sheet.end({ autoFilter: `A2:G${Math.max(2, written + 2)}`, merges: ["A1:G1"] });
+}
+
+function confidenceRank(confidence: "High" | "Medium" | "Low"): number {
+  return confidence === "Low" ? 0 : confidence === "Medium" ? 1 : 2;
 }
 
 // ------------------------------------------------------------------- Columns
@@ -790,6 +810,10 @@ function writeSummary(
   for (const [side, d, e] of [["A", report.duplicateKeys.a, report.emptyKeys.a], ["B", report.duplicateKeys.b, report.emptyKeys.b]] as const) {
     if (d > 0) warnings.push(`Warning: ${nf.format(d)} rows in ${side} repeat a key; repeats pair in file order, so check the key before trusting the numbers.`);
     if (e > 0) warnings.push(`Warning: ${nf.format(e)} rows in ${side} have no key, so they cannot be matched.`);
+  }
+  if (report.fuzzy !== null && report.fuzzy.confident + report.fuzzy.review > 0) {
+    const by = report.fuzzy.byConfidence;
+    warnings.push(`Note: ${nf.format(by.high + by.medium + by.low)} rows were paired by similar key rather than an exact one (${nf.format(by.high)} high confidence, ${nf.format(by.medium)} medium, ${nf.format(by.low)} low). Each pairing and the reasons for it are on the Similar keys sheet.`);
   }
   if (facts.diffRoom.cut) warnings.push(`Note: the Differences sheet lists the first ${nf.format(facts.diffRoom.rows)} of ${nf.format(facts.total)} rows that differ, because a sheet cannot hold more. The rest are left out.`);
   if (facts.changeCut) warnings.push(`Note: the Changed cells sheet lists the first ${nf.format(facts.changeRows)} of ${nf.format(facts.cellTotal)} changed cells. The rest are left out.`);

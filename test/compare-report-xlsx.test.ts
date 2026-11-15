@@ -232,3 +232,29 @@ test("the Big Picture sheet colours the size of each shift and lists what was sk
   assert.deepEqual(none.SheetNames, ["Summary", "Differences", "Changed cells", "Only in A", "Only in B", "Columns"], "no Big Picture without a shift report");
   assert.equal(XLSX.utils.sheet_to_json<unknown[]>(none.Sheets["Differences"]!, { header: 1, blankrows: false }).length, 3);
 });
+
+test("similar-key pairings get their own sheet: both rows, both keys, a confidence and the reason, least trusted first", async () => {
+  const ledger = side("ledger.csv", { Supplier: ["Acme Pty Ltd", "Globex Corporation", "Northern Plumbers Group", "Hooli"], Amount: ["100", "75", "100", "5"] });
+  const bank = side("bank.csv", { Supplier: ["ACME Pty. Limited", "Globex Corp", "Northern Plumbing Supply", "Wayne"], Amount: ["100", "80", "9000", "5"] });
+  const pairing = pairColumns(ledger, bank);
+  const key = pairing.pairs.find((pair) => ledger.columns[pair.a].name === "Supplier")!;
+  const match = matchRows(ledger, bank, pairing, [key], DEFAULT_RULES, false, { threshold: 0.8 });
+  const report = buildReport(ledger, bank, pairing, match);
+  const result = await compareReportWorkbook(ledger, bank, pairing, match, [key.a], report, null, META);
+  const book = XLSX.read(result.bytes, { type: "array" });
+  assert.ok(book.SheetNames.includes("Similar keys"));
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets["Similar keys"]!, { header: 1, blankrows: false });
+  assert.match(String(rows[0]![0]), /3 rows were paired by similar key/);
+  assert.deepEqual(rows[1], ["Row in A", "Row in B", "Key in A", "Key in B", "Similar", "Confidence", "Why this pairing was made"]);
+  const body = rows.slice(2) as unknown[][];
+  assert.equal(body.length, 3);
+  // Least trusted first: the loose name with a contradicting amount, then the same name with a different amount, then the clean pair.
+  assert.deepEqual(body.map((row) => row[5]), ["Low", "Medium", "High"]);
+  assert.equal(body[0]![2], "Northern Plumbers Group");
+  assert.match(String(body[0]![6]), /Amount differs \(A: 100, B: 9000\)/);
+  assert.match(String(body[1]![6]), /Same name once tidied.*Amount differs \(A: 75, B: 80\)/);
+  assert.match(String(body[2]![6]), /Amount agrees/);
+  assert.deepEqual([body[2]![0], body[2]![1]], [1, 1]);
+  const summary = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets["Summary"]!, { header: 1, blankrows: false }).flat().join(" ");
+  assert.match(summary, /3 rows were paired by similar key rather than an exact one/);
+});

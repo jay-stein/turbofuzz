@@ -47,7 +47,9 @@ export interface CompareReport {
     threshold: number;
     confident: number;
     review: number;
-    pairs: { aRow: number; bRow: number; aKey: string; bKey: string; score: number; tier: "confident" | "review"; agree: number; checked: number; ambiguous: boolean }[];
+    pairs: { aRow: number; bRow: number; aKey: string; bKey: string; score: number; tier: "confident" | "review"; agree: number; checked: number; ambiguous: boolean; confidence: "High" | "Medium" | "Low"; reason: string }[];
+    /** Pairs by confidence, so the headline says how many rest on a leap. */
+    byConfidence: { high: number; medium: number; low: number };
   } | null;
 }
 
@@ -146,6 +148,13 @@ export function buildReport(a: CompareSide, b: CompareSide, pairing: ColumnPairi
   };
 }
 
+const TRUST_ORDER = { Low: 0, Medium: 1, High: 2 } as const;
+
+/** Least trusted first, then the least similar, so what needs a look comes first. */
+export function byTrust(x: { confidence: "High" | "Medium" | "Low"; score: number }, y: { confidence: "High" | "Medium" | "Low"; score: number }): number {
+  return TRUST_ORDER[x.confidence] - TRUST_ORDER[y.confidence] || x.score - y.score;
+}
+
 function fuzzyReport(match: MatchResult): CompareReport["fuzzy"] {
   if (match.fuzzy === null || match.fuzzy === undefined) return null;
   const pairs = match.fuzzy.pairs;
@@ -155,6 +164,11 @@ function fuzzyReport(match: MatchResult): CompareReport["fuzzy"] {
     threshold: match.fuzzy.threshold,
     confident: confident.length,
     review: review.length,
-    pairs: [...review, ...confident].slice(0, FUZZY_LISTED).map(({ aRow, bRow, aKey, bKey, score, tier, agree, checked, ambiguous }) => ({ aRow, bRow, aKey, bKey, score, tier, agree, checked, ambiguous })),
+    byConfidence: {
+      high: pairs.filter((pair) => pair.confidence === "High").length,
+      medium: pairs.filter((pair) => pair.confidence === "Medium").length,
+      low: pairs.filter((pair) => pair.confidence === "Low").length,
+    },
+    pairs: [...pairs].sort(byTrust).slice(0, FUZZY_LISTED).map(({ aRow, bRow, aKey, bKey, score, tier, agree, checked, ambiguous, confidence, reason }) => ({ aRow, bRow, aKey, bKey, score, tier, agree, checked, ambiguous, confidence, reason })),
   };
 }

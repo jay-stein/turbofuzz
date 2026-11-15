@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-18 — Compare: every similar-key pairing carries a confidence and its reasons
+
+- **Status:** Verified (unit 1729 of 1729; compare e2e 20 of 20)
+- **Related issue / decision:** owner: the Excel report should list the fuzzy matches and the confidence of each, so an analyst can see any mental leaps taken.
+- **What changed:** Each pairing is High, Medium or Low confidence with a plain-language reason ("Same name once tidied", "Spelled 84% alike", "Amount differs (A: 75, B: 80)", "another row in B was nearly as close", "no other column to confirm it"). The Excel "Similar keys" sheet lists every pairing, least trusted first, with the row in each file, both keys, similarity, a coloured confidence and the reason; the Summary sheet notes the count by confidence. The Report page shows the same confidence and reason.
+- **Files / components changed:** src/data/compare/fuzzy-match.ts, report.ts, src/ui/compare/compare-xlsx.ts, compare-report.ts, test/compare-fuzzy.test.ts, test/compare-report-xlsx.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-17 — Compare: pair rows whose key is only similar
 
 - **Status:** Verified (unit: compare-fuzzy 8 tests incl. 50,000 names a side in about 0.5 s; compare e2e 20 of 20; typecheck; unused-code check)

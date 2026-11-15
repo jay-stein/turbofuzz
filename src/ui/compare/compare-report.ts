@@ -132,25 +132,24 @@ function fuzzyCard(report: CompareReport, actions: ReportActions): HTMLElement |
     el("p", { class: "cmp-note" }, [
       total === 0
         ? "No leftover rows had a key similar enough to pair. Loosen the slider on the setup to look further."
-        : `${nf.format(total)} row${total === 1 ? "" : "s"} had no exact key and were paired by similarity: ${nf.format(fuzzy.confident)} confident, ${nf.format(fuzzy.review)} to review. Reject a pairing that is not the same record and both rows go back to removed and added.`,
+        : `${nf.format(total)} row${total === 1 ? "" : "s"} had no exact key and were paired by similarity: ${nf.format(fuzzy.byConfidence.high)} high confidence, ${nf.format(fuzzy.byConfidence.medium)} medium, ${nf.format(fuzzy.byConfidence.low)} low. Reject a pairing that is not the same record and both rows go back to removed and added.`,
     ]),
   ]);
   if (total === 0) return box;
   const table = el("table", { class: "cmp-fuzzy-table" }, [
-    el("thead", {}, [el("tr", {}, ["In A", "In B", "Similar", "Other columns", "Check", ""].map((label) => el("th", {}, [label])))]),
+    el("thead", {}, [el("tr", {}, ["In A", "In B", "Similar", "Confidence", "Why", ""].map((label) => el("th", {}, [label])))]),
   ]);
   const body = el("tbody");
   for (const pair of fuzzy.pairs) {
-    const evidence = pair.checked === 0 ? "no other column to check" : `${pair.agree} of ${pair.checked} agree`;
     const reject = el("button", { type: "button", class: "link", title: "These are different records" }, ["Reject"]);
     reject.addEventListener("click", () => actions.rejectPair?.(pair.aRow, pair.bRow));
     body.append(
-      el("tr", { class: pair.tier === "review" ? "review" : "" }, [
+      el("tr", { class: pair.confidence === "Low" ? "review" : "" }, [
         el("td", { title: pair.aKey }, [pair.aKey]),
         el("td", { title: pair.bKey }, [pair.bKey]),
         el("td", {}, [`${Math.round(pair.score * 100)}%`]),
-        el("td", {}, [evidence]),
-        el("td", {}, [pair.tier === "review" ? (pair.ambiguous ? "Review: another row was as close" : "Review") : "Confident"]),
+        el("td", {}, [pair.confidence]),
+        el("td", { title: pair.reason }, [pair.reason]),
         el("td", {}, [reject]),
       ]),
     );

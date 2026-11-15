@@ -20,6 +20,37 @@ export interface FuzzyPair {
   /** The key cells as written, for showing the pair. */
   aKey: string;
   bKey: string;
+  /** How far to trust the pairing, and the plain-language reasons behind it. */
+  confidence: FuzzyConfidence;
+  reason: string;
+  /** The other paired columns that agreed, and those that differed with both values ("Amount: 75 vs 80"). */
+  agreeColumns: string[];
+  differColumns: string[];
+}
+
+/** High: the key is a clear match and nothing contradicts it. Medium: one of those is missing. Low: a person should check it. */
+export type FuzzyConfidence = "High" | "Medium" | "Low";
+
+/** Confidence from the tier and the evidence. */
+export function fuzzyConfidence(tier: FuzzyTier, ambiguous: boolean, agree: number, checked: number): FuzzyConfidence {
+  const contradicted = checked > 0 && agree < checked;
+  if (tier === "confident") return !ambiguous && !contradicted ? "High" : "Medium";
+  return !ambiguous && checked > 0 && agree === checked ? "Medium" : "Low";
+}
+
+/** One sentence per fact, so an analyst can see each step taken to pair two rows. */
+export function fuzzyReason(pair: { aKey: string; bKey: string; score: number; ambiguous: boolean; agreeColumns: readonly string[]; differColumns: readonly string[]; checked: number }): string {
+  const parts: string[] = [];
+  parts.push(
+    pair.score >= 1
+      ? "Same name once tidied (case, punctuation, suffixes such as Pty Ltd, abbreviations and word order ignored)"
+      : `Spelled ${Math.round(pair.score * 100)}% alike`,
+  );
+  if (pair.agreeColumns.length > 0) parts.push(`${pair.agreeColumns.join(", ")} agree${pair.agreeColumns.length === 1 ? "s" : ""}`);
+  if (pair.differColumns.length > 0) parts.push(`but ${pair.differColumns.join("; ")}`);
+  if (pair.checked === 0) parts.push("no other column to confirm it");
+  if (pair.ambiguous) parts.push("another row in B was nearly as close");
+  return parts.join(" · ");
 }
 
 export interface FuzzyOptions {
@@ -141,6 +172,19 @@ export function findFuzzyPairs(
     }
     return { agree, checked };
   };
+  /** Which checks agreed and which differed for a chosen pair, with both values for the ones that differ. */
+  const evidence = (aRow: number, bRow: number): { agreeColumns: string[]; differColumns: string[] } => {
+    const agreeColumns: string[] = [];
+    const differColumns: string[] = [];
+    for (const check of checks) {
+      const ca = a.columns[check.pair.a];
+      const cb = b.columns[check.pair.b];
+      if (ca.isEmpty(aRow) || cb.isEmpty(bRow)) continue;
+      if (check.equal(aRow, bRow)) agreeColumns.push(ca.name);
+      else differColumns.push(`${ca.name} differs (A: ${ca.raw[aRow]}, B: ${cb.raw[bRow]})`);
+    }
+    return { agreeColumns, differColumns };
+  };
 
   interface Candidate { ai: number; bi: number; score: number; rank: number; agree: number; checked: number }
   const candidates: Candidate[] = [];
@@ -185,16 +229,24 @@ export function findFuzzyPairs(
     const supported = candidate.checked > 0 && candidate.agree / candidate.checked >= 0.5;
     // A name that is the same once tidied is confident whatever the amount says: the amount is then a difference to report.
     const confident = !ambiguous && (candidate.score >= CONFIDENT_SCORE || (supported && candidate.score >= 0.88));
+    const tier: FuzzyTier = confident ? "confident" : "review";
+    const aKey = textKeys.map((pair) => a.columns[pair.a].raw[freeA[candidate.ai]]).join(" · ");
+    const bKey = textKeys.map((pair) => b.columns[pair.b].raw[freeB[candidate.bi]]).join(" · ");
+    const { agreeColumns, differColumns } = evidence(freeA[candidate.ai], freeB[candidate.bi]);
     out.push({
       aRow: freeA[candidate.ai],
       bRow: freeB[candidate.bi],
       score: candidate.score,
-      tier: confident ? "confident" : "review",
+      tier,
       agree: candidate.agree,
       checked: candidate.checked,
       ambiguous,
-      aKey: textKeys.map((pair) => a.columns[pair.a].raw[freeA[candidate.ai]]).join(" · "),
-      bKey: textKeys.map((pair) => b.columns[pair.b].raw[freeB[candidate.bi]]).join(" · "),
+      aKey,
+      bKey,
+      confidence: fuzzyConfidence(tier, ambiguous, candidate.agree, candidate.checked),
+      reason: fuzzyReason({ aKey, bKey, score: candidate.score, ambiguous, agreeColumns, differColumns, checked: candidate.checked }),
+      agreeColumns,
+      differColumns,
     });
   }
   return out;
