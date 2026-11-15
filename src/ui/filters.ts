@@ -1,7 +1,7 @@
 import { clear, el } from "./dom.js";
 import { RangeSlider } from "./range-slider.js";
 import { isNumericLikeType, isTemporalType, type TextMode } from "../types.js";
-import type { FuzzyLooseness } from "../search/fuzzy-index.js";
+import { FUZZY_SLIDER_DEFAULT, FUZZY_SLIDER_MAX, FUZZY_THRESHOLDS, thresholdForSlider } from "../search/fuzzy-index.js";
 import {
   formatDurationMs,
   fromDateTimeInputValue,
@@ -263,16 +263,21 @@ export class FilterPanel {
     }
 
     // How close a word must be: Strict keeps near-identical spellings, Loose lets more through.
-    const looseSelect = el("select", {
-      class: "mode-select looseness-select",
-      title: "How close a word must be to match",
-      "aria-label": `Looseness for ${meta.name}`,
-    }) as HTMLSelectElement;
-    for (const [value, label] of [["strict", "Strict"], ["normal", "Normal"], ["loose", "Loose"]] as const) {
-      const option = el("option", { value }, [label]) as HTMLOptionElement;
-      if (value === (current?.looseness ?? "normal")) option.selected = true;
-      looseSelect.append(option);
-    }
+    const startPosition = current?.threshold !== undefined
+      ? Math.round(97 - current.threshold * 100)
+      : current?.looseness !== undefined
+        ? Math.round(97 - FUZZY_THRESHOLDS[current.looseness] * 100)
+        : FUZZY_SLIDER_DEFAULT;
+    const looseSelect = el("input", {
+      class: "looseness-slider",
+      type: "range",
+      min: "0",
+      max: String(FUZZY_SLIDER_MAX),
+      step: "1",
+      value: String(startPosition),
+      title: "Strict (left) matches only near-identical words; Loose (right) matches heaps",
+      "aria-label": `Match looseness for ${meta.name}: strict to loose`,
+    }) as HTMLInputElement;
     const syncLooseness = (): void => {
       looseSelect.classList.toggle("hidden", modeSelect.value !== "fuzzy");
     };
@@ -297,7 +302,7 @@ export class FilterPanel {
               kind: "text",
               mode: modeSelect.value as TextMode,
               query,
-              ...(modeSelect.value === "fuzzy" && looseSelect.value !== "normal" ? { looseness: looseSelect.value as FuzzyLooseness } : {}),
+              ...(modeSelect.value === "fuzzy" && Number(looseSelect.value) !== FUZZY_SLIDER_DEFAULT ? { threshold: thresholdForSlider(Number(looseSelect.value)) } : {}),
             },
       );
       cardActive(body, this.filters.has(index));
@@ -384,7 +389,11 @@ export class FilterPanel {
       syncLooseness();
       apply();
     });
-    looseSelect.addEventListener("change", apply);
+    let slideTimer = 0;
+    looseSelect.addEventListener("input", () => {
+      window.clearTimeout(slideTimer);
+      slideTimer = window.setTimeout(apply, 60);
+    });
 
     body.append(modeSelect, looseSelect, input, suggest);
     return body;

@@ -39,3 +39,20 @@ test("Normal keeps real typos but no longer pulls in different surnames", async 
   assert.deepEqual(hits("Cook"), []);
   assert.deepEqual(hits("Long"), [4]);
 });
+
+test("the slider threshold widens monotonically and position 9 is the Normal default", async () => {
+  const { thresholdForSlider, FUZZY_SLIDER_DEFAULT, FUZZY_THRESHOLDS } = await import("../src/search/fuzzy-index.js");
+  assert.equal(thresholdForSlider(FUZZY_SLIDER_DEFAULT), FUZZY_THRESHOLDS.normal);
+  const rows = (position: number): number[] => {
+    const engine = new QueryEngine(buildDataset("t", ["name"], names.map((n) => [n])));
+    const filter: ColumnFilter = { kind: "text", mode: "fuzzy", query: "Katherin Smith", threshold: thresholdForSlider(position) };
+    return [...engine.evaluate(new Map([[0, filter]]))];
+  };
+  let previous = rows(0);
+  for (let position = 3; position <= 27; position += 3) {
+    const next = rows(position);
+    assert.ok(previous.every((row) => next.includes(row)), `position ${position} lost a row`);
+    previous = next;
+  }
+  assert.ok(rows(27).length > rows(0).length);
+});

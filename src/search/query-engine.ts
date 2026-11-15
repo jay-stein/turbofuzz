@@ -7,7 +7,7 @@ import { looksMojibake } from "../data/mojibake.js";
 import type { TextMode } from "../types.js";
 
 export type ColumnFilter =
-  | { kind: "text"; mode: TextMode; query: string; looseness?: FuzzyLooseness }
+  | { kind: "text"; mode: TextMode; query: string; looseness?: FuzzyLooseness; threshold?: number }
   | { kind: "range"; min: number | null; max: number | null }
   | {
       kind: "compare";
@@ -242,7 +242,7 @@ export class QueryEngine {
         }
 
         if (filter.mode === "fuzzy") {
-          return column.fuzzyIndex().search(filter.query, { threshold: FUZZY_THRESHOLDS[filter.looseness ?? "normal"] }).rowBits;
+          return column.fuzzyIndex().search(filter.query, { threshold: filter.threshold ?? FUZZY_THRESHOLDS[filter.looseness ?? "normal"] }).rowBits;
         }
 
         return this.textBits(columnIndex, query, filter.mode === "exact");

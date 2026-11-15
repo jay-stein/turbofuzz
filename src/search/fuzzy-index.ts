@@ -43,6 +43,11 @@ export type FuzzyLooseness = "strict" | "normal" | "loose";
 /** The Jaro-Winkler score a word must reach to count as a match. Measured on 50,000 people records: normal keeps 98.6% of true surname matches at 95.6% precision (0.72: 99.7% recall, 41.8% precision). */
 export const FUZZY_THRESHOLDS: Record<FuzzyLooseness, number> = { strict: 0.94, normal: 0.88, loose: 0.8 };
 
+/** The slider's range: 0 is strictest (0.97), each step lowers the threshold by 0.01 down to 0.70 (matches heaps). */
+export const FUZZY_SLIDER_MAX = 27;
+export const FUZZY_SLIDER_DEFAULT = 9;
+export const thresholdForSlider = (position: number): number => (97 - Math.min(FUZZY_SLIDER_MAX, Math.max(0, Math.round(position)))) / 100;
+
 /**
  * Token-level fuzzy index.
  *

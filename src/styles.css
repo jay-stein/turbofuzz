@@ -17993,3 +17993,9 @@ button.cmp-change-name:hover {
 .filter-menu-list .context-item.active {
   background: var(--panel-2);
 }
+
+.looseness-slider {
+  flex: none;
+  width: 72px;
+  accent-color: var(--accent, currentColor);
+}
