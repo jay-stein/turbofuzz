@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-10 — Search: Normal fuzzy keeps typos without matching different surnames
+
+- **Status:** Verified (unit: fuzzy-looseness, fuzzy; threshold sweep on 50,000 people)
+- **Related issue / decision:** stress test 2026-11-15 S18-01: the default Normal threshold 0.72 had 41.5% precision on surnames (Cook for Cox, Long for Young).
+- **What changed:** Thresholds are Strict 0.94, Normal 0.88, Loose 0.80 (were 0.88, 0.72, 0.60). Surname precision/recall: 0.72 was 41.5% / 99.7%; 0.88 is 95.6% / 98.6%. A longer word that starts with the query counts at any threshold.
+- **Not covered yet:** Results are still unranked; nicknames and swapped first/last names are not matched.
+- **Files / components changed:** src/search/fuzzy-index.ts, test/fuzzy-looseness.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-09 — Relationships: codes and coordinate zeros no longer produce headline correlations
 
 - **Status:** Verified (unit: relationships)

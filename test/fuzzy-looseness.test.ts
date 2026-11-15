@@ -25,3 +25,17 @@ test("Strict never returns more rows than Normal, and Loose never fewer", () => 
   assert.ok(!strict.includes(4), "Strict leaves out Catherine Schmitt");
   assert.ok(strict.includes(0), "Strict keeps Katherine Smith");
 });
+
+test("Normal keeps real typos but no longer pulls in different surnames", async () => {
+  const { buildDataset } = await import("../src/data/build.js");
+  const { QueryEngine } = await import("../src/search/query-engine.js");
+  const { FUZZY_THRESHOLDS } = await import("../src/search/fuzzy-index.js");
+  assert.ok(FUZZY_THRESHOLDS.loose < FUZZY_THRESHOLDS.normal && FUZZY_THRESHOLDS.normal < FUZZY_THRESHOLDS.strict);
+  const ds = buildDataset("t", ["n"], [["Johnson"], ["Smith"], ["Cox"], ["Young"], ["Long"], ["Ross"]]);
+  const engine = new QueryEngine(ds);
+  const hits = (query: string) => [...engine.evaluate(new Map([[0, { kind: "text", mode: "fuzzy", query } as const]]))];
+  assert.deepEqual(hits("Jonson"), [0]);
+  assert.deepEqual(hits("Smyth"), [1]);
+  assert.deepEqual(hits("Cook"), []);
+  assert.deepEqual(hits("Long"), [4]);
+});
