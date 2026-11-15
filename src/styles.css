@@ -15964,9 +15964,22 @@ button.cmp-change-name:hover {
   font-weight: 700;
   color: var(--text-dim);
 }
-.cmp-mark.changed { color: var(--cmp-changed); }
-.cmp-mark.only-a { color: var(--cmp-gone); }
-.cmp-mark.only-b { color: var(--cmp-added); }
+/* A small tinted badge, so the kind of row reads at a glance rather than as a stray glyph. */
+.cmp-mark:not(:empty) {
+  margin: 4px 6px;
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1;
+}
+.cmp-mark.changed { color: var(--cmp-changed); background: color-mix(in srgb, var(--cmp-changed) 18%, transparent); }
+.cmp-mark.only-a { color: var(--cmp-gone); background: color-mix(in srgb, var(--cmp-gone) 18%, transparent); }
+.cmp-mark.only-b { color: var(--cmp-added); background: color-mix(in srgb, var(--cmp-added) 18%, transparent); }
+.cmp-mark.similar { color: #b45309; background: color-mix(in srgb, #f59e0b 22%, transparent); }
+.cmp-mark.similar.review { color: #991b1b; background: color-mix(in srgb, #ef4444 20%, transparent); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .cmp-mark.similar { color: #fcd34d; }
+  :root:not([data-theme="light"]) .cmp-mark.similar.review { color: #fca5a5; }
+}
 .cmp-cell {
   min-width: 0;
   padding: 6px 8px;

@@ -284,6 +284,13 @@ export class SideBySide {
     return el("div", { class: "cmp-legend" }, [
       this.status,
       el("span", { class: "cmp-legend-item" }, [el("span", { class: "cmp-swatch changed", "aria-hidden": "true" }), "changed cell"]),
+      el("span", { class: "cmp-legend-item" }, [el("span", { class: "cmp-mark changed" }, ["~"]), "changed row"]),
+      ...(this.count("similar") > 0
+        ? [
+            el("span", { class: "cmp-legend-item" }, [el("span", { class: "cmp-mark similar" }, ["≈"]), "paired by similar key"]),
+            el("span", { class: "cmp-legend-item" }, [el("span", { class: "cmp-mark similar review" }, ["≈"]), "low confidence: check it"]),
+          ]
+        : []),
       el("span", { class: "cmp-legend-item" }, [el("span", { class: "cmp-mark only-a" }, ["−"]), "only in A"]),
       el("span", { class: "cmp-legend-item" }, [el("span", { class: "cmp-mark only-b" }, ["+"]), "only in B"]),
       el("span", { class: "cmp-legend-item" }, [el("span", { class: "cmp-swatch gap", "aria-hidden": "true" }), "no row on this side"]),
@@ -325,7 +332,7 @@ export class SideBySide {
       const typeA = setup.a.columns[pair.a]?.type;
       const numeric = (typeA === "integer" || typeA === "number") && (setup.b.columns[pair.b]?.type === "integer" || setup.b.columns[pair.b]?.type === "number");
       // Wide enough for the values it holds (a sample), never narrower than its header or wider than a screen's share.
-      const fromValues = Math.min(300, (report.widthChars[index] ?? 0) * 8 + 24 + (numeric ? 44 : 0));
+      const fromValues = Math.min(300, (report.widthChars[index] ?? 0) * 8 + 24 + (numeric ? (report.widthChars[index] ?? 0) * 7 + 28 : 0));
       columns.push({ a: index, b: index, pair: index, nameA, nameB, numeric, width: wide ? 260 : Math.max(widthFor(nameA.length > nameB.length ? nameA : nameB), fromValues) });
     });
     if (!this.changedOnly) {
@@ -519,7 +526,7 @@ export class SideBySide {
     if (fuzzy > 0 && status !== ROW_ONLY_A && status !== ROW_ONLY_B) return { mark: "≈", tone: fuzzy === 2 ? "similar review" : "similar" };
     if (status === ROW_ONLY_A) return { mark: "−", tone: "only-a" };
     if (status === ROW_ONLY_B) return { mark: "+", tone: "only-b" };
-    if (status === ROW_CHANGED) return { mark: "•", tone: "changed" };
+    if (status === ROW_CHANGED) return { mark: "~", tone: "changed" };
     return { mark: "", tone: "same" };
   }
 

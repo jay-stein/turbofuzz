@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-22 — Spot the difference: readable row markers
+
+- **Status:** Verified by eye in the browser (light and dark); unit 1730 of 1730; compare e2e 21 of 21
+- **What changed:** The row marker is a tinted badge: ~ changed, − only in A, + only in B, ≈ paired by similar key (amber), and ≈ in red when the pairing is low confidence. The legend explains each (the similar-key entries show only when a run has them). Number columns leave room for the change chip.
+- **Not covered yet:** marking changed characters inside a text cell; dragging a column edge to resize; a frozen key column.
+- **Files / components changed:** src/ui/compare/compare-grid.ts, src/data/compare/view.ts, src/styles.css
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-21 — Spot the difference: columns sized to their contents, numbers right-aligned with a change chip
 
 - **Status:** Verified by eye in the browser; unit 1730 of 1730; compare e2e 21 of 21

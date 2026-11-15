@@ -22,7 +22,7 @@ export interface RowWindow {
   b: (string[] | null)[];
   /** rows × pairs: 1 where that pair's cell changed. */
   changed: Uint8Array;
-  /** Per row: 0 for an exact match or a gap, 1 for a confident similar-key pairing, 2 for one to review. */
+  /** Per row: 0 for an exact match or a gap, 1 for a similar-key pairing, 2 for one of low confidence. */
   fuzzy: Uint8Array;
 }
 
@@ -109,7 +109,7 @@ export function rowWindow(
     window.b[i] = br < 0 ? null : bColumns.map((column) => column.raw[br] ?? "");
     for (let p = 0; p < pairs; p++) if (match.changed[p]!.get(at)) window.changed[i * pairs + p] = 1;
     const fuzzyAt = match.fuzzy?.at[at] ?? -1;
-    if (fuzzyAt >= 0) window.fuzzy[i] = match.fuzzy!.pairs[fuzzyAt]!.tier === "confident" ? 1 : 2;
+    if (fuzzyAt >= 0) window.fuzzy[i] = match.fuzzy!.pairs[fuzzyAt]!.confidence === "Low" ? 2 : 1;
   }
   return window;
 }
