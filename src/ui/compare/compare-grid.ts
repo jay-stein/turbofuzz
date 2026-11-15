@@ -54,8 +54,10 @@ const OVERSCAN = 12;
 const BLOCK = 240;
 
 /** Header class: ignored columns are struck through, one-sided columns are tinted. */
-function columnClass(column: { ignored?: boolean; only?: "a" | "b" }): string {
-  return column.ignored === true ? "cmp-ignored-col" : column.only === undefined ? "" : `cmp-only-col only-${column.only}`;
+function columnClass(column: { ignored?: boolean; only?: "a" | "b"; numeric?: boolean }): string {
+  if (column.ignored === true) return "cmp-ignored-col";
+  const side = column.only === undefined ? "" : `cmp-only-col only-${column.only}`;
+  return column.numeric === true ? `${side} num-head`.trim() : side;
 }
 
 interface Column {
@@ -71,6 +73,21 @@ interface Column {
   ignored?: boolean;
   /** A column only one side has: tinted on every row, even where the rows match. */
   only?: "a" | "b";
+  /** Holds plain numbers: right-aligned, with the size of a change beside the new value. */
+  numeric?: boolean;
+}
+
+/** "+5" or "−5.25": how far B's number moved from A's, or null when either is not a plain number. */
+function deltaText(from: string | undefined, to: string | undefined): { text: string; title: string } | null {
+  if (from === undefined || to === undefined) return null;
+  const parse = (value: string): number => Number(value.replace(/[\s,$€£]/g, ""));
+  const x = parse(from);
+  const y = parse(to);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || from.trim() === "" || to.trim() === "" || x === y) return null;
+  const d = y - x;
+  const fmt = new Intl.NumberFormat("en", { maximumFractionDigits: 2 });
+  const pct = x === 0 ? "" : ` (${d > 0 ? "+" : "−"}${fmt.format(Math.abs((d / x) * 100))}%)`;
+  return { text: `${d > 0 ? "+" : "−"}${fmt.format(Math.abs(d))}`, title: `B minus A${pct}` };
 }
 
 function widthFor(name: string): number {
@@ -305,7 +322,11 @@ export class SideBySide {
       const nameB = setup.b.columns[pair.b]?.name ?? "";
       // Where the similar-key rows are shown the key is what is being judged, so it gets room to be read in full.
       const wide = this.filter.show === "similar" && this.options.key.kind === "pairs" && this.options.key.pairs.includes(index);
-      columns.push({ a: index, b: index, pair: index, nameA, nameB, width: wide ? 260 : widthFor(nameA.length > nameB.length ? nameA : nameB) });
+      const typeA = setup.a.columns[pair.a]?.type;
+      const numeric = (typeA === "integer" || typeA === "number") && (setup.b.columns[pair.b]?.type === "integer" || setup.b.columns[pair.b]?.type === "number");
+      // Wide enough for the values it holds (a sample), never narrower than its header or wider than a screen's share.
+      const fromValues = Math.min(300, (report.widthChars[index] ?? 0) * 8 + 24 + (numeric ? 44 : 0));
+      columns.push({ a: index, b: index, pair: index, nameA, nameB, numeric, width: wide ? 260 : Math.max(widthFor(nameA.length > nameB.length ? nameA : nameB), fromValues) });
     });
     if (!this.changedOnly) {
       setup.pairing.onlyA.forEach((column, i) => {
@@ -519,7 +540,12 @@ export class SideBySide {
         const cellIndex = side === "a" ? column.a : column.b;
         const value = cells === null ? "" : cells[cellIndex] ?? "";
         const diff = cells !== null && column.pair >= 0 && block.changed[at * pairs + column.pair] === 1;
-        row.append(el("span", { class: `cmp-cell${diff ? " diff" : ""}${value === "" ? " blank" : ""}${column.ignored === true ? " ignored" : ""}${column.only === undefined ? "" : ` only-${column.only}`}`, title: value }, [value]));
+        const cell = el("span", { class: `cmp-cell${diff ? " diff" : ""}${column.numeric === true ? " num" : ""}${value === "" ? " blank" : ""}${column.ignored === true ? " ignored" : ""}${column.only === undefined ? "" : ` only-${column.only}`}`, title: value }, [value]);
+        if (diff && side === "b" && column.numeric === true) {
+          const delta = deltaText(block.a[at]?.[column.a], value);
+          if (delta !== null) cell.append(el("span", { class: `cmp-delta ${delta.text.startsWith("+") ? "up" : "down"}`, title: delta.title }, [delta.text]));
+        }
+        row.append(cell);
       }
       fragment.append(row);
     }
@@ -544,10 +570,12 @@ export class SideBySide {
         const newValue = b !== null && column.b >= 0 ? b[column.b] ?? "" : null;
         const oldValue = a !== null && column.a >= 0 ? a[column.a] ?? "" : null;
         const diff = column.pair >= 0 && block.changed[at * pairs + column.pair] === 1;
-        const cell = el("span", { class: `cmp-cell${diff ? " diff" : ""}${column.ignored === true ? " ignored" : ""}${column.only === undefined ? "" : ` only-${column.only}`}` });
+        const cell = el("span", { class: `cmp-cell${diff ? " diff" : ""}${column.numeric === true ? " num" : ""}${column.ignored === true ? " ignored" : ""}${column.only === undefined ? "" : ` only-${column.only}`}` });
         if (newValue !== null) cell.append(el("span", { class: `cmp-cell-main${newValue === "" ? " blank" : ""}`, title: newValue }, [newValue === "" && diff ? "(empty)" : newValue]));
         else if (oldValue !== null) cell.append(el("span", { class: `cmp-cell-main gone${oldValue === "" ? " blank" : ""}`, title: oldValue }, [oldValue]));
         if (diff && oldValue !== null) cell.append(el("span", { class: `cmp-cell-old${oldValue === "" ? " blank" : ""}`, title: oldValue }, [oldValue === "" ? "(empty)" : oldValue]));
+        const delta = diff && column.numeric === true && newValue !== null && oldValue !== null ? deltaText(oldValue, newValue) : null;
+        if (delta !== null) cell.append(el("span", { class: `cmp-delta ${delta.text.startsWith("+") ? "up" : "down"}`, title: delta.title }, [delta.text]));
         row.append(cell);
       }
       fragment.append(row);

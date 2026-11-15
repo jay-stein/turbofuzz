@@ -42,6 +42,8 @@ export interface CompareReport {
   changes: ColumnChange[];
   /** Sum and mean for each column that holds numbers on both sides. */
   totals: ColumnTotals[];
+  /** Per paired column: the longest value (in characters, capped) among the first rows of either side, so the grid can size columns to what they hold. */
+  widthChars: number[];
   /** Rows paired by similar key text, null when that was off. `pairs` lists those to review first, then the confident ones, up to a limit. */
   fuzzy: {
     threshold: number;
@@ -52,6 +54,10 @@ export interface CompareReport {
     byConfidence: { high: number; medium: number; low: number };
   } | null;
 }
+
+/** Rows read, and the longest width counted, when sizing columns to their contents. */
+const WIDTH_SAMPLE = 500;
+const WIDTH_CAP = 40;
 
 /** Similar-key pairs listed in the report. */
 const FUZZY_LISTED = 300;
@@ -144,6 +150,13 @@ export function buildReport(a: CompareSide, b: CompareSide, pairing: ColumnPairi
     },
     changes,
     totals,
+    widthChars: pairing.pairs.map((pair) => {
+      let longest = 0;
+      for (const [column, rows] of [[a.columns[pair.a]!, a.rowCount], [b.columns[pair.b]!, b.rowCount]] as const) {
+        for (let row = 0; row < Math.min(rows, WIDTH_SAMPLE); row++) longest = Math.max(longest, column.raw[row]?.length ?? 0);
+      }
+      return Math.min(longest, WIDTH_CAP);
+    }),
     fuzzy: fuzzyReport(match),
   };
 }

@@ -16737,6 +16737,38 @@ button.cmp-change-name:hover {
 .cmp-fuzzy-slider {
   width: 160px;
 }
+.cmp-grid-head .num-head {
+  text-align: right;
+}
+.cmp-cell.num {
+  text-align: right;
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+.cmp-delta {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: var(--fs-xs, 11px);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cmp-delta.up {
+  color: #166534;
+  background: rgba(34, 197, 94, 0.16);
+}
+.cmp-delta.down {
+  color: #991b1b;
+  background: rgba(239, 68, 68, 0.16);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .cmp-delta.up {
+    color: #86efac;
+  }
+  :root:not([data-theme="light"]) .cmp-delta.down {
+    color: #fca5a5;
+  }
+}
 .cmp-seg-dot.similar {
   background: #f59e0b;
 }

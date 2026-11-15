@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-21 — Spot the difference: columns sized to their contents, numbers right-aligned with a change chip
+
+- **Status:** Verified by eye in the browser; unit 1730 of 1730; compare e2e 21 of 21
+- **What changed:** Columns are as wide as the values they hold (a sample of the first 500 rows of each side, capped), not just their header, so names are no longer cut off. Number columns are right-aligned with right-aligned headers, and a changed number shows how far it moved ("+50.25", "−5", with the percentage on hover) beside B's value, in both the two-pane and one-grid layouts.
+- **Not covered yet:** Dragging a column edge to resize; marking the changed characters inside a text cell; a readable row marker; a frozen key column.
+- **Files / components changed:** src/data/compare/report.ts, src/ui/compare/compare-grid.ts, src/styles.css, test/e2e/compare.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-20 — Compare: similar-key views read in full
 
 - **Status:** Verified by eye in the browser (light and dark) and by tests (unit 1730 of 1730; compare e2e 21 of 21). The Excel file was not opened in Excel.

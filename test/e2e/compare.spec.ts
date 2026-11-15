@@ -217,7 +217,7 @@ test("side by side: counts open their rows, the panes line up with gaps, n finds
   await expect(mode.getByRole("button", { name: "Spot the difference" })).toHaveAttribute("aria-current", "page");
   await expect.poll(() => ids("a")).toEqual(["1", "2", "3", "4", "gap"]);
   await expect.poll(() => ids("b")).toEqual(["1", "gap", "3", "4", "5"]);
-  await expect(mode.locator(".cmp-pane.cmp-side-b .cmp-cell.diff")).toHaveText(["31"]);
+  await expect(mode.locator(".cmp-pane.cmp-side-b .cmp-cell.diff")).toHaveText(["31+1"]);
 
   // n goes to the first difference (row 2, only in A), then the next (row 3, changed).
   await page.keyboard.press("n");
