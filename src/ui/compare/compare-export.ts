@@ -1,10 +1,9 @@
-import type { ChangeTables, Table } from "../../data/compare/export.js";
+import type { Table } from "../../data/compare/export.js";
 import type { ShiftReport } from "../../data/compare/shift.js";
 import { looksLikeIdName } from "../../data/identifier.js";
 import { escapeFormula } from "../../data/formula.js";
 import { toDateInputValue } from "../../parse/dates.js";
 import { TYPE_LABELS } from "../../types.js";
-import { buildXlsx, type Sheet } from "../xlsx-writer.js";
 import { describeRun, ignoredName, type ReportInput } from "./compare-report.js";
 
 const nf = new Intl.NumberFormat("en");
@@ -40,34 +39,6 @@ function pct(part: number, whole: number): string {
   return whole === 0 ? "" : `${((part / whole) * 100).toFixed(1)}%`;
 }
 
-/** The headline numbers as label / value lines (the workbook's Summary sheet). */
-function summaryRows(input: ReportInput, tables: ChangeTables): string[][] {
-  const { report, setup } = input;
-  const rows = report.rows;
-  const lines: string[][] = [
-    ["A (before)", setup.a.name],
-    ["B (after)", setup.b.name],
-    ["How", describeRun(input)],
-    ["Rows in A", nf.format(rows.a)],
-    ["Rows in B", nf.format(rows.b)],
-    ["Matched", nf.format(rows.matched)],
-    ["Identical", `${nf.format(rows.identical)} (${pct(rows.identical, rows.matched)} of matched)`],
-    ["Changed", `${nf.format(rows.changed)} (${pct(rows.changed, rows.matched)} of matched)`],
-    ["Only in A (removed)", nf.format(rows.onlyA)],
-    ["Only in B (added)", nf.format(rows.onlyB)],
-  ];
-  if (report.duplicateKeys.a + report.duplicateKeys.b > 0) lines.push(["Repeated keys", `${nf.format(report.duplicateKeys.a)} in A, ${nf.format(report.duplicateKeys.b)} in B`]);
-  if (report.emptyKeys.a + report.emptyKeys.b > 0) lines.push(["Empty keys", `${nf.format(report.emptyKeys.a)} in A, ${nf.format(report.emptyKeys.b)} in B`]);
-  for (const name of report.columns.added) lines.push(["Column added", name]);
-  for (const name of report.columns.removed) lines.push(["Column removed", name]);
-  for (const pair of report.columns.renamed) lines.push(["Column renamed", `${pair.a} → ${pair.b}`]);
-  for (const pair of report.columns.ignored) lines.push(["Column ignored", ignoredName(pair)]);
-  for (const change of report.columns.retyped) lines.push(["Column retyped", `${change.name}: ${TYPE_LABELS[change.a]} → ${TYPE_LABELS[change.b]}`]);
-  for (const change of report.changes) lines.push([`Changed: ${change.name}`, `${nf.format(change.changed)} rows (${pct(change.changed, rows.matched)})`]);
-  if (tables.truncated > 0) lines.push(["Note", `The Changes sheet stops at ${nf.format(tables.changes.rows.length)} lines; ${nf.format(tables.truncated)} more are left out.`]);
-  return lines;
-}
-
 function shiftRows(shift: ShiftReport): string[][] {
   return shift.columns.map((column) => {
     if (column.kind === "numeric") {
@@ -91,20 +62,6 @@ function shiftRows(shift: ShiftReport): string[][] {
       top.map((v) => `${v.label} ${(v.b * 100).toFixed(1)}%`).join(", "),
     ];
   });
-}
-
-/** The workbook: Summary, Changes, Only in A, Only in B and (when computed) Big Picture. */
-export async function changesWorkbook(input: ReportInput, tables: ChangeTables, shift: ShiftReport | null): Promise<Uint8Array> {
-  const sheets: Sheet[] = [
-    { name: "Summary", headers: ["Item", "Value"], rows: summaryRows(input, tables) },
-    { name: "Changes", headers: tables.changes.headers, rows: tables.changes.rows },
-    { name: "Only in A", headers: tables.onlyA.headers, rows: tables.onlyA.rows },
-    { name: "Only in B", headers: tables.onlyB.headers, rows: tables.onlyB.rows },
-  ];
-  if (shift !== null) {
-    sheets.push({ name: "Big Picture", headers: ["column", "kind", "shift", "measure", "A", "B"], rows: shiftRows(shift) });
-  }
-  return buildXlsx(sheets);
 }
 
 function esc(text: string): string {

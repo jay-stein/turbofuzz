@@ -77,6 +77,7 @@ import type {
   CompareShiftMessage,
   CompareGroupsMessage,
   CompareExportMessage,
+  CompareReportXlsxMessage,
   CompareDifferencesMessage,
   MemoryMessage,
   DataClearedMessage,
@@ -243,6 +244,10 @@ export class SearchWorkerClient {
 
   compareDifferences(): Promise<CompareDifferencesMessage> {
     return this.request<CompareDifferencesMessage>({ type: "compareDifferences" });
+  }
+
+  compareReportXlsx(meta: ReportMeta): Promise<CompareReportXlsxMessage> {
+    return this.request<CompareReportXlsxMessage>({ type: "compareReportXlsx", meta });
   }
 
   compareExport(): Promise<CompareExportMessage> {

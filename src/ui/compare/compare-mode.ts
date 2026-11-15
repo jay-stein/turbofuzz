@@ -3,12 +3,12 @@ import type { CompareReport } from "../../data/compare/report.js";
 import type { CompareSetupMessage, CompareSideInfo } from "../../worker/protocol.js";
 import { el, svgIcon } from "../dom.js";
 import type { SearchWorkerClient } from "../worker-client.js";
-import { pairingCaution, renderReport, type CautionActions, type ReportInput } from "./compare-report.js";
+import { describeRun, pairingCaution, renderReport, type CautionActions, type ReportInput } from "./compare-report.js";
 import { SideBySide, type GridLayout } from "./compare-grid.js";
 import type { RowFilter } from "../../data/compare/view.js";
 import type { ShiftReport } from "../../data/compare/shift.js";
 import { ShiftView, type GroupChoice } from "./compare-shift.js";
-import { changesWorkbook, download, exportBaseName, fileStem, reportHtml, tableCsv } from "./compare-export.js";
+import { download, exportBaseName, fileStem, reportHtml, tableCsv } from "./compare-export.js";
 import { openMenu } from "../menu.js";
 import { memoryGauge, type MemoryMonitor } from "../memory-gauge.js";
 import { resolveSource, unreadableReason, type ResolvedSource } from "../source-resolver.js";
@@ -263,7 +263,7 @@ export class CompareMode {
       openMenu(exportButton, [
         { label: "Report (HTML page)", title: "The report and what shifted, as one page to share or print: counts and summaries, not the rows", action: () => void this.exportAs("html") },
         { label: "Changes (CSV)", title: "One line per changed cell (key, rows, column, value in A and in B), and one per row only one side has", action: () => void this.exportAs("csv") },
-        { label: "Changes and rows (Excel)", title: "Summary, Changes, Only in A, Only in B and Big Picture as sheets of one workbook", action: () => void this.exportAs("xlsx") },
+        { label: "Report (Excel)", title: "A formatted workbook: Summary, Differences (every column side by side, only the rows that differ, changed cells coloured), Changed cells, Only in A, Only in B, Columns and Big Picture", action: () => void this.exportAs("xlsx") },
       ]),
     );
     nav.append(el("span", { class: "grow" }), this.exportNote);
@@ -306,14 +306,23 @@ export class CompareMode {
     const input = { setup, report: result.report, ms: result.ms, key: result.key, rules: result.rules };
     const base = exportBaseName(input);
     try {
-      if (kind !== "csv" && this.shift === null) this.shift = (await this.options.client.compareShift()).shift;
       if (kind === "html") {
+        if (this.shift === null) this.shift = (await this.options.client.compareShift()).shift;
         download(reportHtml(input, this.shift), "text/html", `${base}_report.html`);
         return;
       }
-      const { tables } = await this.options.client.compareExport();
-      if (kind === "csv") download(tableCsv(tables.changes), "text/csv", `${base}_changes.csv`);
-      else download((await changesWorkbook(input, tables, this.shift)) as BlobPart, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", `${base}.xlsx`);
+      if (kind === "csv") {
+        const { tables } = await this.options.client.compareExport();
+        download(tableCsv(tables.changes), "text/csv", `${base}_changes.csv`);
+      } else {
+        this.exportNote.textContent = "Building the workbook…";
+        const meta = { description: describeRun(input), rules: result.rules, autoPaired: this.autoPairedNames(result.autoPaired), created: `${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC` };
+        const built = await this.options.client.compareReportXlsx(meta);
+        download(built.bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", `${base}.xlsx`);
+        const cut = built.differences.total - built.differences.written;
+        this.exportNote.textContent = cut > 0 ? `The Differences sheet holds the first ${built.differences.written.toLocaleString("en")} of ${built.differences.total.toLocaleString("en")} rows that differ.` : "";
+        return;
+      }
       this.exportNote.textContent = "";
     } catch (error) {
       this.exportNote.textContent = error instanceof Error ? `Export failed: ${error.message}` : "Export failed.";

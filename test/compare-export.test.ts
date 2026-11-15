@@ -7,9 +7,8 @@ import { changeTables } from "../src/data/compare/export.js";
 import { suggestKeys } from "../src/data/compare/keys.js";
 import { matchRows } from "../src/data/compare/match.js";
 import { buildReport } from "../src/data/compare/report.js";
-import { columnShifts } from "../src/data/compare/shift.js";
 import { DEFAULT_RULES, compareColumn, type CompareSide } from "../src/data/compare/types.js";
-import { changesWorkbook, exportBaseName, reportHtml, tableCsv } from "../src/ui/compare/compare-export.js";
+import { exportBaseName, reportHtml, tableCsv } from "../src/ui/compare/compare-export.js";
 import type { ReportInput } from "../src/ui/compare/compare-report.js";
 import { buildXlsx, columnLetters, sheetName } from "../src/ui/xlsx-writer.js";
 
@@ -43,8 +42,6 @@ test("the changes table has one line per changed cell and one per row only one s
     ["3", "3", "2", "changed", "code", "009", "010"],
     ["4", "", "3", "only in B", "", "", ""],
   ]);
-  assert.deepEqual(tables.onlyA, { headers: ["id", "code", "note"], rows: [["2", "008", "=SUM(A1)"]] });
-  assert.deepEqual(tables.onlyB.rows, [["4", "011", "<b>&"]]);
   assert.equal(tables.truncated, 0);
   const { pairing, match } = run();
   const capped = changeTables(A, B, pairing, match, [0], 1);
@@ -77,15 +74,8 @@ test("the workbook opens as Office Open XML: sheets, bold headers, text kept as 
   assert.deepEqual([sheetName("Data", taken), sheetName("data", taken)], ["Data", "data 2"]);
 });
 
-test("the changes workbook holds a summary, the changes, each side's own rows and what shifted", async () => {
-  const { input, tables } = run();
-  const shift = columnShifts(A, B, input.setup.pairing, new Set([0]));
-  const files = unzipSync(await changesWorkbook(input, tables, shift));
-  const workbook = strFromU8(files["xl/workbook.xml"]!);
-  assert.deepEqual([...workbook.matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]), ["Summary", "Changes", "Only in A", "Only in B", "Big Picture"]);
-  assert.match(strFromU8(files["xl/worksheets/sheet1.xml"]!), /sept orders\.csv/);
-  assert.match(strFromU8(files["xl/worksheets/sheet3.xml"]!), /=SUM\(A1\)/, "a workbook cell is text, never a formula, so nothing is escaped");
-  assert.equal(exportBaseName(input), "compare_sept_orders_vs_oct_orders");
+test("the export file name is made from both file names", () => {
+  assert.equal(exportBaseName(run().input), "compare_sept_orders_vs_oct_orders");
 });
 
 test("the HTML report is one page with the counts and summaries, escaped, and no scripts", () => {

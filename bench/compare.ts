@@ -8,6 +8,7 @@ import { diffColumns, diffWindow, mostChangedColumn, sortDiffPositions } from ".
 import { suggestColumnPairs } from "../src/data/compare/pair-suggest.js";
 import { columnShifts, groupShift } from "../src/data/compare/shift.js";
 import { DEFAULT_RULES, compareColumn, type CompareSide } from "../src/data/compare/types.js";
+import { compareReportWorkbook } from "../src/ui/compare/compare-xlsx.js";
 import { measure, ms } from "./bench-utils.js";
 
 // Latency budgets for compare mode's engine (plan-compare.md, Speed). Two
@@ -140,6 +141,38 @@ gate(`what shifted (every column), ${ROWS.toLocaleString()} rows`, BUDGET.shift,
 gate(`mean per group (city_0 x amount_0), ${ROWS.toLocaleString()} rows`, BUDGET.groups, () => {
   groupShift(a, b, pairing, 11, 1, "mean");
 });
+
+// The formatted Excel report (Summary, Differences, Changed cells, Only in A/B, Columns, Big Picture): built row
+// by row and deflated as it goes, so it must not freeze the worker or hold the sheets as strings.
+// About 38% of rows differ in this data, so 135,000 rows give ~50,000 differing rows (13,500 give ~5,000). Measured
+// 2026-11-15 in node: 5,000 rows 270-620 ms, 50,000 rows 2.5 s (13 MB; deflate is about half); it runs in the worker.
+{
+  const timeAsync = async (label: string, budget: number, run: () => Promise<{ differences: { total: number }; bytes: Uint8Array }>): Promise<void> => {
+    await run();
+    const times: number[] = [];
+    let last = await run();
+    for (let i = 0; i < 3; i++) {
+      const started = performance.now();
+      last = await run();
+      times.push(performance.now() - started);
+    }
+    times.sort((x, y) => x - y);
+    const p95 = times[times.length - 1]!;
+    const over = p95 > budget;
+    if (over) failed = true;
+    console.log(`${over ? "OVER" : "ok  "} ${label}, ${last.differences.total.toLocaleString()} differing rows x 20 columns (${(last.bytes.length / 1e6).toFixed(1)} MB)  p95 ${ms(p95)} ms  budget ${Math.round(budget)} ms`);
+  };
+  for (const [rows, budget] of [[13_500, 1000], [135_000, 5000]] as const) {
+    const ra = toSide("a", makeTable(rows, "a"));
+    const rb = toSide("b", makeTable(rows, "b"));
+    const rp = pairColumns(ra, rb);
+    const rm = matchRows(ra, rb, rp, [rp.pairs[0]], DEFAULT_RULES);
+    const rr = buildReport(ra, rb, rp, rm);
+    const rs = columnShifts(ra, rb, rp, new Set([0]));
+    const meta = { description: "bench", rules: DEFAULT_RULES, autoPaired: null, created: "now" };
+    await timeAsync(`Excel report`, budget, () => compareReportWorkbook(ra, rb, rp, rm, [0], rr, rs, meta));
+  }
+}
 
 const expected = { onlyA: Math.ceil(ROWS / 100), onlyB: Math.floor(ROWS / 100) };
 if (match.counts.onlyA !== expected.onlyA || match.counts.onlyB !== expected.onlyB || match.counts.changed === 0) {

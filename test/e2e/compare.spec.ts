@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import * as XLSX from "xlsx";
 import { zipSync } from "fflate";
 import { buildXlsx } from "../../src/ui/xlsx-writer.js";
 
@@ -280,7 +281,7 @@ test("what shifted: no key needed, columns ranked by how far they moved, and a m
   }
 });
 
-test("Export saves the HTML report, the changes as CSV and a workbook with every table", async ({ page }) => {
+test("Export saves the HTML report, the changes as CSV and a formatted Excel report", async ({ page }) => {
   await loadA(page);
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: /Load more/ }).click();
@@ -307,9 +308,18 @@ test("Export saves the HTML report, the changes as CSV and a workbook with every
     "3,3,2,changed,amount,30,31",
     "5,,4,only in B,,,",
   ]);
-  const xlsx = await save("Changes and rows (Excel)");
+  const xlsx = await save("Report (Excel)");
   expect(xlsx.name).toBe("compare_before_vs_after.xlsx");
   expect(xlsx.bytes.subarray(0, 2).toString("latin1")).toBe("PK");
+  const book = XLSX.read(xlsx.bytes, { type: "buffer", cellStyles: true });
+  expect(book.SheetNames).toEqual(["Summary", "Differences", "Changed cells", "Only in A", "Only in B", "Columns", "Big Picture"]);
+  const diff = book.Sheets["Differences"]!;
+  const fill = (ref: string) => (diff[ref] as { s?: { fgColor?: { rgb?: string } } }).s?.fgColor?.rgb;
+  // rows: id 2 only in A, id 3 changed (amount 30 to 31), id 5 only in B; id 1 and 4 are identical and left out
+  expect([diff["A3"]!.v, diff["A4"]!.v, diff["A5"]!.v]).toEqual(["− only in A", "~ changed", "+ only in B"]);
+  expect(fill("A4")).toBe("FDE68A");
+  expect([diff["C4"]!.v, diff["D4"]!.v, diff["E4"]!.v]).toEqual([30, 31, 1]);
+  expect([fill("C4"), fill("D4")]).toEqual(["FDE2E2", "DCFCE7"]);
 });
 
 test("leaving compare asks first when the data had Recipe steps, then clears both datasets", async ({ page }) => {

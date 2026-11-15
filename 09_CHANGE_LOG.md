@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-15 — Compare: a formatted Excel report with a Differences sheet
+
+- **Status:** Verified (unit 49 compare and xlsx tests; read back with SheetJS and openpyxl; opened in a real Excel; bench 51,300 differing rows in 2.5-3.1 s; export-menu e2e not yet run)
+- **Related issue / decision:** Owner request 2026-11-15: an xlsx report of a comparison with a worksheet devoted to differences and nice colour formatting. Decision: every compared column, only rows that differ.
+- **What changed:** Export menu has Report (Excel), replacing Changes and rows. Seven sheets: Summary (count tiles, match method, totals check, changes by column, legend), Differences (every column as A and B, Δ for numbers, only differing rows, changed cells filled, missing side hatched, frozen header, filter, print titles), Changed cells, Only in A, Only in B, Columns, Big Picture. Real numbers and dates; rows beyond Excel's limit are cut with a note.
+- **Not covered yet:** Delta colours are green for an increase and red for a decrease, which differs from the Value differences page (green and amber): owner to decide.
+- **Files / components changed:** src/ui/compare/compare-xlsx.ts, compare-export.ts, compare-mode.ts, src/data/compare/export.ts, src/worker/protocol.ts, search.worker.ts, src/ui/worker-client.ts, src/ui/help-content.ts, bench/compare.ts, tests
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-14 — A styled, streaming xlsx writer
 
 - **Status:** Verified (unit through the Compare report tests; SheetJS and openpyxl read it back)

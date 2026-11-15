@@ -361,6 +361,16 @@ async function handle(message: WorkerRequest): Promise<void> {
       post({ type: "compareGroups", requestId: message.requestId, groups: groupShift(run.a, compare!.bSide, run.pairing, message.group, message.measure, message.agg) });
       break;
     }
+    case "compareReportXlsx": {
+      const run = compareRun();
+      const keyPairs = run.match.mode === "key" ? run.keyPairs : null;
+      const bSide = compare!.bSide;
+      run.shift ??= columnShifts(run.a, bSide, run.pairing, new Set(run.keyPairs));
+      const built = await compareReportWorkbook(run.a, bSide, run.pairing, run.match, keyPairs, buildReport(run.a, bSide, run.pairing, run.match), run.shift, message.meta);
+      const bytes = built.bytes.buffer.slice(built.bytes.byteOffset, built.bytes.byteOffset + built.bytes.byteLength) as ArrayBuffer;
+      post({ type: "compareReportXlsx", requestId: message.requestId, bytes, differences: built.differences, changes: built.changes }, [bytes]);
+      break;
+    }
     case "compareDifferences": {
       const run = compareRun();
       const keyPairs = run.match.mode === "key" ? run.keyPairs : null;

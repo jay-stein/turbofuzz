@@ -1467,6 +1467,22 @@ export interface CompareExportMessage {
   tables: ChangeTables;
 }
 
+/** The formatted Excel report: Summary, Differences, Changed cells, Only in A, Only in B, Columns and Big Picture, built in the worker. */
+export interface CompareReportXlsxRequest {
+  type: "compareReportXlsx";
+  requestId: number;
+  meta: ReportMeta;
+}
+
+export interface CompareReportXlsxMessage {
+  type: "compareReportXlsx";
+  requestId: number;
+  bytes: ArrayBuffer;
+  /** Rows that differ (and how many the Differences sheet holds), and changed cells (and how many are listed). */
+  differences: { total: number; written: number };
+  changes: { total: number; written: number };
+}
+
 /** The rows that differ as one table to open in the workspace: `_change`, the key, then each column that changed. */
 export interface CompareDifferencesRequest {
   type: "compareDifferences";
@@ -1532,6 +1548,7 @@ export type WorkerRequest =
   | CompareGroupsRequest
   | CompareExportRequest
   | CompareDifferencesRequest
+  | CompareReportXlsxRequest
   | MemoryRequest
   | ClearDataRequest
   | LoadRequest
@@ -1921,6 +1938,7 @@ export type WorkerResponse =
   | CompareGroupsMessage
   | CompareExportMessage
   | CompareDifferencesMessage
+  | CompareReportXlsxMessage
   | MemoryMessage
   | DataClearedMessage
   | ErrorMessage;

@@ -10,9 +10,6 @@ export interface Table {
 export interface ChangeTables {
   /** One line per changed cell, and one per row only one side has. */
   changes: Table;
-  /** The rows only in A, and only in B, with every column of that side. */
-  onlyA: Table;
-  onlyB: Table;
   /** Lines left out of `changes` beyond the cap. */
   truncated: number;
 }
@@ -29,8 +26,7 @@ const STATUS: Record<number, string> = {
 /**
  * The differences as tables to save: the key (when rows matched on one), each
  * side's file row number, the status, and for a changed cell the column with
- * its value in A and in B. Rows only one side has get one line each here, and
- * all their cells in their own table.
+ * its value in A and in B. Rows only one side has get one line each here.
  */
 export function changeTables(
   a: CompareSide,
@@ -44,8 +40,6 @@ export function changeTables(
   const headers = [...keys.map((pair) => a.columns[pair.a]!.name), "A row", "B row", "status", "column", "value in A", "value in B"];
   const rows: string[][] = [];
   let truncated = 0;
-  const onlyA: string[][] = [];
-  const onlyB: string[][] = [];
   for (let i = 0; i < match.status.length; i++) {
     const status = match.status[i]!;
     if (status !== ROW_CHANGED && status !== ROW_ONLY_A && status !== ROW_ONLY_B) continue;
@@ -66,13 +60,9 @@ export function changeTables(
     }
     if (rows.length >= cap) truncated++;
     else rows.push([...lead, "", "", ""]);
-    if (status === ROW_ONLY_A) onlyA.push(a.columns.map((column) => column.raw[ar] ?? ""));
-    else onlyB.push(b.columns.map((column) => column.raw[br] ?? ""));
   }
   return {
     changes: { headers, rows },
-    onlyA: { headers: a.columns.map((column) => column.name), rows: onlyA },
-    onlyB: { headers: b.columns.map((column) => column.name), rows: onlyB },
     truncated,
   };
 }
