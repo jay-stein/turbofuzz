@@ -141,12 +141,17 @@ function polarsCleanLines(
       case "trim":
         return assign(`${column}.str.strip_chars().str.replace_all(r"\\s+", " ")`, name);
       case "case": {
-        const method =
-          op.style === "title"
-            ? "to_titlecase"
-            : op.style === "upper"
-              ? "to_uppercase"
-              : "to_lowercase";
+        // to_titlecase() also capitalises after a hyphen or apostrophe (Timor-Leste); the app
+        // capitalises only the first letter of each whitespace-separated word.
+        if (op.style === "title") {
+          return [
+            "import re",
+            "def _tf_title(v):",
+            "    return re.sub(r\"\\S+\", lambda m: m.group(0)[:1].upper() + m.group(0)[1:].lower(), v)",
+            assign(`${column}.map_elements(_tf_title, return_dtype=pl.Utf8)`, name),
+          ].join("\n");
+        }
+        const method = op.style === "upper" ? "to_uppercase" : "to_lowercase";
         return assign(`${column}.str.${method}()`, name);
       }
       case "replace":

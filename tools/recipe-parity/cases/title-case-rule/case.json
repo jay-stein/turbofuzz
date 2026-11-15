@@ -1,0 +1,4 @@
+{
+  "name": "title-case-rule",
+  "description": "title case capitalises only the letter after whitespace: apostrophes, hyphens, ALL CAPS and mixed case"
+}

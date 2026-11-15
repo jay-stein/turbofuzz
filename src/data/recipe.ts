@@ -600,8 +600,16 @@ function cleanLines(
       case "trim":
         return `${column} = ${column}.str.strip().str.replace(r"\\s+", " ", regex=True)`;
       case "case": {
-        const method = op.style === "title" ? "title" : op.style;
-        return `${column} = ${column}.str.${method}()`;
+        // pandas .str.title() also capitalises after an apostrophe or hyphen (People'S, Timor-Leste);
+        // the app capitalises only the first letter of each whitespace-separated word.
+        if (op.style === "title") {
+          return [
+            "def _tf_title(v):",
+            "    return re.sub(r\"\\S+\", lambda m: m.group(0)[:1].upper() + m.group(0)[1:].lower(), v) if isinstance(v, str) else v",
+            `${column} = ${column}.map(_tf_title)`,
+          ].join("\n");
+        }
+        return `${column} = ${column}.str.${op.style}()`;
       }
       case "replace":
         if (op.ignoreCase) {

@@ -19,7 +19,9 @@ test("generates pandas lines for clean ops", () => {
     schema: [],
   });
   assert.match(recipe, /df\["city"\] = df\["city"\]\.str\.strip\(\)/);
-  assert.match(recipe, /df\["city"\] = df\["city"\]\.str\.title\(\)/);
+  // The app capitalises after whitespace only; .str.title() would also capitalise after an apostrophe.
+  assert.match(recipe, /df\["city"\] = df\["city"\]\.map\(_tf_title\)/);
+  assert.doesNotMatch(recipe, /\.str\.title\(\)/);
   assert.match(recipe, /str\.replace\("Fremantel", "Fremantle", regex=False\)/);
   assert.match(recipe, /pd\.to_numeric\(/);
   assert.match(recipe, /df\.to_csv\("cleaned\.csv", index=False\)/);

@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-12 — Recipe: Title Case in the exported scripts matches the app
+
+- **Status:** Verified (unit; parity case title-case-rule on pandas 3.1.1 and Polars 2.1.0)
+- **Related issue / decision:** stress test 2026-11-15 S09-05: the app gives People's Republic Of China and Timor-leste, the scripts gave People'S and Timor-Leste.
+- **What changed:** Both scripts capitalise only the first letter of each whitespace-separated word, as the app does. The Polars version runs per row in Python, so it is slower than to_titlecase.
+- **Not covered yet:** 
+- **Files / components changed:** src/data/recipe.ts, src/data/recipe-polars.ts, tools/recipe-parity, test/recipe.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-11 — Merge similar values: different house numbers and first-name look-alikes are no longer merged
 
 - **Status:** Verified (unit: similar, similar-clusters; wrong rewrites measured on 50,000 people)

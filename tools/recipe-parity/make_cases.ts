@@ -409,7 +409,105 @@ const CASES: CaseSpec[] = [
       { kind: "derive", name: "band", at: 99, formula: "BIN([qty], 3)" },
     ],
   },
+  {
+    name: "title-case-rule",
+    description: "title case capitalises only the letter after whitespace: apostrophes, hyphens, ALL CAPS and mixed case",
+    headers: ["country"],
+    rows: [
+      ["PEOPLE'S REPUBLIC OF CHINA"],
+      ["timor-leste"],
+      ["GUINEA-BISSAU"],
+      ["o'brien  mcDONALD"],
+      ["  élan vital "],
+      ["3rd street"],
+      [""],
+    ],
+    cleans: [{ column: 0, ops: [{ kind: "trim" }, { kind: "case", style: "title" }] }],
+  },
+  {
+    name: "reader-cp1252-semicolon-footer",
+    description: "a ;-delimited windows-1252 file: 2 title rows, an empty line, the header, data with accents, a Total footer",
+    headers: ["city", "name", "qty"],
+    rows: [
+      ["Zürich", "d'Artagnan", "12"],
+      ["Köln", "O'BRIEN", "7"],
+      ["São Paulo", "timor-leste", "30"],
+      ["Malmö", "Åsa", "4"],
+    ],
+    cleans: [{ column: 1, ops: [{ kind: "trim" }, { kind: "case", style: "title" }] }],
+    file: {
+      delimiter: ";",
+      encoding: "windows-1252",
+      title: ["Orders report", "Generated 2024-03-05"],
+      blankAfterTitle: true,
+      footer: [["Total", "", "53"]],
+    },
+  },
+  {
+    name: "reader-utf16-tab",
+    description: "a tab-delimited UTF-16 file with a title row and a totals line after the data",
+    headers: ["city", "qty"],
+    rows: [
+      ["Perth", "5"],
+      ["Hobart", "9"],
+      ["Darwin", "11"],
+    ],
+    file: {
+      delimiter: "\t",
+      encoding: "utf-16le",
+      title: ["Stock by city"],
+      footer: [["Total", "25"]],
+    },
+  },
+  {
+    name: "reader-headerless-pipe",
+    description: "a pipe-delimited file with no header row: every record is data, columns are named Column 1, 2",
+    headers: ["Column 1", "Column 2"],
+    rows: [
+      ["alpha", "1"],
+      ["beta", "22"],
+      ["gamma", "333"],
+    ],
+    file: { delimiter: "|", encoding: "utf-8", hasHeaders: false },
+  },
+  {
+    name: "reader-units-row-chosen-layout",
+    description: "a header row chosen by hand: one title row, the header, a units row under it that is skipped",
+    headers: ["item", "weight", "price"],
+    rows: [
+      ["bolt", "5", "2"],
+      ["nut", "3", "1"],
+      ["washer", "1", "1"],
+    ],
+    file: {
+      delimiter: ",",
+      encoding: "utf-8",
+      title: ["Parts list"],
+      unitsRow: ["", "(kg)", "(usd)"],
+      layout: { skipRows: 1, headerRows: 1, skipAfter: 1 },
+    },
+  },
 ];
+
+/** The text of a messy source file, one line per record. */
+function fileText(spec: CaseSpec, file: FileSpec): string {
+  const join = (cells: readonly string[]): string => cells.join(file.delimiter);
+  const lines = [
+    ...(file.title ?? []),
+    ...(file.blankAfterTitle === true ? [""] : []),
+    ...(file.hasHeaders === false ? [] : [join(spec.headers)]),
+    ...(file.unitsRow === undefined ? [] : [join(file.unitsRow)]),
+    ...spec.rows.map(join),
+    ...(file.footer ?? []).map(join),
+  ];
+  return `${lines.join("\r\n")}\r\n`;
+}
+
+/** The bytes of input.csv in the file's encoding. */
+function fileBytes(text: string, encoding: FileEncoding): Buffer {
+  if (encoding === "utf-16le") return Buffer.from(`﻿${text}`, "utf16le");
+  return Buffer.from(text, encoding === "windows-1252" ? "latin1" : "utf8");
+}
 
 function rawCsv(spec: CaseSpec): string {
   const lines = [spec.headers.map(csvEscape).join(",")];
