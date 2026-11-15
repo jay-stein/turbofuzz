@@ -251,8 +251,8 @@ test("similar-key pairings get their own sheet: both rows, both keys, a confiden
   // Least trusted first: the loose name with a contradicting amount, then the same name with a different amount, then the clean pair.
   assert.deepEqual(body.map((row) => row[5]), ["Low", "Medium", "High"]);
   assert.equal(body[0]![2], "Northern Plumbers Group");
-  assert.match(String(body[0]![6]), /Amount differs \(A: 100, B: 9000\)/);
-  assert.match(String(body[1]![6]), /Same name once tidied.*Amount differs \(A: 75, B: 80\)/);
+  assert.match(String(body[0]![6]), /Amount changed \(A: 100, B: 9000\)/);
+  assert.match(String(body[1]![6]), /Same name once tidied.*Amount changed \(A: 75, B: 80\)/);
   assert.match(String(body[2]![6]), /Amount agrees/);
   assert.deepEqual([body[2]![0], body[2]![1]], [1, 1]);
   const summary = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets["Summary"]!, { header: 1, blankrows: false }).flat().join(" ");

@@ -105,3 +105,17 @@ test("matching 50,000 leftover names a side stays fast", () => {
   console.log(`fuzzy key match, ${n} per side: ${Math.round(ms)} ms`);
   assert.ok(ms < 8000, `took ${ms} ms`);
 });
+
+test("the Similar keys filter keeps only the rows paired by similarity, and the report says where each one sits", async () => {
+  const { filterPositions } = await import("../src/data/compare/view.js");
+  const { buildReport } = await import("../src/data/compare/report.js");
+  const match = run(ledger, bank, 0.88);
+  const positions = [...filterPositions(match, { show: "similar", pairs: [] })];
+  assert.equal(positions.length, 3);
+  assert.ok(positions.every((at) => match.fuzzy!.at[at]! >= 0));
+  // Exact-key rows (Initech) and unmatched rows are not in it.
+  assert.ok(positions.every((at) => match.bRow[at] !== 3));
+  const report = buildReport(ledger, bank, pairColumns(ledger, bank), match);
+  assert.deepEqual(report.fuzzy!.pairs.map((pair) => pair.index).sort(), [0, 1, 2]);
+  assert.equal(filterPositions(run(ledger, bank, null), { show: "similar", pairs: [] }).length, 0);
+});

@@ -561,3 +561,25 @@ test("similar keys: names spelled differently pair up, the Report lists them, an
   await card.locator("tbody tr").first().getByRole("button", { name: "Reject" }).click();
   await expect(card.locator("tbody tr")).toHaveCount(1);
 });
+
+test("similar keys: the Report opens a pairing side by side, and Spot the difference can show only the similar-key rows", async ({ page }) => {
+  const ledger = ["Supplier,Amount", "Acme Pty Ltd,10", "Globex Corporation,10", "Initech,10", "Hooli,10"].join("\n");
+  const bank = ["Supplier,Amount", "ACME Pty. Limited,10", "Globex Corp,12", "Initech,10", "Wayne Enterprises,10"].join("\n");
+  await compareFromFront(page, file("ledger.csv", ledger), file("bank.csv", bank));
+  const mode = page.getByRole("region", { name: "Compare two datasets" });
+  await mode.getByRole("button", { name: "Comparison setup" }).click();
+  await mode.locator(".cmp-key").first().getByRole("radio").check();
+  await mode.getByLabel("Also pair rows whose key is similar").check();
+  await mode.getByRole("button", { name: "Compare", exact: true }).click();
+  await mode.getByRole("button", { name: "Report", exact: true }).click();
+  await mode.locator(".cmp-fuzzy-card tbody tr").first().getByRole("button", { name: "Show" }).click();
+  await expect(mode.locator(".cmp-step[aria-current=page]")).toContainText("Spot the difference");
+  const seg = mode.getByRole("button", { name: /Similar keys/ });
+  await expect(seg).toHaveAttribute("aria-pressed", "true");
+  await expect(seg.locator(".cmp-seg-count")).toHaveText("2");
+  await expect(mode.locator(".cmp-side-a .cmp-row")).toHaveCount(2);
+  await expect(mode.locator(".cmp-side-a .cmp-mark.similar").first()).toHaveText("≈");
+  // Back on the full differences, the other filters are still there.
+  await mode.getByRole("button", { name: /^All/ }).click();
+  await expect(mode.locator(".cmp-side-a .cmp-row").first()).toBeVisible();
+});

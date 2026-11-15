@@ -22,6 +22,8 @@ export interface ReportActions {
   rows(filter: RowFilter): void;
   /** Undoes the automatic pairing and goes back to the setup. */
   undoAutoPair?(): void;
+  /** Opens a similar-key pairing (by its place among the similar-key rows) side by side. */
+  showPair?(index: number): void;
   /** Says a similar-key pairing is wrong: the two rows are kept apart and the comparison runs again. */
   rejectPair?(aRow: number, bRow: number): void;
   /** Builds the caution about whole-row matching, or null when there is none. */
@@ -122,6 +124,12 @@ function autoPairLine(input: ReportInput, actions: ReportActions): HTMLElement |
   return el("p", { class: "cmp-note cmp-autopair" }, [`${auto.a} in A paired with ${auto.b} in B: ${overlapText(auto.overlap)} of values match. `, undo]);
 }
 
+function openAll(actions: ReportActions): HTMLElement {
+  const button = el("button", { type: "button", class: "link", title: "Spot the difference, narrowed to the similar-key rows" }, ["See them all side by side →"]);
+  button.addEventListener("click", () => actions.rows({ show: "similar", pairs: [] }));
+  return button;
+}
+
 /** Rows paired by similar key text: those to review first, each with the evidence and a way to reject it. */
 function fuzzyCard(report: CompareReport, actions: ReportActions): HTMLElement | null {
   const fuzzy = report.fuzzy;
@@ -129,6 +137,7 @@ function fuzzyCard(report: CompareReport, actions: ReportActions): HTMLElement |
   const total = fuzzy.confident + fuzzy.review;
   const box = el("section", { class: "cmp-fuzzy-card", "aria-label": "Rows paired by similar key" }, [
     el("h2", {}, ["Rows paired by similar key"]),
+    ...(fuzzy.confident + fuzzy.review > 0 ? [openAll(actions)] : []),
     el("p", { class: "cmp-note" }, [
       total === 0
         ? "No leftover rows had a key similar enough to pair. Loosen the slider on the setup to look further."
@@ -143,6 +152,8 @@ function fuzzyCard(report: CompareReport, actions: ReportActions): HTMLElement |
   for (const pair of fuzzy.pairs) {
     const reject = el("button", { type: "button", class: "link", title: "These are different records" }, ["Reject"]);
     reject.addEventListener("click", () => actions.rejectPair?.(pair.aRow, pair.bRow));
+    const show = el("button", { type: "button", class: "link", title: "See this pairing side by side, among the other similar-key rows" }, ["Show"]);
+    show.addEventListener("click", () => actions.showPair?.(pair.index));
     body.append(
       el("tr", { class: pair.confidence === "Low" ? "review" : "" }, [
         el("td", { title: pair.aKey }, [pair.aKey]),
@@ -150,7 +161,7 @@ function fuzzyCard(report: CompareReport, actions: ReportActions): HTMLElement |
         el("td", {}, [`${Math.round(pair.score * 100)}%`]),
         el("td", {}, [pair.confidence]),
         el("td", { title: pair.reason }, [pair.reason]),
-        el("td", {}, [reject]),
+        el("td", {}, [show, " · ", reject]),
       ]),
     );
   }

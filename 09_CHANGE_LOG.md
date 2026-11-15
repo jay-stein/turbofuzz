@@ -4,6 +4,15 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-19 — Compare: see the similar-key pairings in context
+
+- **Status:** Verified (unit 1729 of 1730, the one miss a worker timing test that passes alone 3 of 3; compare e2e 21 of 21)
+- **Related issue / decision:** owner: is there a view where we can see what was fuzzy matched? A pairing with a different amount is a change.
+- **What changed:** Spot the difference gets a "Similar keys" filter (with its count) beside Changed, Only in A and Only in B, shown when a run paired rows by similarity. On the Report, each pairing has a Show link that opens it side by side among the other similar-key rows, and "See them all side by side" opens the filter. A pairing whose other column differs reads "Amount changed (A: 75, B: 80)", and counts as a changed row with both cells highlighted.
+- **Files / components changed:** src/data/compare/view.ts, report.ts, fuzzy-match.ts, src/ui/compare/compare-grid.ts, compare-mode.ts, compare-report.ts, compare-xlsx.ts, src/styles.css, test/compare-fuzzy.test.ts, test/compare-report-xlsx.test.ts, test/e2e/compare.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-18 — Compare: every similar-key pairing carries a confidence and its reasons
 
 - **Status:** Verified (unit 1729 of 1729; compare e2e 20 of 20)

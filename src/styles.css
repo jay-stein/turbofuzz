@@ -16737,6 +16737,9 @@ button.cmp-change-name:hover {
 .cmp-fuzzy-slider {
   width: 160px;
 }
+.cmp-seg-dot.similar {
+  background: #f59e0b;
+}
 .cmp-fuzzy-card {
   margin: 0 0 14px;
 }

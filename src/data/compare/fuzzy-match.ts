@@ -47,7 +47,7 @@ export function fuzzyReason(pair: { aKey: string; bKey: string; score: number; a
       : `Spelled ${Math.round(pair.score * 100)}% alike`,
   );
   if (pair.agreeColumns.length > 0) parts.push(`${pair.agreeColumns.join(", ")} agree${pair.agreeColumns.length === 1 ? "s" : ""}`);
-  if (pair.differColumns.length > 0) parts.push(`but ${pair.differColumns.join("; ")}`);
+  if (pair.differColumns.length > 0) parts.push(pair.differColumns.join("; "));
   if (pair.checked === 0) parts.push("no other column to confirm it");
   if (pair.ambiguous) parts.push("another row in B was nearly as close");
   return parts.join(" · ");
@@ -181,7 +181,7 @@ export function findFuzzyPairs(
       const cb = b.columns[check.pair.b];
       if (ca.isEmpty(aRow) || cb.isEmpty(bRow)) continue;
       if (check.equal(aRow, bRow)) agreeColumns.push(ca.name);
-      else differColumns.push(`${ca.name} differs (A: ${ca.raw[aRow]}, B: ${cb.raw[bRow]})`);
+      else differColumns.push(`${ca.name} changed (A: ${ca.raw[aRow]}, B: ${cb.raw[bRow]})`);
     }
     return { agreeColumns, differColumns };
   };

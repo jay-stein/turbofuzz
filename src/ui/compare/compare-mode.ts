@@ -180,7 +180,8 @@ export class CompareMode {
         renderReport(
           host,
           { setup, report: result.report, ms: result.ms, key: result.key, rules: result.rules, autoPaired: this.autoPairedNames(result.autoPaired) },
-          { rows: (filter) => this.openRows(filter), undoAutoPair: () => this.undoAutoPair(), rejectPair: (aRow, bRow) => void this.rejectPair(aRow, bRow), caution: () => pairingCaution(setup, result.key, this.cautionActions()) },
+          { rows: (filter) => this.openRows(filter), undoAutoPair: () => this.undoAutoPair(), rejectPair: (aRow, bRow) => void this.rejectPair(aRow, bRow),
+            showPair: (index) => this.showPair(index), caution: () => pairingCaution(setup, result.key, this.cautionActions()) },
         );
       } else {
         this.sideBySide = new SideBySide({
@@ -189,6 +190,7 @@ export class CompareMode {
           report: result.report,
           key: result.key,
           ...this.rows,
+          focus: this.takeFocus(),
           onState: (state) => {
             this.rows = state;
           },
@@ -338,6 +340,21 @@ export class CompareMode {
   }
 
   /** From a count or a column in the report: those rows, side by side. */
+  /** The similar-key row chosen on the Report, used once when Spot the difference next opens. */
+  private focusRow = -1;
+
+  private takeFocus(): number | undefined {
+    const row = this.focusRow;
+    this.focusRow = -1;
+    return row < 0 ? undefined : row;
+  }
+
+  /** Opens one similar-key pairing side by side, among the other similar-key rows. */
+  private showPair(index: number): void {
+    this.focusRow = index;
+    this.openRows({ show: "similar", pairs: [] });
+  }
+
   private openRows(filter: RowFilter): void {
     this.rows = { ...this.rows, filter };
     this.tab = "rows";

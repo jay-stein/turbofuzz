@@ -16,6 +16,8 @@ export interface SideBySideOptions {
   filter: RowFilter;
   layout: GridLayout;
   changedColumnsOnly: boolean;
+  /** A row (index in the filtered list) to scroll to and mark when the screen opens, such as a similar-key pairing chosen on the Report. */
+  focus?: number;
   /** Remembers the view so the tab comes back as it was left. */
   onState(state: { filter: RowFilter; layout: GridLayout; changedColumnsOnly: boolean }): void;
   /** "Change…" beside how rows were matched: back to the setup's Match rows on. */
@@ -113,6 +115,7 @@ export class SideBySide {
 
   constructor(private readonly options: SideBySideOptions) {
     this.filter = options.filter;
+    this.focusRow = options.focus ?? -1;
     this.layout = options.layout;
     this.changedOnly = options.changedColumnsOnly;
     this.status = el("span", { class: "cmp-rows-status", role: "status" });
@@ -146,6 +149,8 @@ export class SideBySide {
         return rows.onlyB;
       case "identical":
         return rows.identical;
+      case "similar":
+        return (this.options.report.fuzzy?.confident ?? 0) + (this.options.report.fuzzy?.review ?? 0);
     }
   }
 
@@ -159,6 +164,7 @@ export class SideBySide {
       ["onlyA", "Only in A", "only-a"],
       ["onlyB", "Only in B", "only-b"],
       ["identical", "Identical", "same"],
+      ...(this.count("similar") > 0 ? [["similar", "Similar keys", "similar"] as [RowFilter["show"], string, string]] : []),
     ];
     for (const [show, label, tone] of shows) {
       const button = el("button", { type: "button", class: "cmp-seg", "aria-pressed": String(this.filter.show === show) }, [
@@ -420,8 +426,25 @@ export class SideBySide {
     }
     this.updatePosition();
     this.schedule();
+    this.applyFocus();
   }
 
+  /** Scrolls to the row asked for when the screen opened, once, and marks it. */
+  private applyFocus(): void {
+    const wanted = this.focusRow;
+    this.focusRow = -1;
+    if (wanted < 0 || wanted >= this.total) return;
+    this.current = wanted;
+    this.updatePosition();
+    requestAnimationFrame(() => {
+      const scroller = this.scrollers[0];
+      if (scroller === undefined) return;
+      scroller.scrollTop = Math.max(0, wanted * this.rowHeight() - scroller.clientHeight / 2 + this.rowHeight());
+      this.schedule();
+    });
+  }
+
+  private focusRow = -1;
   private cols: Column[] = [];
 
   private rowHeight(): number {

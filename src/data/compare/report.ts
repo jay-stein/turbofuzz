@@ -47,7 +47,7 @@ export interface CompareReport {
     threshold: number;
     confident: number;
     review: number;
-    pairs: { aRow: number; bRow: number; aKey: string; bKey: string; score: number; tier: "confident" | "review"; agree: number; checked: number; ambiguous: boolean; confidence: "High" | "Medium" | "Low"; reason: string }[];
+    pairs: { aRow: number; bRow: number; aKey: string; bKey: string; score: number; tier: "confident" | "review"; agree: number; checked: number; ambiguous: boolean; confidence: "High" | "Medium" | "Low"; reason: string; index: number }[];
     /** Pairs by confidence, so the headline says how many rest on a leap. */
     byConfidence: { high: number; medium: number; low: number };
   } | null;
@@ -158,6 +158,12 @@ export function byTrust(x: { confidence: "High" | "Medium" | "Low"; score: numbe
 function fuzzyReport(match: MatchResult): CompareReport["fuzzy"] {
   if (match.fuzzy === null || match.fuzzy === undefined) return null;
   const pairs = match.fuzzy.pairs;
+  // Where each pairing sits among the similar-key rows in display order: how the side-by-side view finds it.
+  const rank = new Map<number, number>();
+  for (let i = 0; i < match.fuzzy.at.length; i++) {
+    const at = match.fuzzy.at[i]!;
+    if (at >= 0) rank.set(at, rank.size);
+  }
   const review = pairs.filter((pair) => pair.tier === "review").sort((x, y) => x.score - y.score);
   const confident = pairs.filter((pair) => pair.tier === "confident").sort((x, y) => x.score - y.score);
   return {
@@ -169,6 +175,6 @@ function fuzzyReport(match: MatchResult): CompareReport["fuzzy"] {
       medium: pairs.filter((pair) => pair.confidence === "Medium").length,
       low: pairs.filter((pair) => pair.confidence === "Low").length,
     },
-    pairs: [...pairs].sort(byTrust).slice(0, FUZZY_LISTED).map(({ aRow, bRow, aKey, bKey, score, tier, agree, checked, ambiguous, confidence, reason }) => ({ aRow, bRow, aKey, bKey, score, tier, agree, checked, ambiguous, confidence, reason })),
+    pairs: [...pairs].sort(byTrust).slice(0, FUZZY_LISTED).map((pair) => ({ aRow: pair.aRow, bRow: pair.bRow, aKey: pair.aKey, bKey: pair.bKey, score: pair.score, tier: pair.tier, agree: pair.agree, checked: pair.checked, ambiguous: pair.ambiguous, confidence: pair.confidence, reason: pair.reason, index: rank.get(pairs.indexOf(pair)) ?? -1 })),
   };
 }
