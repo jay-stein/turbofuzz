@@ -23,6 +23,7 @@ import type { DiffColumn, DiffOp, DiffSummary } from "../data/compare/diffs.js";
 import type { GroupMeasure, GroupShift, ShiftReport } from "../data/compare/shift.js";
 import type { ChangeTables } from "../data/compare/export.js";
 import type { ReportMeta } from "../ui/compare/compare-xlsx.js";
+import type { QualityWorkbookInput } from "../ui/quality-xlsx.js";
 import type { SimilarClusterEntry } from "../data/similar-clusters.js";
 import type { AnimationResult, FrameStep } from "../data/chart-frames.js";
 import type { BootstrapProgress, IntervalKind } from "../data/error-bars.js";
@@ -1494,6 +1495,25 @@ export interface CompareReportXlsxMessage {
   changes: { total: number; written: number };
 }
 
+/** The single-table data-quality report as a formatted workbook, built in the worker (failing cells sampled there). */
+export interface QualityReportXlsxRequest {
+  type: "qualityReportXlsx";
+  requestId: number;
+  input: QualityWorkbookInput;
+  maskColumns: number[];
+  includeRaw: boolean;
+  optional: number[];
+}
+
+export interface QualityReportXlsxMessage {
+  type: "qualityReportXlsx";
+  requestId: number;
+  bytes: ArrayBuffer;
+  /** Failing cells found, and how many the Exceptions sheet lists. */
+  exceptions: { total: number; written: number };
+  ms: number;
+}
+
 /** The rows that differ as one table to open in the workspace: `_change`, the key, then each column that changed. */
 export interface CompareDifferencesRequest {
   type: "compareDifferences";
@@ -1560,6 +1580,7 @@ export type WorkerRequest =
   | CompareExportRequest
   | CompareDifferencesRequest
   | CompareReportXlsxRequest
+  | QualityReportXlsxRequest
   | MemoryRequest
   | ClearDataRequest
   | LoadRequest
@@ -1950,6 +1971,7 @@ export type WorkerResponse =
   | CompareExportMessage
   | CompareDifferencesMessage
   | CompareReportXlsxMessage
+  | QualityReportXlsxMessage
   | MemoryMessage
   | DataClearedMessage
   | ErrorMessage;

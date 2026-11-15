@@ -24,7 +24,7 @@ import { computeColumnNetwork } from "../data/column-network.js";
 import { embeddedShapes, textProfile } from "../data/text-profile.js";
 import { scansForSensitivity } from "../data/sensitivity.js";
 import { computeRowsAffected } from "../data/dq-rows.js";
-import { collectExceptions } from "../data/dq-exceptions.js";
+import { collectExceptions, sampleExceptions } from "../data/dq-exceptions.js";
 import { computeDistributionChanges } from "../data/distribution.js";
 import { computeSimilarClusters } from "../data/similar-clusters.js";
 import { computeAnomalies } from "../data/anomalies.js";
@@ -99,6 +99,7 @@ import {
 import { isNumericLikeType, type ColumnType } from "../types.js";
 import { buildCsv } from "./csv.js";
 import { compareReportWorkbook } from "../ui/compare/compare-xlsx.js";
+import { EXCEPTIONS_PER_CHECK, qualityReportWorkbook } from "../ui/quality-xlsx.js";
 import { buildXlsxWorkbook } from "./xlsx-export.js";
 import {
   ingestDataset,
@@ -106,7 +107,7 @@ import {
   ingestFilesAsync,
   type IngestResult,
 } from "./ingest.js";
-import type { CleanColumnsRequest, ClearExcludedRowsRequest, ColumnDetail, ColumnMeta, FileImportMeta, DropRowsRequest, FinalizeStatsRequest, CompareLoadRequest, CompareRunRequest, CompareRowsRequest, CompareDiffsRequest, CompareFindRequest, CompareSetupRequest, CompareSideInfo, GetRowsRequest, GetRowIdsRequest, FindRowRequest, GetOrderRequest, PreviewFormulaRequest, RowLimit, GetStatsRequest, GetChartBinsRequest, GetGroupedBinsRequest, GetMissingnessRequest, GetChartSeriesRequest, GetBoxStatsRequest, GetSliceBreakdownRequest, GetCrosstabRequest, GetCorrelationRequest, GetAggregateRequest, GetPivotRequest, GetCoMissingnessRequest, GetGroupAnomaliesRequest, GetOutlierAnalysisRequest, GetDependenciesRequest, GetRelationshipsRequest, GetTimeSeriesRequest, GetColumnNetworkRequest, GetTextProfileRequest, GetColumnSampleRequest, GetValueSuggestionsRequest, ScanSensitiveRequest, GetRowsAffectedRequest, GetExceptionsRequest, GetDistributionChangesRequest, GetSimilarClustersRequest, GetGridCountsRequest, GetAnimationRequest, GetErrorBarsRequest, GetRegionValuesRequest, SuggestRegionJoinRequest, LoadRequest, PreviewCleanRequest, KnnEvaluateRequest, KnnPlanRequest, PreviewSample, PreviewTransformRequest, RenameHeadersRequest, ResolveNullsAllRequest, SetFilterRequest, SetFiltersRequest, SetNullPolicyRequest, SetNumberLocaleRequest, SetTypeRequest, CheckKeyDuplicatesRequest, CheckPairRequest, EvaluateRulesRequest, SortRequest, SpecialKind, ProgressPhase, TransformRequest, TransformPreviewNote, WorkerRequest, WorkerResponse } from "./protocol.js";
+import type { CleanColumnsRequest, ClearExcludedRowsRequest, ColumnDetail, ColumnMeta, FileImportMeta, DropRowsRequest, FinalizeStatsRequest, CompareLoadRequest, CompareRunRequest, CompareRowsRequest, CompareDiffsRequest, CompareFindRequest, CompareSetupRequest, CompareSideInfo, GetRowsRequest, GetRowIdsRequest, FindRowRequest, GetOrderRequest, PreviewFormulaRequest, RowLimit, GetStatsRequest, GetChartBinsRequest, GetGroupedBinsRequest, GetMissingnessRequest, GetChartSeriesRequest, GetBoxStatsRequest, GetSliceBreakdownRequest, GetCrosstabRequest, GetCorrelationRequest, GetAggregateRequest, GetPivotRequest, GetCoMissingnessRequest, GetGroupAnomaliesRequest, GetOutlierAnalysisRequest, GetDependenciesRequest, GetRelationshipsRequest, GetTimeSeriesRequest, GetColumnNetworkRequest, GetTextProfileRequest, GetColumnSampleRequest, GetValueSuggestionsRequest, ScanSensitiveRequest, GetRowsAffectedRequest, GetExceptionsRequest, QualityReportXlsxRequest, GetDistributionChangesRequest, GetSimilarClustersRequest, GetGridCountsRequest, GetAnimationRequest, GetErrorBarsRequest, GetRegionValuesRequest, SuggestRegionJoinRequest, LoadRequest, PreviewCleanRequest, KnnEvaluateRequest, KnnPlanRequest, PreviewSample, PreviewTransformRequest, RenameHeadersRequest, ResolveNullsAllRequest, SetFilterRequest, SetFiltersRequest, SetNullPolicyRequest, SetNumberLocaleRequest, SetTypeRequest, CheckKeyDuplicatesRequest, CheckPairRequest, EvaluateRulesRequest, SortRequest, SpecialKind, ProgressPhase, TransformRequest, TransformPreviewNote, WorkerRequest, WorkerResponse } from "./protocol.js";
 
 const scope = self as unknown as {
   onmessage: ((event: MessageEvent<WorkerRequest>) => void) | null;
@@ -535,6 +536,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getExceptions":
       handleGetExceptions(message);
+      break;
+    case "qualityReportXlsx":
+      await handleQualityReportXlsx(message);
       break;
     case "cancelScan":
       cancelledScans.add(message.scanId);
@@ -2514,6 +2518,22 @@ function handleGetExceptions(message: GetExceptionsRequest): void {
     count: result.count,
     ms: performance.now() - started,
   });
+}
+
+async function handleQualityReportXlsx(message: QualityReportXlsxRequest): Promise<void> {
+  const { dataset } = state();
+  const started = performance.now();
+  const groups = sampleExceptions(dataset.columns, dataset.rowCount, {
+    maskColumns: new Set(message.maskColumns),
+    includeRaw: message.includeRaw,
+    optional: new Set(message.optional),
+    variantSources: variantSourcesFor(dataset.columns),
+    perCheck: EXCEPTIONS_PER_CHECK,
+    skipEmpty: true,
+  });
+  const built = await qualityReportWorkbook(message.input, groups);
+  const bytes = built.bytes.buffer.slice(built.bytes.byteOffset, built.bytes.byteOffset + built.bytes.byteLength) as ArrayBuffer;
+  post({ type: "qualityReportXlsx", requestId: message.requestId, bytes, exceptions: built.exceptions, ms: performance.now() - started }, [bytes]);
 }
 
 /** Per column, the values that are spelling variants of another value (null when none). */

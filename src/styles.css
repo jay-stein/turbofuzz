@@ -12322,6 +12322,20 @@ body:has(.th-filter-popover) .hint-callout {
   opacity: 0.6;
 }
 
+/* Excel report: the workbook green, so it reads as the same thing as the big box at the foot. */
+.qp-hero-actions .qp-excel-button {
+  border: 1px solid #107c41;
+  background: #107c41;
+  color: #fff;
+  font-weight: 600;
+}
+.qp-hero-actions .qp-excel-button:hover {
+  background: #21a366;
+}
+.qp-excel-raw {
+  margin: 0 0 6px 4px;
+}
+
 /* Summary tiles */
 .qp-tiles {
   display: grid;

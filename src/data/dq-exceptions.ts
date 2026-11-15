@@ -43,24 +43,85 @@ export function collectExceptions(
 ): ExceptionResult {
   const lines: string[] = [EXCEPTION_HEADER];
   let count = 0;
-  const emit = (
-    row: number,
-    index: number,
-    column: ColumnData,
-    check: string,
-    dimension: string,
-    severity: string,
-    raw: string,
-    reason: string,
-  ): void => {
+  walkExceptions(columns, rowCount, options.optional, (row, index, column, check, dimension, severity, raw, reason) => {
     if (options.checkId !== null && options.checkId !== check) return;
     const value = options.maskColumns.has(index) && !options.includeRaw ? maskValue(raw) : raw;
     lines.push(
       [String(row + 1), csvEscape(column.name), check, dimension, severity, csvEscape(escapeFormula(value)), csvEscape(reason)].join(","),
     );
     count++;
-  };
+  }, options.variantSources);
+  return { csv: `${lines.join("\n")}\n`, count };
+}
 
+/** One failing cell; `row` is 1-based, counting the first data row as 1. */
+export interface ExceptionRow {
+  row: number;
+  column: string;
+  check: string;
+  dimension: string;
+  severity: string;
+  value: string;
+  reason: string;
+}
+
+/** Failing cells per check: how many there are, and the first few. */
+export interface ExceptionGroup {
+  check: string;
+  column: string;
+  dimension: string;
+  severity: string;
+  reason: string;
+  total: number;
+  rows: ExceptionRow[];
+}
+
+/**
+ * The failing cells grouped by check, keeping at most `perCheck` of each so one
+ * noisy check (thousands of blanks) cannot crowd out the rest. Empty cells are
+ * left out when `skipEmpty` is set: the column profile already counts them.
+ */
+export function sampleExceptions(
+  columns: readonly ColumnData[],
+  rowCount: number,
+  options: Omit<ExceptionOptions, "checkId"> & { perCheck: number; skipEmpty: boolean },
+): ExceptionGroup[] {
+  const groups = new Map<string, ExceptionGroup>();
+  walkExceptions(columns, rowCount, options.optional, (row, index, column, check, dimension, severity, raw, reason) => {
+    if (options.skipEmpty && check.startsWith("completeness.")) return;
+    let group = groups.get(check);
+    if (group === undefined) {
+      group = { check, column: column.name, dimension, severity, reason, total: 0, rows: [] };
+      groups.set(check, group);
+    }
+    group.total++;
+    if (group.rows.length < options.perCheck) {
+      const value = options.maskColumns.has(index) && !options.includeRaw ? maskValue(raw) : raw;
+      group.rows.push({ row: row + 1, column: column.name, check, dimension, severity, value, reason });
+    }
+  }, options.variantSources);
+  return [...groups.values()];
+}
+
+type ExceptionSink = (
+  row: number,
+  index: number,
+  column: ColumnData,
+  check: string,
+  dimension: string,
+  severity: string,
+  raw: string,
+  reason: string,
+) => void;
+
+function walkExceptions(
+  columns: readonly ColumnData[],
+  rowCount: number,
+  optionalColumns: ReadonlySet<number>,
+  emit: ExceptionSink,
+  variantSources: readonly (ReadonlySet<string> | null)[],
+): void {
+  const options = { optional: optionalColumns, variantSources };
   columns.forEach((column, index) => {
     if (column.role === "provenance") return;
     const tokens = new Set(column.nullTokens.filter((t) => t.label.trim() !== "").map((t) => t.label));
@@ -115,5 +176,4 @@ export function collectExceptions(
       }
     }
   });
-  return { csv: `${lines.join("\n")}\n`, count };
 }

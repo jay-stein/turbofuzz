@@ -54,6 +54,7 @@ export type ParsedCommand =
   | { kind: "export"; label: string }
   | { kind: "views"; label: string }
   | { kind: "quality"; label: string }
+  | { kind: "qualityReport"; label: string }
   | { kind: "error"; message: string };
 
 export interface CommandSuggestion {
@@ -100,6 +101,11 @@ const VERBS: readonly { name: string; aliases: readonly string[]; hint: string }
     name: "quality",
     aliases: ["score", "dq", "data quality"],
     hint: "Open the data-quality breakdown",
+  },
+  {
+    name: "dqreport",
+    aliases: ["data quality report", "quality report", "excel report", "dq report"],
+    hint: "Download the Excel data-quality report of the whole file",
   },
   {
     name: "forecast",
@@ -478,6 +484,8 @@ export function parseCommand(input: string, columns: readonly ColumnMeta[]): Par
     case "quality": {
       return { kind: "quality", label: "Opened the data-quality breakdown" };
     }
+    case "dqreport":
+      return { kind: "qualityReport", label: "Building the Excel data-quality report" };
     case "keydup": {
       const parts = rest
         .split(",")

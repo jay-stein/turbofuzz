@@ -159,6 +159,7 @@ import {
   emitDQChecks,
 } from "../data/dq-report.js";
 import { safeFileName } from "./chart-utils.js";
+import type { QualityWorkbookInput, WorkbookColumn, WorkbookIssue, WorkbookRelation, WorkbookVariants } from "./quality-xlsx.js";
 import type { DQExportKind } from "./quality-panel.js";
 import {
   QualityPage,
@@ -656,6 +657,37 @@ const MULTI_FILE_HEADER_NOTE =
   "Shown for the first file. The same rows to skip, header rows and end of data apply to every file, so they need a consistent layout.";
 const HEADER_PREVIEW_BYTES = 1_000_000;
 
+/** What a column means, in the words the Excel data-quality report uses. */
+const SEMANTIC_WORDS: Record<string, string> = {
+  identifier: "Identifier",
+  phone: "Phone",
+  email: "Email",
+  person_name: "Person name",
+  address: "Address",
+  geo: "Location",
+  url: "Web address",
+  free_text: "Free text",
+  code: "Code",
+  date: "Date",
+  duration: "Duration",
+  category: "Category",
+  measure: "Measure",
+  unknown: "",
+};
+
+/** The kind of a multi-column finding, by the report that raised it (Excel Relationships sheet). */
+const RELATION_KINDS: Record<string, string> = {
+  "quality.missingness": "Blank together",
+  "relationships.association": "Depends on",
+  "relationships.explain": "Explains",
+  "anomalies.groupRelative": "Unusual within its group",
+  "quality.nearDuplicates": "Near-duplicate rows",
+  "quality.duplicateAnalysis": "Duplicate rows",
+  "quality.dataIntegrity": "Integrity",
+  "quality.constraintViolations": "Rule across columns",
+  "quality.joinReadiness": "Key readiness",
+};
+
 export class App {
   private readonly client = new SearchWorkerClient();
   /** The memory figures behind the gauges in the top bar and in compare mode. */
@@ -862,7 +894,7 @@ export class App {
   private sensitiveFindings: SensitiveFinding[] = [];
   /** Worker-scanned shape counts per text-like column, filled as results stream in. */
   private sensitiveInputs = new Map<number, ColumnSensitivityInput>();
-  private sensitiveScan: { cancel: () => void } | null = null;
+  private sensitiveScan: { cancel: () => void; done: Promise<unknown> } | null = null;
   private sensitiveRenderTimer: number | null = null;
   private sensitiveNotes = new Map<number, string>();
   /** Distinct rows failing a deterministic check; undefined while counting. */
@@ -4710,6 +4742,10 @@ export class App {
       case "quality":
         this.openQuality();
         break;
+      case "qualityReport":
+        // Sensitive values stay masked from the command bar; the Quality page has the raw-values switch.
+        void this.downloadQualityWorkbook(false).catch(() => undefined);
+        break;
       case "keyDuplicates": {
         this.setView("table");
         const label = command.label;
@@ -5405,6 +5441,7 @@ export class App {
         this.refreshScore();
       },
       onExceptions: (includeRaw) => this.downloadExceptions(includeRaw),
+      onExcelReport: (includeRaw) => this.downloadQualityWorkbook(includeRaw),
       maskedColumns: () => this.maskedColumns(),
       onOptionalChange: (name, optional) => {
         setOptionalMark(name, optional);
@@ -6475,6 +6512,116 @@ export class App {
       this.setAction(`Downloaded ${message.count.toLocaleString()} exceptions`);
     } catch {
       this.setAction("Could not build the exceptions file");
+    }
+  }
+
+  /**
+   * The formatted Excel data-quality report of the whole file: the Quality page's own
+   * results (score, issues, column health, rules, sensitive columns) plus the failing
+   * cells, which the worker samples per check while it writes the workbook.
+   * Resolves with a note for the page (empty when there is nothing to add).
+   */
+  private async downloadQualityWorkbook(includeRaw: boolean): Promise<string> {
+    const score = this.dqScore;
+    const stats = this.latestStats;
+    if (score === null || stats === null) return "Load a file first.";
+    // The sensitive scan runs after a load; a report taken before it ends would say "none"
+    // and leave names unmasked. Wait for it (a restarted scan is waited for too, a few times at most).
+    for (let tries = 0; tries < 3 && !this.sensitiveScanned && this.sensitiveScan !== null; tries++) {
+      this.setAction("Waiting for the sensitive-data scan to finish…");
+      await this.sensitiveScan.done.catch(() => undefined);
+      await Promise.resolve();
+    }
+    this.setAction("Building the Excel data-quality report…");
+    const report = this.buildReport(score, await this.sourceProvenance(score));
+    const cards = this.sensitiveCards().filter((card) => card.dismissed !== true);
+    const flagged = new Set(cards.map((card) => card.column));
+    const hide = (column: number, value: string): string => (flagged.has(column) && !includeRaw ? maskValue(value) : value);
+    const review = this.reviewList(stats);
+    const issues = buildIssues({ score, metas: this.metas, rowCount: this.rowCount, review, sensitiveColumns: flagged });
+    const health = new Map(buildColumnHealth(this.metas, issues, this.rowCount, flagged, score).map((entry) => [entry.column, entry]));
+    const dimensionLabel = new Map(score.dimensions.map((d) => [d.dimension, d.label]));
+    const workbookIssues: WorkbookIssue[] = issues.map((issue) => ({
+      severity: issue.severity,
+      dimension:
+        issue.check === undefined
+          ? issue.kind === "duplicates" || issue.kind === "keyDuplicates"
+            ? "Uniqueness"
+            : "Review"
+          : (dimensionLabel.get(issue.check.dimension) ?? issue.check.dimension),
+      column: issue.columnName,
+      title: issue.title,
+      evidence: issue.column !== null && flagged.has(issue.column) && !includeRaw ? "" : issue.evidence,
+      impact: issue.impact,
+      rows: issue.rows,
+      fix: issue.fixLabel,
+    }));
+    const columns: WorkbookColumn[] = [];
+    const variants: WorkbookVariants[] = [];
+    this.metas.forEach((meta, index) => {
+      if (meta.role === "provenance") return;
+      const entry = health.get(index);
+      const s = meta.stats;
+      const columnScore = entry?.score?.score ?? null;
+      columns.push({
+        name: meta.name,
+        type: meta.type,
+        typeLabel: TYPE_LABELS[meta.type],
+        meaning: SEMANTIC_WORDS[meta.semantic?.type ?? "unknown"] ?? "",
+        score: columnScore === null ? null : Math.round(columnScore),
+        nulls: s.nulls,
+        distinct: s.distinct,
+        min: s.min,
+        max: s.max,
+        mean: s.mean,
+        minLength: s.minLength,
+        maxLength: s.maxLength,
+        top: s.topValues.slice(0, 3).map((t) => ({ label: hide(index, t.label), count: t.count })),
+        example: s.samples[0] === undefined ? "" : hide(index, s.samples[0]),
+        fixRows: entry?.fixRows ?? 0,
+        reviewRows: entry?.reviewRows ?? 0,
+        flags: entry?.chips ?? [],
+        sensitive: flagged.has(index),
+      });
+      for (const group of meta.variants?.examples ?? []) {
+        variants.push({ column: meta.name, spellings: group.spellings.map((sp) => ({ value: hide(index, sp.value), count: sp.count })) });
+      }
+    });
+    const relations: WorkbookRelation[] = review
+      .filter((finding) => finding.impact.columns.length >= 2)
+      .map((finding) => ({
+        kind: RELATION_KINDS[finding.report] ?? "Related columns",
+        columns: finding.impact.columns.map((column) => this.metas[column]?.name ?? "?"),
+        title: finding.title,
+        rows: finding.impact.rows,
+      }));
+    const input: QualityWorkbookInput = {
+      report,
+      created: new Date().toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }),
+      issues: workbookIssues,
+      columns,
+      relations,
+      variants,
+      sensitiveExamples: Object.fromEntries(cards.map((card) => [card.name, includeRaw ? card.revealed : card.examples])),
+      rawValues: includeRaw && flagged.size > 0,
+    };
+    try {
+      const message = await this.client.qualityReportXlsx(input, [...flagged], includeRaw, score.optionalColumns);
+      const blob = new Blob([message.bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${safeFileName(this.datasetName === "" ? "dataset" : this.datasetName)}-dq-report.xlsx`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      this.setAction(`Downloaded the Excel data-quality report (${Math.round(message.ms).toLocaleString()} ms)`);
+      const { total, written } = message.exceptions;
+      return written < total
+        ? `Saved. The Exceptions sheet lists ${written.toLocaleString()} of ${total.toLocaleString()} failing cells (up to 500 per check); the exceptions CSV has them all.`
+        : "";
+    } catch {
+      this.setAction("Could not build the Excel report");
+      throw new Error("Could not build the Excel report.");
     }
   }
 

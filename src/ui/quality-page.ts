@@ -23,6 +23,7 @@ import {
   type RowsAffectedTile,
 } from "./quality-layout.js";
 import { clear, el } from "./dom.js";
+import { excelBox } from "./excel-box.js";
 import { chipText } from "./chips.js";
 import type { DQExportKind } from "./quality-panel.js";
 import { describeScope } from "./scope.js";
@@ -103,6 +104,8 @@ export interface QualityPageCallbacks {
   onShowAffectedRows?(): void;
   /** Copy/download the DQ report; resolves false when the clipboard blocks. */
   onExport(kind: DQExportKind): Promise<boolean>;
+  /** Build and save the formatted Excel report of the whole file; resolves with a note to show, or "". */
+  onExcelReport?(includeRaw: boolean): Promise<string>;
   /** Current weights/bands overrides (prefills the settings). */
   config?: {
     weights?: Partial<Record<ScoreDimension, number>>;
@@ -268,6 +271,9 @@ export class QualityPage {
             ? {}
             : { exceptions: (includeRaw: boolean) => void this.callbacks.onExceptions?.(includeRaw) }),
           html: () => void this.callbacks.onExport("html"),
+          ...(this.callbacks.onExcelReport === undefined
+            ? {}
+            : { excel: (includeRaw: boolean) => void this.callbacks.onExcelReport?.(includeRaw) }),
           weights: () => {
             this.tab = "checks";
             this.settingsOpen = !this.settingsOpen;
@@ -383,13 +389,36 @@ export class QualityPage {
         this.buildMatrix(score, columnNames),
       );
     }
+    const excelFoot = this.buildExcelFoot();
+    this.root.append(panel);
+    if (excelFoot !== null) this.root.append(excelFoot);
     this.root.append(
-      panel,
       el("footer", { class: "qp-footer" }, [
         "Computed locally in your browser · No data leaves this tab",
       ]),
     );
     void stats;
+  }
+
+  /** The big Excel call to action at the foot of the page, as on the comparison report. */
+  private buildExcelFoot(): HTMLElement | null {
+    const run = this.callbacks.onExcelReport;
+    if (run === undefined) return null;
+    const masked = this.callbacks.maskedColumns?.().length ?? 0;
+    const raw = el("input", { type: "checkbox", class: "qp-raw-switch" }) as HTMLInputElement;
+    const extra =
+      masked === 0
+        ? undefined
+        : el("label", { class: "qp-raw-label qp-excel-raw" }, [
+            raw,
+            ` Include raw values (${masked.toLocaleString()} sensitive ${masked === 1 ? "column is" : "columns are"} masked)`,
+          ]);
+    return excelBox({
+      title: "Get the Excel data-quality report",
+      sub: "The whole file in one formatted workbook: score and dimensions, every column profiled, findings, checks and rules, failing cells, relationships and sensitive columns. Ready to share.",
+      run: () => run(raw.checked),
+      ...(extra === undefined ? {} : { extra }),
+    });
   }
 
   /** Sets (or replaces) the advisory-signals section shown at the bottom of the Issues tab. */

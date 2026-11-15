@@ -50,6 +50,8 @@ export function buildHero(
     weights: () => void;
     exceptions?: (includeRaw: boolean) => void;
     html?: () => void;
+    /** The formatted Excel report (whole file); the flag is the raw-values switch. */
+    excel?: (includeRaw: boolean) => void;
   },
 ): HTMLElement {
   const hero = el("section", { class: "qp-hero2", "aria-label": "Data quality summary" });
@@ -97,7 +99,16 @@ export function buildHero(
   copy.addEventListener("click", actions.copy);
   const weights = el("button", { class: "ghost small", type: "button" }, ["Score & weights"]);
   weights.addEventListener("click", actions.weights);
-  buttons.append(primary, copy, weights);
+  const raw = el("input", { type: "checkbox", class: "qp-raw-switch" }) as HTMLInputElement;
+  buttons.append(primary);
+  const excel = actions.excel;
+  if (excel !== undefined) {
+    const excelButton = el("button", { class: "small qp-excel-button", type: "button", "data-qp": "excel-report" }, ["Excel report ↓"]);
+    excelButton.title = "A formatted workbook of the whole file: summary, columns, findings, checks, failing cells, relationships and sensitive columns";
+    excelButton.addEventListener("click", () => excel(raw.checked));
+    buttons.append(excelButton);
+  }
+  buttons.append(copy, weights);
   if (actions.html !== undefined) {
     const html = el("button", { class: "ghost small", type: "button", "data-qp": "html-report" }, ["Download HTML report"]);
     html.title = "One printable page: score, top issues, columns, rules and trend. No values from flagged columns.";
@@ -106,13 +117,14 @@ export function buildHero(
   }
   const exceptions = actions.exceptions;
   if (exceptions !== undefined) {
-    const raw = el("input", { type: "checkbox", class: "qp-raw-switch" }) as HTMLInputElement;
     const exportButton = el("button", { class: "ghost small", type: "button", "data-qp": "exceptions" }, [
       "Download exceptions CSV",
     ]);
     exportButton.title = "One row per failing cell: row, column, check, value and reason";
     exportButton.addEventListener("click", () => exceptions(raw.checked));
     buttons.append(exportButton);
+  }
+  if (exceptions !== undefined || excel !== undefined) {
     if ((input.maskedColumns ?? 0) > 0) {
       buttons.append(
         el("label", { class: "qp-raw-label" }, [

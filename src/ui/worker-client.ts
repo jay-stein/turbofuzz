@@ -3,6 +3,7 @@ import { readSettings } from "./settings.js";
 import { waitedMs } from "./wait-time.js";
 import type { GeoWorkerReply, GeoWorkerRequest } from "../worker/geo.worker.js";
 import type { IntervalKind } from "../data/error-bars.js";
+import type { QualityWorkbookInput } from "./quality-xlsx.js";
 import type { ErrorBarsMessage, ErrorBarsProgressMessage, JoinSuggestionsMessage, RegionsLoadedMessage, RegionValuesMessage, RegionValuesRequestInput } from "../worker/protocol.js";
 import type { TsConfig, TsMode } from "../data/timeseries/aggregate.js";
 import type { ModelKey } from "../data/timeseries/models.js";
@@ -100,6 +101,7 @@ import type {
   SensitiveColumnMessage,
   RowsAffectedMessage,
   ExceptionsMessage,
+  QualityReportXlsxMessage,
   SensitiveDoneMessage,
   TransformedMessage,
   TransformPreviewMessage,
@@ -567,6 +569,11 @@ export class SearchWorkerClient {
     checkId: string | null,
   ): Promise<ExceptionsMessage> {
     return this.request<ExceptionsMessage>({ type: "getExceptions", maskColumns, includeRaw, optional, checkId });
+  }
+
+  /** The formatted data-quality workbook (whole file), built in the worker. */
+  qualityReportXlsx(input: QualityWorkbookInput, maskColumns: number[], includeRaw: boolean, optional: number[]): Promise<QualityReportXlsxMessage> {
+    return this.request<QualityReportXlsxMessage>({ type: "qualityReportXlsx", input, maskColumns, includeRaw, optional });
   }
 
   getRowsAffected(setAside: readonly string[] = []): Promise<RowsAffectedMessage> {
