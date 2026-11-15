@@ -502,7 +502,7 @@ test("Apply all safe fixes runs once per press: a second press while it runs doe
   assert.equal(host.querySelectorAll(".qp-fixed-row").length, 2);
 });
 
-test("the hero reason and the Rows affected tile tell the same story when rows hold the score down", () => {
+test("the Rows affected tile reports failing rows without changing the headline", () => {
   const window = setupDom();
   const columns = [meta({ name: "city" })];
   const score = computeDQScore(columns, stats(), 100, { rowsAffected: { count: 10, total: 100 } });
@@ -512,14 +512,14 @@ test("the hero reason and the Rows affected tile tell the same story when rows h
     onExport: () => Promise.resolve(true),
   });
   page.render({ score, rowCount: 100, stats: stats(), columnNames: ["city"], rowsAffected: { count: 10, total: 100 } });
-  assert.equal(host.querySelector(".qp-ring-value")?.textContent, "81.0");
-  assert.equal(host.querySelector(".qp-hero-reason")?.textContent, "Fair because 10% of rows fail at least one check");
+  assert.equal(host.querySelector(".qp-ring-value")?.textContent, "100.0");
+  assert.equal(host.querySelector(".qp-hero-reason"), null);
   const tile = host.querySelector(".tile-rows")?.textContent ?? "";
   assert.match(tile, /10 of 100/);
-  assert.match(tile, /holds the score to 81\.0/);
+  assert.doesNotMatch(tile, /holds the score/);
 });
 
-test("setting aside the issue that limits the headline raises the ring and clears the rows tile", () => {
+test("setting aside an issue clears the rows tile and raises the ring", () => {
   const window = setupDom();
   const variants = { groups: 1, minorityRows: 10, examples: [{ spellings: [{ value: "Active", count: 90 }, { value: "active", count: 10 }] }], mappings: [{ from: "active", to: "Active", count: 10 }] };
   const columns = [meta({ name: "status", variants })];
@@ -537,13 +537,10 @@ test("setting aside the issue that limits the headline raises the ring and clear
     return score;
   };
   const before = show({});
-  assert.equal(host.querySelector(".qp-ring-value")?.textContent, "81.0");
-  assert.match(host.querySelector(".qp-hero-reason")?.textContent ?? "", /10% of rows/);
   assert.match(host.querySelector(".tile-rows")?.textContent ?? "", /10 of 100/);
   const after = show({ "consistency.variants.0": 10 });
   assert.ok((after.overall ?? 0) > (before.overall ?? 0));
   assert.equal(host.querySelector(".qp-ring-value")?.textContent, "100.0");
-  assert.equal(host.querySelector(".qp-hero-reason"), null);
   const tile = host.querySelector(".tile-rows")?.textContent ?? "";
   assert.match(tile, /0 of 100/);
   assert.doesNotMatch(tile, /holds the score/);

@@ -236,34 +236,16 @@ function orders(): { columns: ColumnMeta[]; rows: number } {
   return { columns, rows };
 }
 
-test("the headline is held to the share of clean rows, so 10% failing rows is not good", () => {
+test("failing rows are reported beside the headline without lowering it", () => {
   const { columns, rows } = orders();
   const cellsOnly = computeDQScore(columns, stats({ totalCells: rows * 30 }), rows);
-  assert.ok((cellsOnly.overall ?? 0) > 99, "the cell average alone reads as nearly perfect");
-  assert.equal(cellsOnly.rowLimit, null, "no limit until the rows are counted");
-  const limited = computeDQScore(columns, stats({ totalCells: rows * 30 }), rows, {
+  assert.equal(cellsOnly.rowLimit, null, "no count until the rows are counted");
+  const counted = computeDQScore(columns, stats({ totalCells: rows * 30 }), rows, {
     rowsAffected: { count: 10114, total: rows },
   });
-  assert.ok(Math.abs((limited.overall ?? 0) - 80.8) < 0.1, `100 × 0.8989² ≈ 80.8; got ${limited.overall}`);
-  assert.equal(limited.band, "fair");
-  assert.equal(limited.bandReason, "Fair because 10% of rows fail at least one check");
-  assert.equal(limited.rowLimit?.limiting, true);
-  // Per-dimension scores are untouched.
-  assert.equal(limited.dimensions[0]?.score, cellsOnly.dimensions[0]?.score);
-});
-
-test("fixing rows moves the headline: 1% reads about 98, a clean table 100", () => {
-  const { columns, rows } = orders();
-  const at = (count: number) =>
-    computeDQScore(columns.map((c) => meta({ name: c.name })), stats({ totalCells: rows * 30 }), rows, {
-      rowsAffected: { count, total: rows },
-    });
-  assert.equal(at(0).overall, 100);
-  assert.equal(at(0).bandReason, null);
-  assert.ok(Math.abs((at(1000).overall ?? 0) - 98.01) < 0.01);
-  assert.equal(at(1000).band, "good");
-  assert.equal(at(1000).bandReason, null, "the number alone, no row reason when the band is unchanged");
-  assert.ok((at(5000).overall ?? 0) > 90 && (at(10000).overall ?? 0) < 90);
+  assert.deepEqual(counted.rowLimit, { count: 10114, total: rows });
+  assert.equal(counted.overall, cellsOnly.overall, "placeholders such as Unknown do not lower the headline");
+  assert.equal(counted.bandReason, null);
 });
 
 test("a stale row count, from another table size, is ignored", () => {
@@ -271,19 +253,6 @@ test("a stale row count, from another table size, is ignored", () => {
   const score = computeDQScore(columns, stats(), 100, { rowsAffected: { count: 50, total: 80 } });
   assert.equal(score.overall, 100);
   assert.equal(score.rowLimit, null);
-});
-
-test("user weights keep their meaning: the row ceiling only ever lowers the weighted mean", () => {
-  const columns = [
-    meta({ name: "a", stats: { ...meta().stats, nulls: 50 } }),
-    meta({ name: "b", stats: { ...meta().stats, nulls: 50 } }),
-  ];
-  const heavy = { weights: { completeness: 100, validity: 0, uniqueness: 0, consistency: 0, timeliness: 0 } };
-  const noRows = computeDQScore(columns, stats(), 100, heavy);
-  assert.equal(noRows.overall, 50);
-  const rows = computeDQScore(columns, stats(), 100, { ...heavy, rowsAffected: { count: 5, total: 100 } });
-  assert.equal(rows.overall, 50, "a ceiling of 90.25 does not lift a 50");
-  assert.equal(rows.rowLimit?.limiting, false);
 });
 
 test("a column cap keeps its own reason when it is what lowers the band", () => {

@@ -285,7 +285,6 @@ export class QualityPage {
               ? null
               : {
                   ...input.rowsAffected,
-                  ...(score.rowLimit?.limiting === true ? { scoreCeiling: score.rowLimit.ceiling } : {}),
                 },
         },
         {

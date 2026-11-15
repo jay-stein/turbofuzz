@@ -5618,8 +5618,8 @@ export class App {
     } catch {
       if (key === this.rowsAffectedKey) this.rowsAffected = null;
     }
-    // The headline is held to the share of clean rows, so it is rescored now the count is in. The first count of a load is not a change.
-    this.refreshScore(this.dqScore?.rowLimit == null);
+    // The count is shown beside the score only; the score itself does not change.
+    this.refreshScore(true);
   }
 
   /** Filters the table to the rows counted by the Rows affected tile. */

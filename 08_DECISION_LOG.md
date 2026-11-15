@@ -36,14 +36,12 @@ Add decisions here. Do not treat AI-generated suggestions as accepted decisions 
 
 ### DEC-2026-11-14-02 — The headline Data Quality score is held to the share of clean rows
 
-- **Status:** Proposed (2026-11-14; shipped, awaiting owner approval)
+- **Status:** Rejected by the owner (2026-11-15); the row ceiling was removed.
 - **Context:** A table with 10% failing rows read 99.3 "good": the weighted mean of per-check scores hides failures spread across rows.
-- **Decision:** Headline = min(weighted mean, 100 × (1 − failing-row share)²). Per-dimension and per-column scores are unchanged. Checks set aside leave the row count. The hero states the reason ("Fair because 10% of rows fail at least one check") and the Rows affected tile states the limit.
-- **Alternatives considered:** Leave the mean; a linear row ceiling; a band cap only.
-- **Trade-offs:** Legitimate placeholders such as "Unknown" count as failing rows, so some tables score lower than an analyst would judge. Corpus bands moved for aac-shelter, ask-a-manager and bank-churners.
+- **Decision:** The headline is the weighted mean of the dimensions again. The Rows affected tile and its "show these rows" action stay as information only.
+- **Why rejected:** Legitimate placeholders such as "Unknown" or "N/A" counted as failing rows, so honest tables scored lower than an analyst would judge.
 - **Features / journeys affected:** F-DQ-01, F-DQ-04
-- **Revisit trigger:** The ceiling proves too strict on real tables with legitimate placeholders.
-- **Date / owner:** 2026-11-14 / owner to confirm
+- **Date / owner:** 2026-11-15 / owner
 
 ### DEC-2026-11-14-01 — XLSX export reinstated, with typed cells from a direct-XML writer
 
