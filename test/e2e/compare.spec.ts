@@ -542,3 +542,22 @@ test("Deep dive: Analyse the differences opens one table of the rows that differ
   await expect.poll(() => page.locator(".table-header .th-label").allInnerTexts()).toEqual(expect.arrayContaining(["_change", "id", "amount (A)", "amount (B)", "amount (B − A)", "qty"]));
   await expect(page.locator(".count").first()).toContainText("6 rows");
 });
+
+test("similar keys: names spelled differently pair up, the Report lists them, and Reject keeps two rows apart", async ({ page }) => {
+  const ledger = ["Supplier,Amount", "Acme Pty Ltd,10", "Globex Corporation,10", "Initech,10", "Hooli,10"].join("\n");
+  const bank = ["Supplier,Amount", "ACME Pty. Limited,10", "Globex Corp,10", "Initech,10", "Wayne Enterprises,10"].join("\n");
+  await compareFromFront(page, file("ledger.csv", ledger), file("bank.csv", bank));
+  const mode = page.getByRole("region", { name: "Compare two datasets" });
+  // Exact keys only: the two renamed suppliers are removed plus added.
+  await mode.getByRole("button", { name: "Comparison setup" }).click();
+  await mode.locator(".cmp-key").first().getByRole("radio").check();
+  await mode.getByLabel("Also pair rows whose key is similar").check();
+  await mode.getByRole("button", { name: "Compare", exact: true }).click();
+  await mode.getByRole("button", { name: "Report", exact: true }).click();
+  const card = mode.locator(".cmp-fuzzy-card");
+  await expect(card).toContainText("Rows paired by similar key");
+  await expect(card.locator("tbody tr")).toHaveCount(2);
+  await expect(card).toContainText("ACME Pty. Limited");
+  await card.locator("tbody tr").first().getByRole("button", { name: "Reject" }).click();
+  await expect(card.locator("tbody tr")).toHaveCount(1);
+});

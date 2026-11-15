@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-17 — Compare: pair rows whose key is only similar
+
+- **Status:** Verified (unit: compare-fuzzy 8 tests incl. 50,000 names a side in about 0.5 s; compare e2e 20 of 20; typecheck; unused-code check)
+- **Related issue / decision:** DEC-2026-11-15-01. Names and addresses written differently on each side ("Acme Pty Ltd" / "ACME Pty. Limited") showed as one removed plus one added.
+- **What changed:** Under "Match rows on" a new option, "Also pair rows whose key is similar", with the Strict-to-Loose slider. Exact keys are paired first; only the leftover rows are matched. Keys are tidied (case, punctuation, St/Street, company suffixes, word order) and scored with Jaro-Winkler; different numbers inside a key never match; pairs are one to one; a second paired column (amount, date) that agrees makes a pairing more certain. Each pairing is Confident or Review (a loose name, a contradicting amount, or two close candidates). The Report lists every pairing, review first, each with a Reject button that keeps the two rows apart and compares again. Paired rows show ≈ in Spot the difference, and the Excel report gets a "Similar keys" sheet.
+- **Not covered yet:** Only text keys (a number or date key must match exactly); one-to-many matches (several bank lines for one invoice); rejections are forgotten when the key or the files change.
+- **Files / components changed:** src/data/compare/fuzzy-match.ts, match.ts, report.ts, types.ts, view.ts, src/worker/search.worker.ts, protocol.ts, src/ui/worker-client.ts, src/ui/compare/compare-setup.ts, compare-mode.ts, compare-report.ts, compare-grid.ts, compare-xlsx.ts, src/styles.css, test/compare-fuzzy.test.ts, test/e2e/compare.spec.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-16 — Import and quality: mixed date layouts, header-less files and encoding safety
 
 - **Status:** Verified (unit 398 tests across the related suites, full suite run once; 100,000-row ingest about 1.9 s with 21 ms added by the new detectors; not seen in a browser)

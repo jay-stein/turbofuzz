@@ -1,3 +1,4 @@
+import { FUZZY_SLIDER_DEFAULT, FUZZY_SLIDER_MAX } from "../../search/fuzzy-index.js";
 import { DEFAULT_RULES, type CompareRules } from "../../data/compare/types.js";
 import type { KeyColumnStat, KeySuggestion } from "../../data/compare/keys.js";
 import { TYPE_LABELS } from "../../types.js";
@@ -21,12 +22,22 @@ export interface SetupState {
   ignore: { a: number[]; b: number[] };
   key: KeyChoice;
   rules: CompareRules;
+  /** Pair rows whose key text is only similar ("Acme Pty Ltd" and "ACME Pty. Limited"): on or off, how loose (a slider position, see fuzzy-index), and the pairs rejected as `aRow:bRow`. */
+  fuzzy: FuzzySetting;
   /** The pair of columns paired automatically because their values match (until undone). */
   autoPaired: PairSuggestion | null;
   /** What is being read right now ("Reading orders.csv…"), or null. */
   busy: string | null;
   error: string | null;
 }
+
+export interface FuzzySetting {
+  on: boolean;
+  position: number;
+  rejected: string[];
+}
+
+export const FUZZY_OFF: FuzzySetting = { on: false, position: FUZZY_SLIDER_DEFAULT, rejected: [] };
 
 export interface SetupActions {
   pickA(file: File): void;
@@ -39,6 +50,7 @@ export interface SetupActions {
   setIgnore(ignore: { a: number[]; b: number[] }): void;
   setKey(key: KeyChoice): void;
   setRules(rules: CompareRules): void;
+  setFuzzy(fuzzy: FuzzySetting): void;
   run(): void;
 }
 
@@ -308,7 +320,35 @@ function keySection(state: SetupState, setup: CompareSetupMessage, actions: Setu
     box.append(el("p", { class: "cmp-note warn" }, ["No column is filled and unique on both sides, so no key is suggested. Choose one, or match whole rows."]));
   }
   box.append(list);
+  if (current.kind === "pairs") box.append(fuzzyControl(state, actions));
   return box;
+}
+
+/** "Also pair rows whose key is similar", with the Strict-to-Loose slider. Rows with an exact key are always paired first. */
+function fuzzyControl(state: SetupState, actions: SetupActions): HTMLElement {
+  const fuzzy = state.fuzzy;
+  const toggle = el("input", { type: "checkbox" }) as HTMLInputElement;
+  toggle.checked = fuzzy.on;
+  toggle.addEventListener("change", () => actions.setFuzzy({ ...fuzzy, on: toggle.checked }));
+  const slider = el("input", {
+    class: "looseness-slider cmp-fuzzy-slider",
+    type: "range",
+    min: "0",
+    max: String(FUZZY_SLIDER_MAX),
+    step: "1",
+    value: String(fuzzy.position),
+    "aria-label": "How similar a key must be: strict to loose",
+    title: "Strict (left) pairs only near-identical keys; Loose (right) pairs many more",
+  }) as HTMLInputElement;
+  slider.disabled = !fuzzy.on;
+  slider.addEventListener("change", () => actions.setFuzzy({ ...fuzzy, position: Number(slider.value) }));
+  return el("div", { class: "cmp-fuzzy" }, [
+    el("label", { class: "cmp-check" }, [toggle, "Also pair rows whose key is similar"]),
+    el("div", { class: "cmp-fuzzy-row" }, [el("span", { class: "cmp-note" }, ["Strict"]), slider, el("span", { class: "cmp-note" }, ["Loose"])]),
+    el("p", { class: "cmp-note" }, [
+      "For names and addresses written differently on each side (\u201cAcme Pty Ltd\u201d and \u201cACME Pty. Limited\u201d). Exact keys are paired first; only the rows left over are matched by similarity. A matching amount or date in another column makes a pairing more certain, and every pairing is listed on the Report for you to check or reject.",
+    ]),
+  ]);
 }
 
 /** "Columns": each column with a tick for whether it is compared, renames made by hand, and the columns only one side has. */

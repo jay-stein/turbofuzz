@@ -219,8 +219,8 @@ export class SearchWorkerClient {
     return this.request<CompareSetupMessage>({ type: "compareSetup", manual, ignore, rules, autoPair });
   }
 
-  compareRun(manual: { a: number; b: number }[], keyPairs: number[] | null, rules: CompareRules, ignore?: { a: number[]; b: number[] }, byPosition = false): Promise<CompareResultMessage> {
-    return this.request<CompareResultMessage>({ type: "compareRun", manual, ignore, keyPairs, byPosition, rules });
+  compareRun(manual: { a: number; b: number }[], keyPairs: number[] | null, rules: CompareRules, ignore?: { a: number[]; b: number[] }, byPosition = false, fuzzy: { threshold: number; rejected: string[] } | null = null): Promise<CompareResultMessage> {
+    return this.request<CompareResultMessage>({ type: "compareRun", manual, ignore, keyPairs, byPosition, rules, fuzzy });
   }
 
   compareDiffs(op: DiffOp, start: number, end: number, changedOnly = false, sort?: { pair: number | null; dir: "desc" | "asc" }): Promise<CompareDiffsMessage> {

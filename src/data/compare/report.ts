@@ -42,7 +42,17 @@ export interface CompareReport {
   changes: ColumnChange[];
   /** Sum and mean for each column that holds numbers on both sides. */
   totals: ColumnTotals[];
+  /** Rows paired by similar key text, null when that was off. `pairs` lists those to review first, then the confident ones, up to a limit. */
+  fuzzy: {
+    threshold: number;
+    confident: number;
+    review: number;
+    pairs: { aRow: number; bRow: number; aKey: string; bKey: string; score: number; tier: "confident" | "review"; agree: number; checked: number; ambiguous: boolean }[];
+  } | null;
 }
+
+/** Similar-key pairs listed in the report. */
+const FUZZY_LISTED = 300;
 
 const TOP = 5;
 /** Distinct old → new pairs tracked per column; beyond it, new pairs are not counted (the totals stay exact). */
@@ -132,5 +142,19 @@ export function buildReport(a: CompareSide, b: CompareSide, pairing: ColumnPairi
     },
     changes,
     totals,
+    fuzzy: fuzzyReport(match),
+  };
+}
+
+function fuzzyReport(match: MatchResult): CompareReport["fuzzy"] {
+  if (match.fuzzy === null || match.fuzzy === undefined) return null;
+  const pairs = match.fuzzy.pairs;
+  const review = pairs.filter((pair) => pair.tier === "review").sort((x, y) => x.score - y.score);
+  const confident = pairs.filter((pair) => pair.tier === "confident").sort((x, y) => x.score - y.score);
+  return {
+    threshold: match.fuzzy.threshold,
+    confident: confident.length,
+    review: review.length,
+    pairs: [...review, ...confident].slice(0, FUZZY_LISTED).map(({ aRow, bRow, aKey, bKey, score, tier, agree, checked, ambiguous }) => ({ aRow, bRow, aKey, bKey, score, tier, agree, checked, ambiguous })),
   };
 }

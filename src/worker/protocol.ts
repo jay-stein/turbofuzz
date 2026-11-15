@@ -1364,6 +1364,8 @@ export interface CompareRunRequest {
   keyPairs: number[] | null;
   /** Match row n of A with row n of B (the files share a shape and only values change); keyPairs is then ignored. */
   byPosition?: boolean;
+  /** Pair rows the exact key missed by similar key text: how close (0.70-0.97) and the pairs the person rejected as `aRow:bRow`. */
+  fuzzy?: { threshold: number; rejected: string[] } | null;
   rules: CompareRules;
 }
 

@@ -1,4 +1,5 @@
 import { BitSet } from "../../search/bitset.js";
+import { findFuzzyPairs, type FuzzyOptions, type FuzzyPair } from "./fuzzy-match.js";
 import { EMPTY_ID, RowGroups, valueIds } from "./ids.js";
 import { cellComparer, pairFamily } from "./values.js";
 import {
@@ -23,6 +24,8 @@ import {
  * first B row that matches a later A row, so two files in a similar order read
  * like a diff.
  *
+ * With `fuzzy` and a key, rows the exact key left unmatched are then paired by similar key text (see fuzzy-match.ts).
+ *
  * With `byPosition`, row n of A meets row n of B (the files are taken to have
  * the same shape, and only values change); rows past the shorter side are only
  * in the longer one.
@@ -34,6 +37,7 @@ export function matchRows(
   keyPairs: readonly ColumnPair[] | null,
   rules: CompareRules,
   byPosition = false,
+  fuzzy: FuzzyOptions | null = null,
 ): MatchResult {
   if (byPosition) {
     const length = Math.max(a.rowCount, b.rowCount);
@@ -101,6 +105,19 @@ export function matchRows(
     usedA[at] = 1;
     head[group] = next[at];
   }
+  // Rows the exact key missed, paired by similar key text.
+  const fuzzyPairs: FuzzyPair[] = [];
+  if (mode === "key" && fuzzy !== null) {
+    const freeA: number[] = [];
+    for (let row = 0; row < a.rowCount; row++) if (usedA[row] === 0 && !hasEmpty(aIds, row)) freeA.push(row);
+    const freeB: number[] = [];
+    for (let row = 0; row < b.rowCount; row++) if (partner[row] < 0 && !hasEmpty(bIds, row)) freeB.push(row);
+    for (const pair of findFuzzyPairs(a, b, pairing.pairs, keyPairs!, rules, freeA, freeB, fuzzy)) {
+      partner[pair.bRow] = pair.aRow;
+      usedA[pair.aRow] = 1;
+      fuzzyPairs.push(pair);
+    }
+  }
   // Repeated keys within B, including keys A does not have.
   let duplicateB = 0;
   if (mode === "key") {
@@ -140,10 +157,18 @@ export function matchRows(
   flushA(a.rowCount);
   const aRow = aRowAll.slice(0, length);
   const bRow = bRowAll.slice(0, length);
+  let fuzzyResult: MatchResult["fuzzy"] = null;
+  if (mode === "key" && fuzzy !== null) {
+    const byB = new Map(fuzzyPairs.map((pair, index) => [pair.bRow, index]));
+    const at = new Int32Array(length);
+    for (let i = 0; i < length; i++) at[i] = bRow[i] >= 0 ? (byB.get(bRow[i]) ?? -1) : -1;
+    fuzzyResult = { pairs: fuzzyPairs, at, threshold: fuzzy.threshold };
+  }
   return {
     ...summarise(a, b, pairing, rules, aRow, bRow, mode),
     duplicateKeys: mode === "key" ? { a: duplicateA, b: duplicateB } : { a: 0, b: 0 },
     emptyKeys: mode === "key" ? { a: emptyA, b: emptyB } : { a: 0, b: 0 },
+    fuzzy: fuzzyResult,
   };
 }
 

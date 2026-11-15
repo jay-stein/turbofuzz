@@ -469,7 +469,8 @@ export class SideBySide {
     this.status.textContent = this.total === 0 ? "No rows" : `Rows ${nf.format(first + 1)}–${nf.format(Math.min(this.total, last))} of ${nf.format(this.total)}`;
   }
 
-  private markFor(status: number): { mark: string; tone: string } {
+  private markFor(status: number, fuzzy = 0): { mark: string; tone: string } {
+    if (fuzzy > 0 && status !== ROW_ONLY_A && status !== ROW_ONLY_B) return { mark: "≈", tone: fuzzy === 2 ? "similar review" : "similar" };
     if (status === ROW_ONLY_A) return { mark: "−", tone: "only-a" };
     if (status === ROW_ONLY_B) return { mark: "+", tone: "only-b" };
     if (status === ROW_CHANGED) return { mark: "•", tone: "changed" };
@@ -486,7 +487,7 @@ export class SideBySide {
       const at = i - block.start;
       const status = block.status[at]!;
       const cells = side === "a" ? block.a[at] : block.b[at];
-      const { mark, tone } = this.markFor(status);
+      const { mark, tone } = this.markFor(status, block.fuzzy[at] ?? 0);
       const row = el("div", { class: `cmp-row ${tone}${cells === null ? " gap" : ""}${i === this.current ? " current" : ""}`, style: `grid-template-columns: ${body.dataset.template}` });
       row.append(el("span", { class: `cmp-mark ${tone}` }, [cells === null ? "" : mark]));
       for (const column of cols) {
@@ -511,7 +512,7 @@ export class SideBySide {
       const status = block.status[at]!;
       const a = block.a[at] ?? null;
       const b = block.b[at] ?? null;
-      const { mark, tone } = this.markFor(status);
+      const { mark, tone } = this.markFor(status, block.fuzzy[at] ?? 0);
       const row = el("div", { class: `cmp-row tall ${tone}${i === this.current ? " current" : ""}`, style: `grid-template-columns: ${body.dataset.template}` });
       row.append(el("span", { class: `cmp-mark ${tone}` }, [mark]));
       for (const column of this.cols) {

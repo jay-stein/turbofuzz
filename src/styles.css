@@ -16725,6 +16725,38 @@ button.cmp-change-name:hover {
   font-size: var(--fs-sm);
   color: var(--text-dim);
 }
+.cmp-fuzzy {
+  margin: 10px 0 0;
+}
+.cmp-fuzzy-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+.cmp-fuzzy-slider {
+  width: 160px;
+}
+.cmp-fuzzy-card {
+  margin: 0 0 14px;
+}
+.cmp-fuzzy-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.cmp-fuzzy-table th,
+.cmp-fuzzy-table td {
+  text-align: left;
+  padding: 3px 8px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmp-fuzzy-table tr.review td {
+  background: color-mix(in srgb, var(--warn, #d9a400) 12%, transparent);
+}
 .cmp-autopair,
 .cmp-pair-suggest {
   margin: 0 0 12px;

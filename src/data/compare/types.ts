@@ -1,6 +1,7 @@
 import type { BitSet } from "../../search/bitset.js";
 import type { ColumnType } from "../../types.js";
 import type { ColumnData } from "../column.js";
+import type { FuzzyPair } from "./fuzzy-match.js";
 
 /** One column of a side being compared: what the engine reads, nothing more. */
 export interface CompareColumn {
@@ -83,6 +84,15 @@ export interface MatchResult {
   duplicateKeys: { a: number; b: number };
   /** Rows with an empty key cell on that side; they cannot be matched. */
   emptyKeys: { a: number; b: number };
+  /** Rows paired by similar key text rather than an exact key; null when similar-key matching was off. */
+  fuzzy?: FuzzyResult | null;
+}
+
+/** The similar-key pairings of a run: the pairs, and for each aligned row the pair it belongs to (-1: an exact match or a gap). */
+export interface FuzzyResult {
+  pairs: FuzzyPair[];
+  at: Int32Array;
+  threshold: number;
 }
 
 /** Adapts a loaded column to the engine. */

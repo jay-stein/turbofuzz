@@ -22,6 +22,8 @@ export interface RowWindow {
   b: (string[] | null)[];
   /** rows × pairs: 1 where that pair's cell changed. */
   changed: Uint8Array;
+  /** Per row: 0 for an exact match or a gap, 1 for a confident similar-key pairing, 2 for one to review. */
+  fuzzy: Uint8Array;
 }
 
 const WANT: Record<RowFilter["show"], number> = {
@@ -91,6 +93,7 @@ export function rowWindow(
     a: new Array(size),
     b: new Array(size),
     changed: new Uint8Array(size * pairs),
+    fuzzy: new Uint8Array(size),
   };
   for (let i = 0; i < size; i++) {
     const at = positions[from + i]!;
@@ -102,6 +105,8 @@ export function rowWindow(
     window.a[i] = ar < 0 ? null : aColumns.map((column) => column.raw[ar] ?? "");
     window.b[i] = br < 0 ? null : bColumns.map((column) => column.raw[br] ?? "");
     for (let p = 0; p < pairs; p++) if (match.changed[p]!.get(at)) window.changed[i * pairs + p] = 1;
+    const fuzzyAt = match.fuzzy?.at[at] ?? -1;
+    if (fuzzyAt >= 0) window.fuzzy[i] = match.fuzzy!.pairs[fuzzyAt]!.tier === "confident" ? 1 : 2;
   }
   return window;
 }

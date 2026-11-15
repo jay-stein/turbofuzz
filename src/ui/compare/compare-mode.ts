@@ -13,7 +13,8 @@ import { openMenu } from "../menu.js";
 import { memoryGauge, type MemoryMonitor } from "../memory-gauge.js";
 import { resolveSource, unreadableReason, type ResolvedSource } from "../source-resolver.js";
 import { ValueDiffs, type ValueDiffsState } from "./compare-values.js";
-import { renderSetup, type KeyChoice, type SetupState } from "./compare-setup.js";
+import { FUZZY_OFF, renderSetup, type KeyChoice, type SetupState } from "./compare-setup.js";
+import { thresholdForSlider } from "../../search/fuzzy-index.js";
 import type { PairSuggestion } from "../../data/compare/pair-suggest.js";
 
 export interface CompareModeOptions {
@@ -96,6 +97,7 @@ export class CompareMode {
       ignore: { a: [], b: [] },
       key: { kind: "content" },
       rules: DEFAULT_RULES,
+      fuzzy: FUZZY_OFF,
       autoPaired: null,
       busy: null,
       error: null,
@@ -178,7 +180,7 @@ export class CompareMode {
         renderReport(
           host,
           { setup, report: result.report, ms: result.ms, key: result.key, rules: result.rules, autoPaired: this.autoPairedNames(result.autoPaired) },
-          { rows: (filter) => this.openRows(filter), undoAutoPair: () => this.undoAutoPair(), caution: () => pairingCaution(setup, result.key, this.cautionActions()) },
+          { rows: (filter) => this.openRows(filter), undoAutoPair: () => this.undoAutoPair(), rejectPair: (aRow, bRow) => void this.rejectPair(aRow, bRow), caution: () => pairingCaution(setup, result.key, this.cautionActions()) },
         );
       } else {
         this.sideBySide = new SideBySide({
@@ -205,8 +207,14 @@ export class CompareMode {
         setManual: (manual) => void this.setManual(manual),
         undoAutoPair: () => this.undoAutoPair(),
         setIgnore: (ignore) => void this.setIgnore(ignore),
+        setFuzzy: (fuzzy) => {
+          this.state.fuzzy = fuzzy;
+          this.stale = true;
+          this.render();
+        },
         setKey: (key) => {
           this.state.key = key;
+          this.state.fuzzy = { ...this.state.fuzzy, rejected: [] };
           this.stale = true;
           this.render();
         },
@@ -349,6 +357,12 @@ export class CompareMode {
     return { a: setup.a.columns[auto.a]?.name ?? "?", b: setup.b.columns[auto.b]?.name ?? "?", overlap: auto.overlap };
   }
 
+  /** Says two rows are not the same record: they are kept apart and the comparison runs again, staying on the Report. */
+  private async rejectPair(aRow: number, bRow: number): Promise<void> {
+    this.state.fuzzy = { ...this.state.fuzzy, rejected: [...this.state.fuzzy.rejected, `${aRow}:${bRow}`] };
+    await this.run(true);
+  }
+
   /** Takes back the automatic pairing: the setup is worked out again with the columns only suggested. */
   private undoAutoPair(): void {
     const auto = this.state.autoPaired;
@@ -466,19 +480,28 @@ export class CompareMode {
     }
   }
 
-  private async run(): Promise<void> {
+  private async run(stay = false): Promise<void> {
     this.state.busy = "Comparing…";
     this.state.error = null;
     this.render();
     try {
       const keyPairs = this.state.key.kind === "pairs" ? this.state.key.pairs : null;
-      const result = await this.options.client.compareRun(this.state.manual, keyPairs, this.state.rules, this.state.ignore, this.state.key.kind === "position");
+      const result = await this.options.client.compareRun(
+        this.state.manual,
+        keyPairs,
+        this.state.rules,
+        this.state.ignore,
+        this.state.key.kind === "position",
+        this.state.fuzzy.on && keyPairs !== null ? { threshold: thresholdForSlider(this.state.fuzzy.position), rejected: this.state.fuzzy.rejected } : null,
+      );
       this.state.busy = null;
       this.report = { report: result.report, ms: result.ms, key: this.state.key, rules: this.state.rules, autoPaired: this.state.autoPaired };
       this.stale = false;
       this.stage = "result";
-      this.tab = "rows";
-      this.rows = { ...this.rows, filter: { show: "differences", pairs: [] } };
+      if (!stay) {
+        this.tab = "rows";
+        this.rows = { ...this.rows, filter: { show: "differences", pairs: [] } };
+      }
       this.shift = null;
       this.groups = null;
       this.render();

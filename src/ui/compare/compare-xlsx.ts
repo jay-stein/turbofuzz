@@ -227,6 +227,7 @@ export async function compareReportWorkbook(
   writeSummary(book, names, a, b, keys.map((p) => p.a), keySet, report, meta, { diffRoom, total, cellTotal, changeRows: changeRoom.rows, changeCut, onlyARoom, onlyBRoom });
   writeDifferences(book, names.differences, a, b, keys, parts, match, picked, total, diffRoom);
   writeChanges(book, names.changes, a, b, keys, parts, match, picked, total, changeRoom.rows, cellTotal);
+  if (match.fuzzy !== null && match.fuzzy !== undefined && match.fuzzy.pairs.length > 0) writeSimilar(book, book.uniqueName("Similar keys"), match.fuzzy, limits.sheetRows);
   writeOnly(book, names.onlyA, a, match, "a", onlyARoom, "EF4444", P.redFill, P.redInk);
   writeOnly(book, names.onlyB, b, match, "b", onlyBRoom, "22C55E", P.greenFill, P.greenInk);
   writeColumns(book, names.columns, a, b, pairing, keySet, meta);
@@ -582,6 +583,27 @@ function writeOnly(book: XlsxBuilder, name: string, side: CompareSide, match: Ma
     sheet.row(last, [`No rows are only in ${which.toUpperCase()}.`], style({ italic: true, color: P.dim }));
   }
   sheet.end({ autoFilter: side.columns.length === 0 ? undefined : `A1:${columnLetters(side.columns.length - 1)}${Math.max(1, written + 1)}` });
+}
+
+// ---------------------------------------------------------------- Similar keys
+
+/** Rows paired by similar key text, those to review first: what each side called it, how close, and what else agrees. */
+function writeSimilar(book: XlsxBuilder, name: string, fuzzy: NonNullable<MatchResult["fuzzy"]>, sheetRows: number): void {
+  const style = (spec: StyleSpec): number => book.styles.style(spec);
+  const sheet = book.sheet({ name, tabColor: "F59E0B", widths: [34, 34, 12, 22, 26], freeze: { rows: 1, cols: 0 }, landscape: true, fitWidth: true, printTitleRows: [1, 1] });
+  sheet.row(1, ["Key in A", "Key in B", "Similar", "Other columns", "Check"], headerStyle(book, P.greyFill, P.ink), 22);
+  const ordered = [...fuzzy.pairs].sort((x, y) => (x.tier === y.tier ? x.score - y.score : x.tier === "review" ? -1 : 1));
+  const written = Math.min(ordered.length, Math.max(0, sheetRows - 2));
+  const review = style({ fill: P.amberStrong, color: P.amberInk, bold: true, align: "center" });
+  const sure = style({ align: "center" });
+  ordered.slice(0, written).forEach((pair, index) => {
+    sheet.row(
+      index + 2,
+      [pair.aKey, pair.bKey, `${Math.round(pair.score * 100)}%`, pair.checked === 0 ? "none to check" : `${pair.agree} of ${pair.checked} agree`, pair.tier === "review" ? (pair.ambiguous ? "Review: another row was as close" : "Review") : "Confident"],
+      [0, 0, sure, 0, pair.tier === "review" ? review : sure],
+    );
+  });
+  sheet.end({ autoFilter: `A1:E${Math.max(1, written + 1)}` });
 }
 
 // ------------------------------------------------------------------- Columns

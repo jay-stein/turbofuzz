@@ -22,6 +22,8 @@ export interface ReportActions {
   rows(filter: RowFilter): void;
   /** Undoes the automatic pairing and goes back to the setup. */
   undoAutoPair?(): void;
+  /** Says a similar-key pairing is wrong: the two rows are kept apart and the comparison runs again. */
+  rejectPair?(aRow: number, bRow: number): void;
   /** Builds the caution about whole-row matching, or null when there is none. */
   caution?(): HTMLElement | null;
 }
@@ -103,6 +105,7 @@ export function describeRun(input: ReportInput): string {
   ];
   if (rules.numberAbs > 0) parts.push(`numbers ±${num.format(rules.numberAbs)}`);
   if (rules.numberRel > 0) parts.push(`numbers ±${num.format(rules.numberRel * 100)}%`);
+  if (input.report.fuzzy !== null) parts.push(`similar keys paired (${Math.round(input.report.fuzzy.threshold * 100)}% or closer)`);
   if (rules.ignoreCase) parts.push("case ignored");
   if (rules.trimSpaces) parts.push("extra spaces ignored");
   if (!rules.emptyEqualsEmpty) parts.push("empty ≠ empty");
@@ -117,6 +120,45 @@ function autoPairLine(input: ReportInput, actions: ReportActions): HTMLElement |
   const undo = el("button", { type: "button", class: "link" }, ["Undo"]);
   undo.addEventListener("click", () => actions.undoAutoPair?.());
   return el("p", { class: "cmp-note cmp-autopair" }, [`${auto.a} in A paired with ${auto.b} in B: ${overlapText(auto.overlap)} of values match. `, undo]);
+}
+
+/** Rows paired by similar key text: those to review first, each with the evidence and a way to reject it. */
+function fuzzyCard(report: CompareReport, actions: ReportActions): HTMLElement | null {
+  const fuzzy = report.fuzzy;
+  if (fuzzy === null) return null;
+  const total = fuzzy.confident + fuzzy.review;
+  const box = el("section", { class: "cmp-fuzzy-card", "aria-label": "Rows paired by similar key" }, [
+    el("h2", {}, ["Rows paired by similar key"]),
+    el("p", { class: "cmp-note" }, [
+      total === 0
+        ? "No leftover rows had a key similar enough to pair. Loosen the slider on the setup to look further."
+        : `${nf.format(total)} row${total === 1 ? "" : "s"} had no exact key and were paired by similarity: ${nf.format(fuzzy.confident)} confident, ${nf.format(fuzzy.review)} to review. Reject a pairing that is not the same record and both rows go back to removed and added.`,
+    ]),
+  ]);
+  if (total === 0) return box;
+  const table = el("table", { class: "cmp-fuzzy-table" }, [
+    el("thead", {}, [el("tr", {}, ["In A", "In B", "Similar", "Other columns", "Check", ""].map((label) => el("th", {}, [label])))]),
+  ]);
+  const body = el("tbody");
+  for (const pair of fuzzy.pairs) {
+    const evidence = pair.checked === 0 ? "no other column to check" : `${pair.agree} of ${pair.checked} agree`;
+    const reject = el("button", { type: "button", class: "link", title: "These are different records" }, ["Reject"]);
+    reject.addEventListener("click", () => actions.rejectPair?.(pair.aRow, pair.bRow));
+    body.append(
+      el("tr", { class: pair.tier === "review" ? "review" : "" }, [
+        el("td", { title: pair.aKey }, [pair.aKey]),
+        el("td", { title: pair.bKey }, [pair.bKey]),
+        el("td", {}, [`${Math.round(pair.score * 100)}%`]),
+        el("td", {}, [evidence]),
+        el("td", {}, [pair.tier === "review" ? (pair.ambiguous ? "Review: another row was as close" : "Review") : "Confident"]),
+        el("td", {}, [reject]),
+      ]),
+    );
+  }
+  table.append(body);
+  box.append(table);
+  if (total > fuzzy.pairs.length) box.append(el("p", { class: "cmp-note" }, [`Showing the first ${nf.format(fuzzy.pairs.length)} of ${nf.format(total)}: those to review first.`]));
+  return box;
 }
 
 /** A count that opens its rows on the side-by-side screen. */
@@ -312,6 +354,8 @@ export function renderReport(host: HTMLElement, input: ReportInput, actions: Rep
   );
   const caution = actions.caution?.() ?? null;
   if (caution !== null) page.append(caution);
+  const similar = fuzzyCard(report, actions);
+  if (similar !== null) page.append(similar);
   const warn = warnings(report);
   if (warn !== null) page.append(warn);
   const side = el("div", { class: "cmp-report-side" }, [columnsCard(report)]);

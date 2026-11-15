@@ -23,6 +23,17 @@ Record significant product and UX decisions so future AI sessions do not repeate
 
 Add decisions here. Do not treat AI-generated suggestions as accepted decisions until a human approves them.
 
+### DEC-2026-11-15-01 — Compare can pair rows by similar key, off by default, never automatic
+
+- **Status:** Approved by the owner (2026-11-15)
+- **Context:** Reconciling two lists without a shared ID (ledger vs bank, CRM vs billing) left every renamed supplier as one removed plus one added.
+- **Decision:** An opt-in option pairs only the rows left over after the exact key, using the Strict-to-Loose slider. Every pairing is shown on the Report with its evidence and a Reject button, and uncertain ones are marked Review. Numbers and dates are never matched loosely.
+- **Alternatives considered:** On by default; pairing with no review list; many-to-one reconciliation first (a much larger build).
+- **Trade-offs:** A wrong pairing would hide a real difference, which is why it is opt-in, tiered and rejectable.
+- **Features / journeys affected:** F-051
+- **Revisit trigger:** Rejections are frequent at the default slider, or people ask for amount-based or one-to-many matching.
+- **Date / owner:** 2026-11-15 / owner
+
 ### DEC-2026-11-14-03 — Compare auto-pairs a renamed key only when exactly one candidate makes a key
 
 - **Status:** Proposed (2026-11-14; shipped, awaiting owner approval)

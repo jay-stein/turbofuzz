@@ -1199,7 +1199,7 @@ function handleCompareRun(message: CompareRunRequest): void {
   const a = compareSideA(current);
   const pairing = pairColumns(a, compare.bSide, message.manual, message.ignore);
   const keyPairs = message.keyPairs === null ? null : message.keyPairs.map((index) => pairing.pairs[index]).filter((pair): pair is ColumnPair => pair !== undefined);
-  const match = matchRows(a, compare.bSide, pairing, keyPairs, message.rules, message.byPosition === true);
+  const match = matchRows(a, compare.bSide, pairing, keyPairs, message.rules, message.byPosition === true, message.fuzzy == null ? null : { threshold: message.fuzzy.threshold, rejected: new Set(message.fuzzy.rejected) });
   compare.run = { a, pairing, match, filtered: new Map(), keyPairs: message.keyPairs ?? [] };
   post({
     type: "compareResult",
