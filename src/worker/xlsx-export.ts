@@ -18,10 +18,10 @@ const EPOCH_SERIAL = 25_569;
 /** Rows rendered to text per deflate push, so a sheet never exists as one giant string. */
 const ROWS_PER_PUSH = 4000;
 
-const TRUE_WORDS = new Set(["true", "yes", "y", "t", "1"]);
-const FALSE_WORDS = new Set(["false", "no", "n", "f", "0"]);
+export const TRUE_WORDS = new Set(["true", "yes", "y", "t", "1"]);
+export const FALSE_WORDS = new Set(["false", "no", "n", "f", "0"]);
 /** Digits Excel would drop: a leading zero ("0800"), or more than 15 digits. */
-const FRAGILE_DIGITS = /^[+-]?0\d|^[+-]?\d{16,}/;
+export const FRAGILE_DIGITS = /^[+-]?0\d|^[+-]?\d{16,}/;
 
 export const XLSX_DATE_FORMAT = "yyyy-mm-dd";
 export const XLSX_DATETIME_FORMAT = "yyyy-mm-dd hh:mm:ss";
@@ -40,7 +40,7 @@ export interface XlsxResult {
 }
 
 /** Excel's serial day for a UTC epoch in ms; null before 1900-03-01, where Excel's calendar disagrees. */
-function serial(epochMs: number): number | null {
+export function serial(epochMs: number): number | null {
   const days = epochMs / DAY_MS + EPOCH_SERIAL;
   return days >= 61 ? days : null;
 }

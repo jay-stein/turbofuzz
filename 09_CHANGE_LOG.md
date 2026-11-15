@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-14 — A styled, streaming xlsx writer
+
+- **Status:** Verified (unit through the Compare report tests; SheetJS and openpyxl read it back)
+- **Related issue / decision:** Foundation for the formatted Compare report: the existing writers only had a bold header.
+- **What changed:** src/ui/xlsx-styled.ts writes sheets with a style registry (fonts, fills, borders, number formats), merged cells, frozen panes, autofilter, tab colours, conditional colour scales and data bars, print titles and internal links, deflating as it streams. No formulas; text is always text.
+- **Not covered yet:** A repair prompt in a real Excel cannot be seen with alerts off; LibreOffice not checked.
+- **Files / components changed:** src/ui/xlsx-styled.ts, src/worker/xlsx-export.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-13 — Recipe: exported scripts read the file the way the importer did
 
 - **Status:** Verified (unit: recipe-reader 12 tests; parity harness, 5 new reader cases; scripts matched the app's export on the S09, S10 and S12 stress files)
