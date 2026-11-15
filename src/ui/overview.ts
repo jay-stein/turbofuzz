@@ -680,8 +680,16 @@ export class Overview {
     }
     if (loaded.encoding === "utf-8") {
       line.append(el("span", { class: "overview-badge" }, ["UTF-8"]));
+    } else if (loaded.encoding === "utf-8-repaired") {
+      line.append(
+        el("span", { class: "overview-badge warn", title: "Mostly valid UTF-8, but some bytes could not be read as text. Each shows as the replacement character (�). The rest of the file is read correctly." }, ["UTF-8 · bad bytes replaced"]),
+      );
     } else if (loaded.encoding === "windows-1252") {
-      line.append(el("span", { class: "overview-badge" }, ["windows-1252"]));
+      line.append(
+        el("span", { class: "overview-badge", title: "Not valid UTF-8, so it was read as windows-1252, the usual legacy encoding. If accents look wrong, the file may use another encoding." }, ["windows-1252"]),
+      );
+    } else if (loaded.encoding === "utf-16le" || loaded.encoding === "utf-16be") {
+      line.append(el("span", { class: "overview-badge", title: "Read as UTF-16 (the layout Excel calls Unicode Text)." }, [loaded.encoding === "utf-16le" ? "UTF-16 LE" : "UTF-16 BE"]));
     }
     const stats = el(
       "button",

@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-04 — Import: a UTF-8 file with a few bad bytes keeps its accents
+
+- **Status:** Verified (unit: encoding)
+- **Related issue / decision:** stress test 2026-11-15 S10-01 (Critical): one stray byte made a whole UTF-8 file read as windows-1252 mojibake while the score stayed good.
+- **What changed:** When strict UTF-8 fails but valid multi-byte sequences outnumber the stray bytes five to one, the file is read as UTF-8 with each bad byte shown as the replacement character, and the Overview badge reads UTF-8 · bad bytes replaced. UTF-16 files now show a UTF-16 badge, and the windows-1252 badge has a tooltip.
+- **Not covered yet:** Double-encoded text (Ã©), mixed per-row encodings, UTF-32 and other legacy encodings (cp1250, Shift_JIS, GBK, MacRoman) are still read as windows-1252 or garbage with no override.
+- **Files / components changed:** src/parse/encoding.ts, src/ui/overview.ts, test/encoding.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-03 — Recipe: bracketed negatives keep their sign in the exported scripts
 
 - **Status:** Verified (unit; parity harness in pandas 3.1.1 and Polars 2.1.0 on a new accounting-negatives case)

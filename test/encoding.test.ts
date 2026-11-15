@@ -47,3 +47,20 @@ test("tokenize keeps non-ASCII letters as single tokens", () => {
   assert.deepEqual(tokenize("東京タワー"), ["東京タワー"]);
   assert.deepEqual(tokenize("emoji 🚀 test"), ["emoji", "test"]);
 });
+
+test("a UTF-8 file with one stray byte keeps its accents and says bytes were replaced", () => {
+  const good = new TextEncoder().encode("name,place\nZoë,Zürich\nJosé,Málaga\nRenée,Liège\n");
+  const bytes = new Uint8Array([...good, 0x4f, 0x75, 0x7a, 0x62, 0xe9, 0x6b, 0x0a]); // "Ouzb<E9>k\n": a Latin-1 byte
+  const decoded = decodeText(bytes.buffer);
+  assert.equal(decoded.encoding, "utf-8-repaired");
+  assert.ok(decoded.text.includes("Zoë") && decoded.text.includes("Zürich"));
+  assert.ok(decoded.text.includes("Ouzb�k"));
+});
+
+test("a real windows-1252 file is still read as windows-1252", () => {
+  // "Z<FC>rich, M<E1>laga, Li<E8>ge" as single bytes: no valid UTF-8 sequences at all.
+  const bytes = new Uint8Array([0x5a, 0xfc, 0x72, 0x69, 0x63, 0x68, 0x2c, 0x4d, 0xe1, 0x6c, 0x61, 0x67, 0x61, 0x2c, 0x4c, 0x69, 0xe8, 0x67, 0x65]);
+  const decoded = decodeText(bytes.buffer);
+  assert.equal(decoded.encoding, "windows-1252");
+  assert.equal(decoded.text, "Zürich,Málaga,Liège");
+});

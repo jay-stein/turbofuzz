@@ -1,4 +1,5 @@
-export type FileEncoding = "utf-8" | "windows-1252" | "utf-16le" | "utf-16be";
+/** `utf-8-repaired`: a UTF-8 file with a few unreadable bytes, each shown as U+FFFD instead of corrupting every accent. */
+export type FileEncoding = "utf-8" | "utf-8-repaired" | "windows-1252" | "utf-16le" | "utf-16be";
 
 export interface DecodedText {
   text: string;
@@ -73,7 +74,41 @@ export function decodeText(buffer: ArrayBuffer): DecodedText {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
     return { text, encoding: "utf-8" };
   } catch {
+    // Not clean UTF-8. If it is overwhelmingly UTF-8 with a few stray bytes, reading the whole file
+    // as windows-1252 would turn every accent into mojibake (Ã©), so keep UTF-8 and mark the bad bytes.
+    const { valid, invalid } = scanUtf8(new Uint8Array(buffer));
+    if (valid > 0 && valid >= invalid * 5) {
+      return { text: new TextDecoder("utf-8").decode(buffer), encoding: "utf-8-repaired" };
+    }
     const text = repairWindows1252(new TextDecoder("windows-1252").decode(buffer));
     return { text, encoding: "windows-1252" };
   }
+}
+
+/** Counts well-formed multi-byte UTF-8 sequences and stray high bytes that cannot start or finish one. */
+export function scanUtf8(bytes: Uint8Array): { valid: number; invalid: number } {
+  let valid = 0;
+  let invalid = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i]!;
+    if (b < 0x80) continue;
+    const need = b >= 0xc2 && b <= 0xdf ? 1 : b >= 0xe0 && b <= 0xef ? 2 : b >= 0xf0 && b <= 0xf4 ? 3 : -1;
+    let ok = need > 0;
+    if (ok) {
+      for (let k = 1; k <= need; k++) {
+        const c = bytes[i + k];
+        if (c === undefined || c < 0x80 || c > 0xbf) {
+          ok = false;
+          break;
+        }
+      }
+    }
+    if (ok) {
+      valid++;
+      i += need;
+    } else {
+      invalid++;
+    }
+  }
+  return { valid, invalid };
 }
