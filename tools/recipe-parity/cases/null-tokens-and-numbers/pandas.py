@@ -23,7 +23,7 @@ for _c in df.columns:
         df[_c] = df[_c].mask(df[_c].str.strip().str.lower().isin(_tf_missing) & ~df[_c].isin(_tf_keep.get(_c, [])))
 
 # Clean: amount
-df["amount"] = pd.to_numeric(df["amount"].str.replace(".", "", regex=False).str.replace(",", ".", regex=False).str.replace(r"[^0-9eE+\-.]", "", regex=True), errors="coerce")
+df["amount"] = pd.to_numeric(df["amount"].str.replace(r"^\s*\(([^()]*)\)\s*$", r"-\1", regex=True).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).str.replace(r"[^0-9eE+\-.]", "", regex=True), errors="coerce")
 
 # Missing-value policy
 df["note"] = df["note"].replace(["TBC"], pd.NA)

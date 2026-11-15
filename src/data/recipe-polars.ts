@@ -158,10 +158,12 @@ function polarsCleanLines(
         }
         return assign(`${column}.str.replace_all(${py(op.find)}, ${py(op.replacement)}, literal=True)`, name);
       case "toNumber": {
+        // The app reads (1,234.50) as -1234.5: turn the brackets into a sign before symbols are stripped.
+        const unbracketed = `${column}.str.replace(${py(String.raw`^\s*\(([^()]*)\)\s*$`)}, ${py("-${1}")})`;
         const base =
           op.locale === "comma"
-            ? `${column}.str.replace_all(".", "", literal=True).str.replace_all(",", ".", literal=True)`
-            : column;
+            ? `${unbracketed}.str.replace_all(".", "", literal=True).str.replace_all(",", ".", literal=True)`
+            : unbracketed;
         return assign(
           `${base}.str.replace_all(r"[^0-9eE+\\-.]", "").cast(pl.Float64, strict=False)`,
           name,

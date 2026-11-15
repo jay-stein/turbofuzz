@@ -76,6 +76,21 @@ const CASES: CaseSpec[] = [
     nulls: [{ column: 1, extra: ["TBC"], keep: [] }],
   },
   {
+    name: "accounting-negatives",
+    description: "bracketed amounts are negative, as the app reads them, in both locales",
+    headers: ["dot_amount", "comma_amount"],
+    rows: [
+      ["(1,234.50)", "(1.234,50)"],
+      ["-5", "-5,25"],
+      ["1,000", "1.000,00"],
+      ["(20.00)", "(20,00)"],
+    ],
+    cleans: [
+      { column: 0, ops: [{ kind: "toNumber", locale: "dot" }] },
+      { column: 1, ops: [{ kind: "toNumber", locale: "comma" }] },
+    ],
+  },
+  {
     name: "dates",
     description: "date logical type conversion",
     headers: ["when"],

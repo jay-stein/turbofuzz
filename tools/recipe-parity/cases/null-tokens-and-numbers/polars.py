@@ -21,7 +21,7 @@ df = df.with_columns([
 ])
 
 # Clean: amount
-df = df.with_columns(pl.col("amount").str.replace_all(".", "", literal=True).str.replace_all(",", ".", literal=True).str.replace_all(r"[^0-9eE+\-.]", "").cast(pl.Float64, strict=False).alias("amount"))
+df = df.with_columns(pl.col("amount").str.replace("^\\s*\\(([^()]*)\\)\\s*$", "-${1}").str.replace_all(".", "", literal=True).str.replace_all(",", ".", literal=True).str.replace_all(r"[^0-9eE+\-.]", "").cast(pl.Float64, strict=False).alias("amount"))
 
 # Missing-value policy
 df = df.with_columns(pl.when(pl.col("note").is_in(["TBC"])).then(None).otherwise(pl.col("note")).alias("note"))

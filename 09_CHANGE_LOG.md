@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-03 — Recipe: bracketed negatives keep their sign in the exported scripts
+
+- **Status:** Verified (unit; parity harness in pandas 3.1.1 and Polars 2.1.0 on a new accounting-negatives case)
+- **Related issue / decision:** stress test 2026-11-15 S11-04 (Critical): the exported scripts turned (1,234.50) into +1234.5, where the app reads -1234.5.
+- **What changed:** The pandas and Polars toNumber steps turn (amount) into -amount before symbols are stripped, in both decimal conventions. The group-by recipe test was brought up to the date-read helper from the earlier recipe commit.
+- **Not covered yet:** Trailing-minus numbers (1.234,56-) are still not understood by the app or the scripts.
+- **Files / components changed:** src/data/recipe.ts, src/data/recipe-polars.ts, tools/recipe-parity, test/transform-ops.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-02 — Import: a table whose rows start with Total is data, not a footer
 
 - **Status:** Verified (unit: header-detect)

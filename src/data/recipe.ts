@@ -585,6 +585,9 @@ export function viewToPandas(view: ViewDef, columnNames: readonly string[]): str
   return lines.join("\n");
 }
 
+/** Accounting negatives: the app reads (1,234.50) as -1234.5, so the script must turn the brackets into a sign before it strips symbols. */
+const PANDAS_NEGATIVE_BRACKETS = String.raw`.str.replace(r"^\s*\(([^()]*)\)\s*$", r"-\1", regex=True)`;
+
 function cleanLines(
   name: string,
   ops: readonly CleanOp[],
@@ -607,9 +610,9 @@ function cleanLines(
         return `${column} = ${column}.str.replace(${py(op.find)}, ${py(op.replacement)}, regex=False)`;
       case "toNumber":
         if (op.locale === "comma") {
-          return `${column} = pd.to_numeric(${column}.str.replace(".", "", regex=False).str.replace(",", ".", regex=False).str.replace(r"[^0-9eE+\\-.]", "", regex=True), errors="coerce")`;
+          return `${column} = pd.to_numeric(${column}${PANDAS_NEGATIVE_BRACKETS}.str.replace(".", "", regex=False).str.replace(",", ".", regex=False).str.replace(r"[^0-9eE+\\-.]", "", regex=True), errors="coerce")`;
         }
-        return `${column} = pd.to_numeric(${column}.str.replace(r"[^0-9eE+\\-.]", "", regex=True), errors="coerce")`;
+        return `${column} = pd.to_numeric(${column}${PANDAS_NEGATIVE_BRACKETS}.str.replace(r"[^0-9eE+\\-.]", "", regex=True), errors="coerce")`;
       case "repairDecimal":
         if (op.locale === "dot") {
           return `${column} = ${column}.astype(str).str.replace(r"^([+-]?(?:\\d{1,3}(?:\\.\\d{3})+|\\d+)),(\\d{1,2})$", r"\\1.\\2", regex=True)`;

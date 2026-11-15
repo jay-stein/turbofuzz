@@ -383,8 +383,9 @@ test("viewToPandas emits a named group-by recipe", () => {
     ["when", "amount"],
   );
   assert.match(recipe, /# View: Monthly sales/);
-  assert.match(recipe, /_group0 = pd\.to_datetime\(df\["when"\]\)\.dt\.to_period\("M"\)\.dt\.to_timestamp\(\)/);
-  assert.match(recipe, /df = df\.groupby\(\[_group0\], as_index=False\)\.agg\(\*\*\{/);
+  assert.match(recipe, /df\["_group0"\] = pd\.to_datetime\(df\["when"\].*\)\.dt\.to_period\("M"\)\.dt\.to_timestamp\(\)/);
+  assert.match(recipe, /df = df\.groupby\(\["_group0"\], as_index=False\)\.agg\(\*\*\{/);
+  assert.match(recipe, /df = df\.rename\(columns=\{"_group0": "when \(month\)"\}\)/);
   assert.match(recipe, /"sum\(amount\)": \("amount", "sum"\),/);
   assert.match(recipe, /"count\(\*\)": \("when", "size"\),/);
 });

@@ -1,0 +1,4 @@
+{
+  "name": "accounting-negatives",
+  "description": "bracketed amounts are negative, as the app reads them, in both locales"
+}
