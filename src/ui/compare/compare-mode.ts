@@ -181,7 +181,12 @@ export class CompareMode {
           host,
           { setup, report: result.report, ms: result.ms, key: result.key, rules: result.rules, autoPaired: this.autoPairedNames(result.autoPaired) },
           { rows: (filter) => this.openRows(filter), undoAutoPair: () => this.undoAutoPair(), rejectPair: (aRow, bRow) => void this.rejectPair(aRow, bRow),
-            showPair: (index) => this.showPair(index), caution: () => pairingCaution(setup, result.key, this.cautionActions()) },
+            showPair: (index) => this.showPair(index),
+            exportExcel: async () => {
+              await this.exportAs("xlsx");
+              return this.exportNote.textContent ?? "";
+            },
+            caution: () => pairingCaution(setup, result.key, this.cautionActions()) },
         );
       } else {
         this.sideBySide = new SideBySide({
