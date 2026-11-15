@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-06 — Data Quality: an undecided decimal mark is an issue the person can act on
+
+- **Status:** Verified (unit: score, dq-detection-gaps, corpus; checked in the browser on a semicolon file)
+- **Related issue / decision:** follows CHG-2026-11-15-05. A column left as text because 119,942 could be thousands or decimals showed "clean, 100" with no explanation.
+- **What changed:** that column now fails a Validity check ("has numbers where the decimal mark is unclear: “100,100” could be thousands (100100) or decimals (100.100). Nothing was converted"), the column scores 75 and the page 90 in the test file, and the issue offers "Convert to Number…", which opens the type dialog with its Decimal convention choice and preview.
+- **Not covered yet:** the issue title still reads "looks like Number stored as text"; the near-duplicate and free-text advanced signals still fire on such a column.
+- **Files / components changed:** src/data/score.ts, test/dq-detection-gaps.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-05 — Import: a lone 119,942 or 124.665 in a European-looking file is not guessed
 
 - **Status:** Verified (unit: infer, ingest, anomalies; full suite run once)

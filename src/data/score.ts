@@ -368,7 +368,26 @@ export function computeDQScore(
     // Type downgrade without a measured conformance (e.g. a boolean near-miss):
     // keep the sampled advisory check.
     const downgrade = meta.typeDowngrade ?? null;
-    if (meta.type === "string" && downgrade !== null && conformance === null) {
+    if (meta.type === "string" && downgrade !== null && downgrade.ambiguous === true) {
+      // Every value fits a number, but 119,942 is 119.942 or 119942 and only the person can say which.
+      const first = downgrade.examples[0] ?? "119,942";
+      const asThousands = first.replace(/[.,]/g, "");
+      const asDecimals = first.replace(",", ".");
+      const sample = `“${first}”`;
+      checks.push({
+        id: `validity.downgrade.${column}`,
+        dimension: "validity",
+        label: `“${meta.name}” has numbers where the decimal mark is unclear`,
+        detail: `${sample} could be thousands (${asThousands}) or decimals (${asDecimals}). Nothing was converted: choose how to read these numbers`,
+        pass: 0,
+        fail: nonNull,
+        na: meta.stats.nulls,
+        column,
+        filter: null,
+        fixLabel: "Choose how to read these numbers",
+        convertTo: downgrade.candidate,
+      });
+    } else if (meta.type === "string" && downgrade !== null && conformance === null) {
       const share = Math.min(1, Math.max(0, downgrade.share));
       const passValues = Math.round(share * nonNull);
       const candidateLabel = TYPE_LABELS[downgrade.candidate];

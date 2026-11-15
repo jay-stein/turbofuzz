@@ -338,3 +338,15 @@ test("long names stay apart without a state-like column name, and version number
   const state = ColumnData.create("state", rows(3000, (i) => (i % 40 === 0 ? "Western Australia" : ["NSW", "VIC", "QLD"][i % 3]!)));
   assert.equal(computeAnomalies([state], 3000).lengthColumnBits[0]?.count() ?? 0, 0);
 });
+
+test("an undecided decimal mark is reported as a Data Quality check, not left as a silently clean text column", async () => {
+  const { profileBuffer } = await import("../scripts/lib/profile.js");
+  const lines = ["Region;Index"];
+  for (let i = 0; i < 30; i++) lines.push(`R${i % 3};${100 + i},${String(120 + i * 7).slice(-3).padStart(3, "0")}`);
+  const bytes = new TextEncoder().encode(lines.join("\n"));
+  const profile = await profileBuffer("ine.csv", bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+  const index = profile.metas.find((meta) => meta.name === "Index")!;
+  assert.equal(index.type, "string");
+  assert.equal(index.typeDowngrade?.ambiguous, true);
+  assert.ok(profile.score.overall !== null && profile.score.overall < 100, "the score must not say 100 while nothing is decided");
+});
