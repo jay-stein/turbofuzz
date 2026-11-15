@@ -184,3 +184,37 @@ test("genuine text and clean typed columns carry no downgrade hint", () => {
   typed.setType("string");
   assert.equal(typed.typeDowngrade, null, "manual type changes clear the hint");
 });
+
+test("a lone three-digit group in a European-looking file is not guessed: it stays text for the person to decide", () => {
+  const comma = ColumnData.create("Index", ["119,942", "120,001", "118,500", "121,730", "122,015"], undefined, "comma");
+  assert.equal(comma.type, "string");
+  assert.equal(comma.typeDowngrade?.candidate, "number");
+  assert.equal(comma.typeDowngrade?.ambiguous, true);
+  const dot = ColumnData.create("Index", ["124.665", "125.100", "126.001", "127.345", "128.912"], undefined, "comma");
+  assert.equal(dot.type, "string");
+  assert.equal(dot.typeDowngrade?.ambiguous, true);
+});
+
+test("the same lone groups in an English-looking file keep their old reading", () => {
+  const thousands = ColumnData.create("Units", ["1,250", "3,400", "2,015", "9,999", "4,321"], undefined, "dot");
+  assert.equal(thousands.type, "number");
+  assert.equal(thousands.numberLocale, "dot");
+  assert.equal(thousands.numbers()[0], 1250);
+  const decimals = ColumnData.create("Rate", ["124.665", "125.100", "126.001", "127.345", "128.912"], undefined, "dot");
+  assert.equal(decimals.numberLocale, "dot");
+  assert.equal(decimals.numbers()[0], 124.665);
+});
+
+test("four or more decimals are firm evidence even in a file whose prior says comma", () => {
+  const coords = ColumnData.create("lat", ["48.8566", "51.5074", "40.7128", "35.6762", "-33.8688"], undefined, "comma");
+  assert.equal(coords.type, "number");
+  assert.equal(coords.numberLocale, "dot");
+  const european = ColumnData.create("lat", ["48,8566", "51,5074", "40,7128", "35,6762", "-33,8688"], undefined, "dot");
+  assert.equal(european.numberLocale, "comma");
+});
+
+test("one value with a clear decimal comma settles the column even beside ambiguous ones", () => {
+  const column = ColumnData.create("Total", ["119,942", "120,001", "118,5", "121,730", "122,015"], undefined, "comma");
+  assert.equal(column.numberLocale, "comma");
+  assert.equal(column.numbers()[0], 119.942);
+});

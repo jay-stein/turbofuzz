@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-05 — Import: a lone 119,942 or 124.665 in a European-looking file is not guessed
+
+- **Status:** Verified (unit: infer, ingest, anomalies; full suite run once)
+- **Related issue / decision:** stress test 2026-11-15 S11-02 and S11-03 (Critical): three-decimal numbers were read as thousands in both directions, 1000 times wrong, with the score at 100. Owner decision: never guess a decimal comma.
+- **What changed:** A single three-digit group is the one truly ambiguous shape. In a file whose delimiter or encoding says European, a column with only that evidence stays text with a Convert-to-number issue (the cast dialog has the Decimal convention choice and a preview); in an English-looking file a lone comma group still reads as thousands. A symbol before the number (€343,000) counts as English. Four or more decimals (48.8566, 48,8566) are firm evidence for the mark that is used. Several length-fence tests were updated to use repeated free text, since the earlier data-quality change stopped fencing short category lists.
+- **Not covered yet:** The Data Quality wording for these columns still says looks like numbers stored as text, without saying why it did not convert. A comma-only value in a dot-locale file is still read as thousands.
+- **Files / components changed:** src/parse/infer.ts, test/infer.test.ts, test/anomalies.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-04 — Import: a UTF-8 file with a few bad bytes keeps its accents
 
 - **Status:** Verified (unit: encoding)

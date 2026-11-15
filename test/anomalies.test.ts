@@ -69,19 +69,22 @@ test("right-skewed positive columns use log fences", () => {
 });
 
 test("flags a text length outside the per-column fences", () => {
+  // Free text (many different values), not a short list of categories: those are not length-fenced.
   const rows: string[][] = [];
-  for (let i = 0; i < 10; i++) rows.push(["abc"]);
-  for (let i = 0; i < 10; i++) rows.push(["abcd"]);
+  for (let repeat = 0; repeat < 3; repeat++) {
+    for (let i = 0; i < 30; i++) rows.push([`k${String(i).padStart(2, "0")}`]);
+    for (let i = 0; i < 30; i++) rows.push([`m${String(i).padStart(3, "0")}`]);
+  }
   rows.push(["x".repeat(40)]);
   const dataset = buildDataset("t", ["code"], rows);
   assert.equal(dataset.stats.lengthAnomalyRows, 1);
-  assert.equal(dataset.lengthAnomalyBits.get(20), true);
+  assert.equal(dataset.lengthAnomalyBits.get(180), true);
   assert.notEqual(dataset.lengthFences[0], null);
 });
 
 test("flags lengths above three times the P90 length", () => {
   const rows: string[][] = [];
-  for (let i = 0; i < 990; i++) rows.push(["abcdefghij"]);
+  for (let i = 0; i < 990; i++) rows.push([`a${String(i % 99).padStart(9, "0")}`]);
   for (let i = 0; i < 10; i++) rows.push(["x".repeat(40)]);
   const dataset = buildDataset("t", ["code"], rows);
   assert.equal(dataset.stats.lengthAnomalyRows, 10);
@@ -89,7 +92,7 @@ test("flags lengths above three times the P90 length", () => {
 });
 
 test("uniform text lengths have no outliers", () => {
-  const rows = Array.from({ length: 10 }, () => ["abc"]);
+  const rows = Array.from({ length: 180 }, (_, i) => [`k${String(i % 60).padStart(2, "0")}`]);
   const dataset = buildDataset("t", ["code"], rows);
   assert.equal(dataset.stats.lengthAnomalyRows, 0);
   assert.equal(dataset.lengthFences[0]?.hi, 9);

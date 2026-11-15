@@ -43,6 +43,8 @@ export interface TypeDowngrade {
   total: number;
   /** Up to three values that block the candidate type. */
   examples: string[];
+  /** Every value fits, but the decimal mark is unknown: 119,942 is 119.942 or 119942, and only the person can say. */
+  ambiguous?: boolean;
 }
 
 export interface TopValue {
@@ -204,33 +206,50 @@ export function stratifiedSample(values: readonly string[], max: number): string
 }
 
 /**
- * Votes on the decimal mark for a numeric column. A comma followed by one or
- * two digits (198,72) or a dot-grouped number ending in a comma (1.234,56)
- * votes for the European convention; comma thousands grouping (1,234,567) and
- * a dot with one or two trailing digits that is not pure grouping (1.234)
- * vote for the English one. A tie falls back to the prior derived from the
- * file's delimiter/encoding.
+ * Votes on the decimal mark for a numeric column. Firm evidence: a comma
+ * followed by one, two or four-plus digits (198,72), or a dot-grouped number
+ * ending in a comma (1.234,56), or 1.234.567, votes for the European
+ * convention; two or more comma groups (1,234,567), a dot with one, two or
+ * four-plus trailing digits votes for the English one. A single three-digit
+ * group (119,942 or 124.665) is the one genuinely ambiguous shape: it can be a
+ * thousands group or three decimals. In a file whose delimiter or encoding says
+ * European, a column with only that evidence returns null: nobody knows, so
+ * the app does not pick (the column stays text and the user chooses). Elsewhere
+ * a lone comma group reads as English thousands, as it always has. A tie falls
+ * back to the prior derived from the file's delimiter/encoding.
  */
 export function detectNumberLocale(
   values: readonly string[],
   prior: NumberLocale = "dot",
-): NumberLocale {
+): NumberLocale | null {
   let comma = 0;
   let dot = 0;
+  let ambiguousComma = 0;
+  let ambiguousDot = 0;
   for (const value of values) {
     const s = value.replace(/[$€£¥\s%]/g, "");
-    if (/\d,\d{1,2}$/.test(s)) {
+    if (/\d,\d{1,2}$/.test(s) || /\d,\d{4,}$/.test(s)) {
       comma++;
-    } else if (/\d\.\d{3},\d+$/.test(s)) {
+    } else if (/\d\.\d{3},\d+$/.test(s) || /^[+-]?\d{1,3}(\.\d{3}){2,}$/.test(s)) {
       comma++;
-    } else if (/\d(,\d{3})+$/.test(s)) {
+    } else if (/\d(,\d{3}){2,}$/.test(s)) {
       dot++;
+    } else if (/^[+-]?\d{1,3},\d{3}$/.test(s)) {
+      // A symbol in front (€343,000) is English layout: European writes the symbol after the number.
+      if (/^[+-]?[$€£¥]/.test(value.trim())) dot++;
+      else ambiguousComma++;
+    } else if (/\d\.\d{4,}$/.test(s)) {
+      dot++;
+    } else if (/^[+-]?\d{1,3}\.\d{3}$/.test(s)) {
+      ambiguousDot++;
     } else if (/\d\.\d{1,2}$/.test(s) && !/^\d{1,3}(\.\d{3})+$/.test(s)) {
       dot++;
     }
   }
-  if (comma === dot) return prior;
-  return comma > dot ? "comma" : "dot";
+  if (prior !== "comma") dot += ambiguousComma;
+  if (comma !== dot) return comma > dot ? "comma" : "dot";
+  if (comma === 0 && prior === "comma" && ambiguousComma + ambiguousDot > 0) return null;
+  return prior;
 }
 
 /**
@@ -329,7 +348,13 @@ export function inferColumnType(
     return { type: "integer" };
   }
   if (numberOk / total >= 0.95) {
-    return { type: "number", numberLocale: detectNumberLocale(nonNull, numberPrior) };
+    const numberLocale = detectNumberLocale(nonNull, numberPrior);
+    if (numberLocale !== null) return { type: "number", numberLocale };
+    // 119,942 or 124.665 with nothing to say which mark is the decimal: stay text and let the person choose.
+    return {
+      type: "string",
+      downgrade: { candidate: "number", share: numberOk / total, ok: numberOk, total, examples: nonNull.slice(0, 3), ambiguous: true },
+    };
   }
 
   const dateOrder = detectDateOrder(nonNull);
