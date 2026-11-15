@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-07 — Search: apostrophes and letters like ø, ł, ß no longer block a match
+
+- **Status:** Verified (unit: normalize-fold, encoding)
+- **Related issue / decision:** stress test 2026-11-15 S20-03, S18-02: mcdonalds found 82 of 1,478 McDonald's rows; Orsted found 40 rows where Ørsted found 260.
+- **What changed:** Apostrophes (' ’ ʼ) are dropped in search text, and ø đ ð ł æ œ ß þ fold to o d d l ae oe ss th, on both the query and the cells. The ASCII fast path stays.
+- **Not covered yet:** Ue/oe spellings (Mueller for Müller) still need the phonetic mode.
+- **Files / components changed:** src/search/normalize.ts, test/normalize-fold.test.ts, test/encoding.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-06 — Data Quality: an undecided decimal mark is an issue the person can act on
 
 - **Status:** Verified (unit: score, dq-detection-gaps, corpus; checked in the browser on a semicolon file)

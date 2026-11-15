@@ -31,7 +31,7 @@ test("normalize strips Latin/Greek/Cyrillic diacritics only", () => {
   assert.equal(normalize("José Müller Ångström"), "jose muller angstrom");
   assert.equal(normalize("naïve café"), "naive cafe");
   assert.equal(normalize("İstanbul"), "istanbul");
-  assert.equal(normalize("Straße"), "straße");
+  assert.equal(normalize("Straße"), "strasse");
   assert.equal(normalize("Москва"), "москва");
 });
 
@@ -41,7 +41,7 @@ test("normalize preserves Indic combining marks", () => {
 });
 
 test("tokenize keeps non-ASCII letters as single tokens", () => {
-  assert.deepEqual(tokenize("Straße"), ["straße"]);
+  assert.deepEqual(tokenize("Straße"), ["strasse"]);
   assert.deepEqual(tokenize("Müller GmbH & Co. KG"), ["muller", "gmbh", "co", "kg"]);
   assert.deepEqual(tokenize("Москва, Россия"), ["москва", "россия"]);
   assert.deepEqual(tokenize("東京タワー"), ["東京タワー"]);
