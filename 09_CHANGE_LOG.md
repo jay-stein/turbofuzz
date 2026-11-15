@@ -34,6 +34,33 @@ Record shipped or attempted UX changes and what was verified.
 - **Decision:** Ship
 - **Date:** 2026-11-15
 
+### CHG-2026-11-15-16 — Version 0.9.0
+
+- **Status:** Verified (typecheck)
+- **Related issue / decision:** owner approved 0.9.0 on 2026-11-15.
+- **What changed:** package.json and package-lock.json read 0.9.0 (was 0.1.0); the About page takes its version from the package.
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
+### CHG-2026-11-15-15 — Data Quality headline: the row ceiling is removed
+
+- **Status:** Verified (unit: score, quality-page, real-world corpus)
+- **Related issue / decision:** DEC-2026-11-14-02, rejected by the owner: placeholders such as "Unknown" and "N/A" counted as failing rows and dragged honest tables down.
+- **What changed:** The headline is the weighted mean of the dimensions again. The Rows affected tile and its "show these rows" action stay, with no "holds the score to" note. The three corpus bands (aac-shelter, ask-a-manager, bank-churners) are back to 90-100.
+- **Files / components changed:** src/data/score.ts, src/ui/app.ts, src/ui/quality-layout.ts, src/ui/quality-page.ts, test/score.test.ts, test/quality-page.test.ts, three real-world expect.json
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
+### CHG-2026-11-15-14 — Fuzzy matching: a Strict-to-Loose slider on the column filter and the Merge panel
+
+- **Status:** Verified (unit: fuzzy-looseness 4 tests; typecheck). Not yet checked in a browser.
+- **Related issue / decision:** owner asked for a slider to match heaps or be strict; agreed split: interactive places get the slider, automatic checks (quality flags, geo, semantic type, reference suggestions) keep fixed, tested thresholds.
+- **What changed:** The three-step dropdown on the fuzzy filter is a 28-step slider from 0.97 (strict) to 0.70 (loose); the default is 0.88 and is not stored on the filter. The Merge similar values panel uses the same slider, starting at 0.90. Dragging re-runs after a short pause. The filter carries an optional numeric threshold; the old looseness field still works.
+- **Not covered yet:** The "similar pairs" chip in the table view still uses its fixed 0.90.
+- **Files / components changed:** src/search/fuzzy-index.ts, src/search/query-engine.ts, src/ui/filters.ts, src/ui/merge-panel.ts, src/styles.css, test/fuzzy-looseness.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-13 — Recipe: exported scripts read the file the way the importer did
 
 - **Status:** Verified (unit: recipe-reader 12 tests; parity harness, 5 new reader cases; scripts matched the app's export on the S09, S10 and S12 stress files)
