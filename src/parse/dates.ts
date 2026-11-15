@@ -435,6 +435,17 @@ export function toTimeInputValue(ms: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+/** `HH:MM:SS` (`.mmm` only when there are milliseconds) for export: nothing is rounded or wrapped. */
+export function toTimeValue(ms: number): string {
+  const whole = Math.max(0, Math.round(ms));
+  const h = Math.floor(whole / 3_600_000) % 24;
+  const m = Math.floor(whole / 60_000) % 60;
+  const s = Math.floor(whole / 1000) % 60;
+  const milli = whole % 1000;
+  const base = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return milli === 0 ? base : `${base}.${String(milli).padStart(3, "0")}`;
+}
+
 /** `H:MM:SS` (sign preserved) for elapsed milliseconds. */
 export function formatDurationMs(ms: number): string {
   const sign = ms < 0 ? "-" : "";

@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-01 — Export: a clock-time column keeps its seconds
+
+- **Status:** Verified (unit: csv, temporal)
+- **Related issue / decision:** stress test 2026-11-15 S17-01 (Critical): 23:59:45 exported as 00:00 and every time lost its seconds.
+- **What changed:** CSV export of a time column writes HH:MM:SS (.mmm only when present) instead of rounding to the minute, so nothing wraps to the next day.
+- **Not covered yet:** Naive datetimes still get a Z suffix and offsets are converted to UTC in the CSV.
+- **Files / components changed:** src/parse/dates.ts, src/worker/csv.ts, test/csv.test.ts, test/temporal.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-14-17 — Chart: the selected-bar controls sit above the plot, never over it
 
 - **Status:** Verified (unit 116 chart tests; browser: chart-mark-colour, chart-reference-line, chart-customize; screenshots in light, dark and a 760 px window)

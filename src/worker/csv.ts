@@ -5,7 +5,7 @@ import {
   formatDurationMs,
   toDateInputValue,
   toDateTimeValue,
-  toTimeInputValue,
+  toTimeValue,
 } from "../parse/dates.js";
 import { maskValue } from "../data/mask-value.js";
 import type { ExportOptions } from "./protocol.js";
@@ -51,7 +51,7 @@ function exportCell(column: ColumnData, row: number, nullAsBlank: boolean): stri
   }
   if (column.type === "time") {
     const value = column.numbers()[row];
-    return Number.isFinite(value) ? toTimeInputValue(value) : unparsedCell(column, row, nullAsBlank);
+    return Number.isFinite(value) ? toTimeValue(value) : unparsedCell(column, row, nullAsBlank);
   }
   if (column.type === "duration") {
     const value = column.numbers()[row];

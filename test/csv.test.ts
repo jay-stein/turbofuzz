@@ -112,3 +112,12 @@ test("a typed cell that does not parse keeps its text on export; missing markers
   assert.equal(lines[61], "19215.35 DR");
   assert.equal(lines[62], "");
 });
+
+test("a time column exports with its seconds and never wraps to the next day", () => {
+  const times = ["11:58:10", "23:59:45", "00:00:00", "07:30:00", "08:15:30", "09:45:59", "12:00:01", "13:13:13", "14:14:14", "15:15:15", "16:16:16", "17:17:17"];
+  const dataset = buildDataset("t", ["time"], times.map((value) => [value]));
+  const ids = Uint32Array.from(times.map((_, index) => index));
+  assert.equal(dataset.columns[0]!.type, "time");
+  const nl = String.fromCharCode(13, 10);
+  assert.equal(buildCsv(dataset, ids, 0, times.length, true), "time" + nl + times.join(nl) + nl);
+});

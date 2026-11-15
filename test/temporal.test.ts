@@ -208,8 +208,9 @@ test("CSV export canonicalises temporal values", () => {
   const ids = Uint32Array.from([0, 1]);
   const csv = buildCsv(dataset, ids, 0, 2, true);
   const lines = csv.trim().split("\r\n");
-  assert.equal(lines[1], "2026-10-16T09:30:00Z,09:30,1:30:00");
-  assert.equal(lines[2], "2026-10-17T00:00:00Z,14:45,0:45:00");
+  // Clock times keep their seconds in export, so nothing is rounded to the minute.
+  assert.equal(lines[1], "2026-10-16T09:30:00Z,09:30:00,1:30:00");
+  assert.equal(lines[2], "2026-10-17T00:00:00Z,14:45:00,0:45:00");
 });
 
 test("table numeric filters support comparisons averages and blanks", () => {
