@@ -1,5 +1,8 @@
 import { categoryCodes } from "./chart-series.js";
 import type { ColumnData } from "./column.js";
+import { matchGeoName } from "./geo.js";
+import { isLikelyIdentifierColumn } from "./identifier.js";
+import { nameHas } from "./name-hints.js";
 
 export interface RelationshipData {
   kind: "pearson" | "spearman" | "cramersV" | "eta2";
@@ -23,6 +26,20 @@ export interface RelationshipOptions {
 
 function isNumericType(column: ColumnData): boolean {
   return column.type === "integer" || column.type === "number";
+}
+
+/** Whole-word names of codes that happen to be digits (a building number, a census block): labels, not quantities. */
+const CODE_NAME = /(^|[^a-z0-9])(bin|bbl|boro|fips|geoid|community[_ ]?board|census[_ ]?tract)([^a-z0-9]|$)/i;
+
+/** Digits that name something (a zip, a phone, an id, a building code) are not measured quantities, so they take no part in a correlation. */
+function isCodeColumn(column: ColumnData, rowCount: number): boolean {
+  return (
+    isLikelyIdentifierColumn(column, rowCount) ||
+    nameHas(column.name, "postcode") ||
+    nameHas(column.name, "phone") ||
+    nameHas(column.name, "code") ||
+    CODE_NAME.test(column.name)
+  );
 }
 
 function isCategoryType(column: ColumnData): boolean {
@@ -105,7 +122,8 @@ export function computeRelationships(
     if (
       isNumericType(column) &&
       numeric.length < maxNumeric &&
-      column.stats.distinct >= 2
+      column.stats.distinct >= 2 &&
+      !isCodeColumn(column, rowCount)
     ) {
       numeric.push(index);
       return;
@@ -121,13 +139,21 @@ export function computeRelationships(
     }
   });
 
-  const numbers = numeric.map((index) => columns[index]?.numbers() ?? new Float64Array(0));
+  // A coordinate written as 0 for "no fix" would pair with real values and fake a perfect line: zeros count as missing here.
+  const numbers = numeric.map((index) => {
+    const values = columns[index]?.numbers() ?? new Float64Array(0);
+    if (matchGeoName(columns[index]?.name ?? "") === null) return values;
+    return values.map((value) => (value === 0 ? Number.NaN : value));
+  });
+  const isCoordinate = numeric.map((index) => matchGeoName(columns[index]?.name ?? "") !== null);
   const ranks = numbers.map((values) => rankColumn(values, ids, rowCount));
   const findings: RelationshipData[] = [];
 
   // Numeric × numeric: Pearson and Spearman.
   for (let a = 0; a < numeric.length; a++) {
     for (let b = a + 1; b < numeric.length; b++) {
+      // Latitude against longitude is geography, not a finding.
+      if (isCoordinate[a] && isCoordinate[b]) continue;
       const valuesA = numbers[a] ?? new Float64Array(0);
       const valuesB = numbers[b] ?? new Float64Array(0);
       const p = pearson(ids, valuesA, valuesB);

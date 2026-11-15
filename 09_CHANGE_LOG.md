@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-09 — Relationships: codes and coordinate zeros no longer produce headline correlations
+
+- **Status:** Verified (unit: relationships)
+- **Related issue / decision:** stress test 2026-11-15 S20-01/02: latitude~longitude r = -1.000 (true +0.36 without 3,049 placeholder zeros); zip, phone, bin and community_board treated as quantities.
+- **What changed:** Identifier and code-named columns (zip, phone, bin, bbl, boro, fips ...) are excluded; coordinate zeros count as missing and the latitude-versus-longitude pair is skipped.
+- **Not covered yet:** 
+- **Files / components changed:** src/data/relationships.ts, test/relationships.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-08 — Data Quality: impossible, swapped and (0,0) coordinates are flagged for review
 
 - **Status:** Verified (unit: coordinates-dq; before/after counts on the damaged cities file; Show rows not yet seen in a browser)

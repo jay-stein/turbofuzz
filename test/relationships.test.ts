@@ -9,8 +9,8 @@ function dataset() {
   for (let index = 0; index < 60; index++) {
     const group = index < 30 ? "A" : "B";
     rows.push([
-      String(index),
-      String(2 * index + (index % 4)),
+      String(index + 0.25),
+      String(2 * index + (index % 4) + 0.5),
       group,
       index < 30 ? "p" : "q",
     ]);
@@ -95,4 +95,30 @@ test("relationshipDataFindings words each method carefully", () => {
   assert.match(findings[2]?.title ?? "", /are associated \(Cramér's V = 0.98\)/);
   assert.equal(findings[2]?.severity, "review");
   assert.doesNotMatch(findings[2]?.title ?? "", /cause/);
+});
+
+function numericFixture(names: string[], make: (i: number) => string[]) {
+  const rows: string[][] = [];
+  for (let i = 0; i < 80; i++) rows.push(make(i));
+  const ds = buildDataset("t", names, rows);
+  const ids = Uint32Array.from({ length: ds.rowCount }, (_, index) => index);
+  return computeRelationships(ds.columns, ds.rowCount, ids, { minAbs: 0.3 });
+}
+
+test("code-like digit columns take no part in correlations; real quantities still do", () => {
+  const make = (i: number) => [String(10000 + i * 7), String(5000 + i * 3), String(i * 2 + (i % 3)), String(i + (i % 5))];
+  assert.equal(numericFixture(["zipcode", "bbl", "units", "area"], make).some((r) => r.aLabel === "zipcode" || r.bLabel === "zipcode" || r.aLabel === "bbl" || r.bLabel === "bbl"), false);
+  const quantities = numericFixture(["revenue", "spend", "units", "area"], make);
+  assert.ok(quantities.some((r) => r.kind === "pearson" && r.aLabel === "units" && r.bLabel === "area"));
+});
+
+test("coordinate zeros do not fake a correlation and latitude against longitude is skipped", () => {
+  const rows = (i: number) => {
+    const placeholder = i % 10 === 0;
+    return [placeholder ? "0" : String(40 + (i % 17) * 0.5), placeholder ? "0" : String(-74 + (i % 13) * 0.25), String((i * 37) % 11)];
+  };
+  const found = numericFixture(["latitude", "longitude", "other"], rows);
+  assert.equal(found.some((r) => r.aLabel === "latitude" && r.bLabel === "longitude"), false);
+  const plain = numericFixture(["a_value", "b_value", "other"], rows);
+  assert.ok(plain.some((r) => r.kind === "pearson" && Math.abs(r.effect) > 0.9), "without a coordinate name the zeros do drive a strong line");
 });
