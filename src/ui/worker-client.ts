@@ -484,12 +484,13 @@ export class SearchWorkerClient {
     return this.request<DependenciesMessage>({ type: "getDependencies", respectFilters });
   }
 
-  countKeyDuplicates(columns: number[]): Promise<KeyDuplicateCountMessage> {
-    return this.request<KeyDuplicateCountMessage>({ type: "countKeyDuplicates", columns });
+  /** `blanksMatch`: the columns are a whole row minus its id, so blank matches blank. */
+  countKeyDuplicates(columns: number[], blanksMatch = false): Promise<KeyDuplicateCountMessage> {
+    return this.request<KeyDuplicateCountMessage>({ type: "countKeyDuplicates", columns, blanksMatch });
   }
 
-  checkKeyDuplicates(columns: number[]): Promise<KeyDuplicatesMessage> {
-    return this.request<KeyDuplicatesMessage>({ type: "checkKeyDuplicates", columns });
+  checkKeyDuplicates(columns: number[], blanksMatch = false): Promise<KeyDuplicatesMessage> {
+    return this.request<KeyDuplicatesMessage>({ type: "checkKeyDuplicates", columns, blanksMatch });
   }
 
   evaluateRules(rules: Rule[]): Promise<RulesEvaluatedMessage> {

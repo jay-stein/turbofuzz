@@ -17,11 +17,16 @@ export interface KeyDuplicateResult {
  * rows whose key combination repeats. Exact comparison backs the hash buckets,
  * mirroring the whole-row duplicate pass in stats.ts. Rows with a missing key
  * part are "Not populated" — excluded rather than counted as duplicates.
+ *
+ * With `blanksMatch` the columns are a whole row minus its id (not a key): an
+ * empty cell is a value like any other and matches another empty cell, as in
+ * the whole-row pass, so a row with a blank is still compared.
  */
 export function computeKeyDuplicates(
   columns: readonly ColumnData[],
   keyColumns: readonly number[],
   rowCount: number,
+  blanksMatch = false,
 ): KeyDuplicateResult {
   const duplicateBits = new BitSet(rowCount);
   const keys = keyColumns.filter(
@@ -41,11 +46,13 @@ export function computeKeyDuplicates(
     if (column === undefined) continue;
     const raw = column.raw;
     for (let row = 0; row < rowCount; row++) {
-      const value = raw[row];
-      if (column.isNull(value)) {
+      const blank = column.isNull(raw[row]);
+      if (blank && !blanksMatch) {
         populated[row] = 0;
         continue;
       }
+      // Every blank hashes alike ("" and "N/A" are both empty), so blank meets blank.
+      const value = blank ? "" : raw[row];
       let hash = hashes[row];
       for (let i = 0; i < value.length; i++) {
         hash ^= value.charCodeAt(i);
@@ -79,7 +86,7 @@ export function computeKeyDuplicates(
     }
     let isDuplicate = false;
     for (const other of bucket) {
-      if (keysEqual(columns, keys, row, other)) {
+      if (keysEqual(columns, keys, row, other, blanksMatch)) {
         duplicateBits.set(row);
         duplicateBits.set(other);
         isDuplicate = true;
@@ -108,11 +115,16 @@ function keysEqual(
   keyColumns: readonly number[],
   a: number,
   b: number,
+  blanksMatch: boolean,
 ): boolean {
   for (const columnIndex of keyColumns) {
     const column = columns[columnIndex];
     if (column === undefined) continue;
-    if (column.raw[a] !== column.raw[b]) return false;
+    const x = column.raw[a];
+    const y = column.raw[b];
+    if (x === y) continue;
+    if (blanksMatch && column.isNull(x) && column.isNull(y)) continue;
+    return false;
   }
   return true;
 }

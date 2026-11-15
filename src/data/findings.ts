@@ -22,7 +22,8 @@ export type FindingAction =
       special: "nulls" | "valueAnomalies" | "groupAnomalies" | "pattern";
     }
   | { kind: "filterDuplicates" }
-  | { kind: "keyDuplicates"; columns: number[]; label: string }
+  /** `blanksMatch`: a whole row minus its id rather than a key, so blank matches blank. */
+  | { kind: "keyDuplicates"; columns: number[]; label: string; blanksMatch?: boolean }
   /** Rows where column a is below column b (a ship date before its order date). */
   | { kind: "pairCheck"; a: number; b: number; operator: PairOperator }
   /** Rows at (0,0) or with latitude and longitude swapped, shown by filtering both columns. */

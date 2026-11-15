@@ -19,7 +19,7 @@ export type ParsedCommand =
   | { kind: "clean"; column: number; op: CleanOp; label: string }
   | { kind: "cleanAll"; op: CleanOp; label: string }
   | { kind: "headerCase"; style: HeaderCaseStyle; label: string }
-  | { kind: "keyDuplicates"; columns: number[]; label: string }
+  | { kind: "keyDuplicates"; columns: number[]; label: string; blanksMatch?: boolean }
   | { kind: "transform"; ops: TransformOp[]; label: string }
   | { kind: "dedupe"; keep: "first" | "last" | "none"; label: string }
   | {

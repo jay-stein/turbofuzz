@@ -1208,7 +1208,13 @@ export type GetDistributionChangesRequest = {
 };
 
 /** Counts repeats on a column subset without touching the table filter. */
-export type CountKeyDuplicatesRequest = { type: "countKeyDuplicates"; requestId: number; columns: number[] };
+export type CountKeyDuplicatesRequest = {
+  type: "countKeyDuplicates";
+  requestId: number;
+  columns: number[];
+  /** The columns are a whole row minus its id: blank matches blank instead of skipping the row. */
+  blanksMatch?: boolean;
+};
 
 export interface KeyDuplicateCountMessage {
   type: "keyDuplicateCount";
@@ -1222,6 +1228,8 @@ export type CheckKeyDuplicatesRequest = {
   type: "checkKeyDuplicates";
   requestId: number;
   columns: number[];
+  /** As on CountKeyDuplicatesRequest. */
+  blanksMatch?: boolean;
 };
 
 /** Counts pair failures without touching the table filter (for suggested checks). */

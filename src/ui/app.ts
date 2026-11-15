@@ -4751,12 +4751,14 @@ export class App {
         const label = command.label;
         this.queueSend(() =>
           this.client
-            .checkKeyDuplicates(command.columns)
+            .checkKeyDuplicates(command.columns, command.blanksMatch === true)
             .then((message) => {
               this.markWorkerSpecial("keyDuplicates");
               const tail =
                 message.duplicateRows === 0
-                  ? `no duplicate rows (${message.counted.toLocaleString()} rows with a complete key)`
+                  ? command.blanksMatch === true
+                    ? "no duplicate rows"
+                    : `no duplicate rows (${message.counted.toLocaleString()} rows with a complete key)`
                   : `${message.duplicateRows.toLocaleString()} duplicate row${
                       message.duplicateRows === 1 ? "" : "s"
                     } in ${message.duplicateGroups.toLocaleString()} group${
@@ -5169,7 +5171,7 @@ export class App {
         break;
       }
       case "keyDuplicates":
-        this.runCommand({ kind: "keyDuplicates", columns: action.columns, label: action.label });
+        this.runCommand({ kind: "keyDuplicates", columns: action.columns, label: action.label, ...(action.blanksMatch === true ? { blanksMatch: true } : {}) });
         break;
       case "filterDuplicates": {
         if (!this.specials.has("duplicates")) this.toggleSpecial("duplicates");
@@ -6127,7 +6129,7 @@ export class App {
     this.nearDuplicate = null;
     if (ids.length === 0 || compared.length === 0) return;
     try {
-      const message = await this.client.countKeyDuplicates(compared);
+      const message = await this.client.countKeyDuplicates(compared, true);
       if (key !== this.nearDuplicateKey) return;
       this.nearDuplicate = nearDuplicateFinding(this.metas, ids, compared, message.duplicateRows, message.duplicateGroups);
     } catch {

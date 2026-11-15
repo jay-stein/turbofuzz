@@ -49,6 +49,6 @@ export function nearDuplicateFinding(
     ],
     impact: { rows: duplicateRows, columns: [...ids] },
     fixLabel: "Show duplicates",
-    action: { kind: "keyDuplicates", columns: [...compared], label: `Duplicates ignoring ${idNames}` },
+    action: { kind: "keyDuplicates", columns: [...compared], label: `Duplicates ignoring ${idNames}`, blanksMatch: true },
   };
 }

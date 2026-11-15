@@ -442,7 +442,7 @@ async function handle(message: WorkerRequest): Promise<void> {
       handleSetType(message);
       break;
     case "countKeyDuplicates": {
-      const result = computeKeyDuplicates(state().dataset.columns, message.columns, state().dataset.rowCount);
+      const result = computeKeyDuplicates(state().dataset.columns, message.columns, state().dataset.rowCount, message.blanksMatch === true);
       post({
         type: "keyDuplicateCount",
         requestId: message.requestId,
@@ -1573,7 +1573,7 @@ function handleSetType(message: SetTypeRequest): void {
 /** Composite-key duplicate check: stores bits and activates the special. */
 function handleCheckKeyDuplicates(message: CheckKeyDuplicatesRequest): void {
   const { dataset, engine } = state();
-  const result = computeKeyDuplicates(dataset.columns, message.columns, dataset.rowCount);
+  const result = computeKeyDuplicates(dataset.columns, message.columns, dataset.rowCount, message.blanksMatch === true);
   dataset.keyDuplicateBits = result.duplicateBits;
   engine.setSpecial("keyDuplicates", true);
   specials.add("keyDuplicates");
