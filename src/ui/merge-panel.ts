@@ -2,6 +2,7 @@ import { setupDialog } from "./dialog.js";
 import { clear, el } from "./dom.js";
 import { dismissCluster, isClusterDismissed } from "./similar-dismissals.js";
 import type { CleanOp } from "../data/clean-ops.js";
+import { FUZZY_SLIDER_MAX, thresholdForSlider } from "../search/fuzzy-index.js";
 import { clusterSimilar, type SimilarCluster } from "../search/similar.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 
@@ -10,12 +11,8 @@ export interface MergePanelCallbacks {
   onClose: () => void;
 }
 
-const LEVELS: readonly { value: string; label: string }[] = [
-  { value: "0.94", label: "Strict (near-identical)" },
-  { value: "0.9", label: "Standard" },
-  { value: "0.84", label: "Loose (more suggestions)" },
-];
-
+/** The merge panel starts a little stricter than a filter: 0.90 rather than 0.88. */
+const MERGE_SLIDER_DEFAULT = 7;
 /**
  * Merge similar values: clusters a category column's labels with the same
  * Jaro-Winkler matcher used by fuzzy search, suggests the most frequent
@@ -42,12 +39,18 @@ export function openMergePanel(
 
   const levelField = el("label", { class: "clean-field" });
   levelField.append(el("span", { class: "clean-label" }, ["Match"]));
-  const levelSelect = el("select") as HTMLSelectElement;
-  for (const { value, label } of LEVELS) {
-    levelSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
-  }
-  levelSelect.value = "0.9";
-  levelField.append(levelSelect);
+  const levelSelect = el("input", {
+    type: "range",
+    min: "0",
+    max: String(FUZZY_SLIDER_MAX),
+    step: "1",
+    value: String(MERGE_SLIDER_DEFAULT),
+    class: "looseness-slider merge-slider",
+    "aria-label": "Match looseness: strict to loose",
+    title: "Strict (left) groups only near-identical spellings; Loose (right) groups many more",
+  }) as HTMLInputElement;
+  const levelEnds = el("span", { class: "clean-hint" }, ["Strict ← → Loose"]);
+  levelField.append(levelSelect, levelEnds);
 
   const hint = el("div", { class: "clean-hint" }, [
     "Pick the spelling to keep for each group. Each merged value is replaced as a whole cell, in one step you can undo.",
@@ -61,7 +64,7 @@ export function openMergePanel(
   let clusters: SimilarCluster[] = [];
 
   function rebuild(): void {
-    clusters = clusterSimilar(values, Number(levelSelect.value)).filter(
+    clusters = clusterSimilar(values, thresholdForSlider(Number(levelSelect.value))).filter(
       (cluster) => !isClusterDismissed(meta.name, cluster),
     );
     selections = new Map();
@@ -194,7 +197,11 @@ export function openMergePanel(
         : `${merges.length} value${merges.length === 1 ? "" : "s"} merged (${affected.toLocaleString()} rows affected)`;
   }
 
-  levelSelect.addEventListener("change", rebuild);
+  let slideTimer = 0;
+  levelSelect.addEventListener("input", () => {
+    window.clearTimeout(slideTimer);
+    slideTimer = window.setTimeout(rebuild, 80);
+  });
 
   const footer = el("div", { class: "clean-footer" });
   const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
