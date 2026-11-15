@@ -61,7 +61,7 @@ import { openBatchCastDialog } from "./batch-cast-dialog.js";
 import { formatBound, openRangePrompt } from "./range-prompt.js";
 import { pandasRecipeScript, type RecipeInput, viewToPandas } from "../data/recipe.js";
 import { polarsRecipeScript } from "../data/recipe-polars.js";
-import { supportHint, type RecipeScript, type RecipeTarget } from "../data/recipe-support.js";
+import { recipeSourceOf, supportHint, type RecipeScript, type RecipeTarget } from "../data/recipe-support.js";
 import {
   matchColumns,
   parseRecipeFile,
@@ -772,6 +772,8 @@ export class App {
   private headerRowButton!: HTMLButtonElement;
   /** How the current table was read, so the header row can be re-chosen and reloaded. */
   private importSource: ImportSource | null = null;
+  /** What the importer saw of `importSource`, kept for the exported script's reader (see recipeInput). */
+  private recipeRead: { source: ImportSource; preview: string[][]; tail: string[][]; whole: boolean; hasHeaders: boolean } | null = null;
   private readonly specials = new Set<SpecialKind>();
   private readonly castFailureCounts = new Map<number, number>();
   private readonly columnSpecials = new Map<number, Set<ColumnQaKind>>();
@@ -7285,12 +7287,21 @@ export class App {
   /** Says under the Overview title how the header row and the table's edges were read, so a wrong guess is noticed. */
   private async refreshHeaderNote(): Promise<void> {
     const source = this.importSource;
+    const hasHeaders = this.headersCheckbox.checked;
+    this.recipeRead = null;
     let note: string | null = null;
     if (source !== null) {
       try {
         const preview = await source.readPreview();
+        const whole = source.complete === true || preview.length < HEADER_PREVIEW_ROWS;
+        // A source too big to hold whole: its last rows say how many footer rows were left out.
+        let tail: string[][] = [];
+        if (!whole && source.readTail !== undefined) {
+          try { tail = await source.readTail(); } catch { tail = []; }
+        }
         if (this.importSource === source) {
-          note = describeHeader(preview, source.layout, source.complete === true || preview.length < HEADER_PREVIEW_ROWS);
+          this.recipeRead = { source, preview, tail, whole, hasHeaders };
+          note = describeHeader(preview, source.layout, whole);
           // The notes above the table sometimes say what a code means ("A value of '-9' is used for a missing value").
           this.overview?.setStatedCodes(statedMissingCodes(preview.slice(0, detectTable(preview, source.layout ?? undefined).skipRows)));
         }
@@ -8651,7 +8662,16 @@ export class App {
         this.metas.filter((meta) => meta.type === "date" || meta.type === "datetime").map((meta) => [meta.name, meta.dateOrder]),
       ),
       deletedRows: this.bakedRows + this.excludedRowCount > 0 ? this.bakedRows + this.excludedRowCount : undefined,
+      source: this.recipeSource(),
     };
+  }
+
+  /** How the importer read the file (delimiter, encoding, rows above and after the table), for the script's reader. */
+  private recipeSource(): RecipeInput["source"] {
+    const read = this.recipeRead;
+    const loaded = this.lastLoaded;
+    if (read === null || read.source !== this.importSource || loaded === null || loaded.source === "multi") return undefined;
+    return recipeSourceOf({ ...read, layout: read.source.layout, delimiter: loaded.delimiter, encoding: loaded.encoding });
   }
 
   /** Runs the selected target generator over the canonical recipe input. */

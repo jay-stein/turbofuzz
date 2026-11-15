@@ -14,7 +14,11 @@ import {
   supportHeaderLines,
   versionHeaderLines,
   typeDateEntry,
+  afterReadLines,
+  readerPlan,
+  SKIP_LINES_HELPER,
   type RecipeScript,
+  type RecipeSource,
   type SupportEntry,
 } from "./recipe-support.js";
 import type { ColumnType } from "../types.js";
@@ -39,6 +43,8 @@ export interface RecipeInput {
   dateOrders?: Readonly<Record<string, string>>;
   /** Rows deleted interactively — data-dependent, not expressible in code. */
   deletedRows?: number;
+  /** How the importer read the file; without it the script starts with a plain default reader. */
+  source?: RecipeSource;
 }
 
 function py(value: string): string {
@@ -1275,11 +1281,29 @@ function pandasMissingLines(nulls: NonNullable<RecipeInput["nulls"]>): string[] 
  * 0800 does not become 800. `str` (not "string") keeps missing values as NaN, which
  * the generated steps expect.
  */
-function pandasReadLines(schema: readonly ColumnSchema[]): string[] {
+function pandasReadLines(schema: readonly ColumnSchema[], source?: RecipeSource): string[] {
   const text = readAsTextColumns(schema);
-  if (text.length === 0) return ['df = pd.read_csv("input.csv")'];
-  const dtype = text.map((name) => `${py(name)}: str`).join(", ");
-  return [`df = pd.read_csv("input.csv", dtype={${dtype}})`];
+  const dtype = text.length === 0 ? [] : [`dtype={${text.map((name) => `${py(name)}: str`).join(", ")}}`];
+  const plan = readerPlan(source);
+  if (plan === null) return [`df = pd.read_csv(${["\"input.csv\"", ...dtype].join(", ")})`];
+  // The same reader choices the importer made. Empty lines are not rows for TurboFuzz, so the rows to
+  // skip are turned into a line count first (pandas counts every line).
+  const lines = [...plan.notes, ...plan.codecSetup];
+  if (plan.skipRecords > 0) {
+    lines.push(...SKIP_LINES_HELPER, `_tf_skip = _tf_skip_lines("input.csv", ${plan.skipRecords}, ${py(plan.sep)}, ${plan.codec})`);
+  }
+  // The importer's own column names (a blank header cell is "Column 3", not "Unnamed: 2") and its width:
+  // cells past the last column are dropped, so a wider totals row cannot stop the read.
+  const names = plan.names ?? (plan.fileHeader ? null : schema.map((entry) => entry.name));
+  const args = [
+    '"input.csv"',
+    ...(plan.sep === "," ? [] : [`sep=${py(plan.sep)}`]),
+    ...plan.pandasEncoding,
+    ...(plan.skipRecords > 0 ? ["skiprows=_tf_skip"] : []),
+    ...(names === null ? [] : [plan.fileHeader ? "header=0" : "header=None", `names=[${names.map((name) => py(name)).join(", ")}]`, `usecols=range(${names.length})`]),
+    ...dtype,
+  ];
+  return [...lines, `df = pd.read_csv(${args.join(", ")})`, ...afterReadLines(plan, "pandas")];
 }
 
 /**
@@ -1341,7 +1365,12 @@ export function pandasRecipeScript(input: RecipeInput): RecipeScript {
     ...versionHeaderLines("pandas"),
     "#   Dates: year-first values are read with format=\"ISO8601\" before format=\"mixed\", because on",
     "#   pandas 3 format=\"mixed\" with dayfirst=True reads 2024-03-05 as 3 May (both need pandas >= 2.0).",
-    "# Input: the app does not record the source file format; point the reader at your data.",
+    ...(readerPlan(input.source) === null
+      ? ["# Input: the app does not record the source file format; point the reader at your data."]
+      : [
+          "# Input: the reader below repeats how TurboFuzz read your file (delimiter, encoding, rows above the header,",
+          "#   rows after the data). Point \"input.csv\" at your own file; a different export may need different options.",
+        ]),
     "# Conventions: date → Python date objects (datetime64, midnight);",
     "#   datetime → datetime64 (naive timestamps are read as UTC; pandas 3 stores µs, 2.x ns);",
     "#   time → Python time; duration → timedelta64.",
@@ -1352,8 +1381,10 @@ export function pandasRecipeScript(input: RecipeInput): RecipeScript {
     ...(needsRe ? ["import re", ""] : []),
     "import pandas as pd",
     "",
-    "# Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).",
-    ...pandasReadLines(input.schema),
+    readerPlan(input.source) === null
+      ? "# Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…)."
+      : "# Input: change the path to your own file; keep the options.",
+    ...pandasReadLines(input.schema, input.source),
     ...pandasMissingLines(input.nulls ?? []),
   ];
   const code = [...header, "", ...setup, ...body].join("\n");

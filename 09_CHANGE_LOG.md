@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-13 — Recipe: exported scripts read the file the way the importer did
+
+- **Status:** Verified (unit: recipe-reader 12 tests; parity harness, 5 new reader cases; scripts matched the app's export on the S09, S10 and S12 stress files)
+- **Related issue / decision:** stress test 2026-11-15 S11-08, S12-03, S09-07, S10-06: the script began with a bare read_csv and ignored the delimiter, encoding, title rows, footer rows and header-less files.
+- **What changed:** Scripts now emit sep/separator, encoding, skipped title rows, the app's own column names, header-less handling, and the dropped footer rows and columns. pandas drops footers with iloc on the C engine; Polars uses head(-N) and decodes cp1252 and UTF-16 in Python first, with a comment. The importer's details are recomputed from the preview kept for the header note, plus the last 64 KB of a big file for footers.
+- **Not covered yet:** Multi-file loads, worksheets and JSON keep the plain reader; sampled loads are not marked; the number-locale hint is not exported; the scripts' missing-value token list is shorter than the app's (5 columns of a FEC file differ by about 30 cells); a footer or blank cell can make a pandas integer column read 12.0.
+- **Files / components changed:** src/data/recipe.ts, recipe-polars.ts, recipe-support.ts, src/ui/app.ts, tools/recipe-parity, test/recipe-reader.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-12 — Recipe: Title Case in the exported scripts matches the app
 
 - **Status:** Verified (unit; parity case title-case-rule on pandas 3.1.1 and Polars 2.1.0)

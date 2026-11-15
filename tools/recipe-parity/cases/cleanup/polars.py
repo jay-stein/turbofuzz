@@ -22,11 +22,17 @@ df = df.with_columns([
 
 # Clean: name
 df = df.with_columns(pl.col("name").str.strip_chars().str.replace_all(r"\s+", " ").alias("name"))
-df = df.with_columns(pl.col("name").str.to_titlecase().alias("name"))
+import re
+def _tf_title(v):
+    return re.sub(r"\S+", lambda m: m.group(0)[:1].upper() + m.group(0)[1:].lower(), v)
+df = df.with_columns(pl.col("name").map_elements(_tf_title, return_dtype=pl.Utf8).alias("name"))
 
 # Clean: city
 df = df.with_columns(pl.col("city").str.strip_chars().str.replace_all(r"\s+", " ").alias("city"))
-df = df.with_columns(pl.col("city").str.to_titlecase().alias("city"))
+import re
+def _tf_title(v):
+    return re.sub(r"\S+", lambda m: m.group(0)[:1].upper() + m.group(0)[1:].lower(), v)
+df = df.with_columns(pl.col("city").map_elements(_tf_title, return_dtype=pl.Utf8).alias("city"))
 df = df.with_columns(pl.col("city").str.replace_all("Fremantel", "Fremantle", literal=True).alias("city"))
 
 df.write_csv("cleaned.csv")

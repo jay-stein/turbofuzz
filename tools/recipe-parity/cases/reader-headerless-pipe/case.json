@@ -1,0 +1,4 @@
+{
+  "name": "reader-headerless-pipe",
+  "description": "a pipe-delimited file with no header row: every record is data, columns are named Column 1, 2"
+}

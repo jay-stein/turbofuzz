@@ -1,0 +1,4 @@
+{
+  "name": "reader-utf16-tab",
+  "description": "a tab-delimited UTF-16 file with a title row and a totals line after the data"
+}

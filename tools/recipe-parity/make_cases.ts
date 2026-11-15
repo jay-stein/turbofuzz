@@ -23,6 +23,11 @@ import { buildCsv, csvEscape } from "../../src/worker/csv.js";
 import { pandasRecipeScript, type RecipeInput } from "../../src/data/recipe.js";
 import { polarsRecipeScript } from "../../src/data/recipe-polars.js";
 import type { ColumnType } from "../../src/types.js";
+import { decodeText, type FileEncoding } from "../../src/parse/encoding.js";
+import type { HeaderLayout } from "../../src/parse/header-detect.js";
+import type { Delimiter } from "../../src/parse/delimiter.js";
+import { parseDelimited } from "../../src/parse/parse.js";
+import { recipeSourceOf } from "../../src/data/recipe-support.js";
 
 interface CaseSpec {
   name: string;
@@ -33,6 +38,22 @@ interface CaseSpec {
   nulls?: { column: number; extra: string[]; keep: string[] }[];
   types?: { column: number; type: ColumnType }[];
   transforms?: TransformOp[];
+  /** Write input.csv the way a real export looks (delimiter, encoding, rows around the table). */
+  file?: FileSpec;
+}
+
+/** A messy source file: title rows above the header, a units row, totals after the data. */
+interface FileSpec {
+  delimiter: Delimiter;
+  encoding: FileEncoding;
+  title?: string[];
+  /** An empty line between the title rows and the header. */
+  blankAfterTitle?: boolean;
+  unitsRow?: string[];
+  footer?: string[][];
+  /** The Headers checkbox: false loads every record as data. */
+  hasHeaders?: boolean;
+  layout?: HeaderLayout;
 }
 
 const CASES: CaseSpec[] = [
@@ -571,7 +592,25 @@ function recipeInput(spec: CaseSpec): RecipeInput {
       extra: entry.extra,
       keep: entry.keep,
     })),
+    ...(spec.file === undefined ? {} : { source: sourceOf(spec, spec.file) }),
   };
+}
+
+/** What the importer would record for this file: its own header detection runs over the written bytes. */
+function sourceOf(spec: CaseSpec, file: FileSpec): RecipeInput["source"] {
+  const bytes = fileBytes(fileText(spec, file), file.encoding);
+  const decoded = decodeText(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+  const parsed = parseDelimited(decoded.text, { delimiter: "auto", hasHeaders: false, normalizeRows: false });
+  const source = recipeSourceOf({
+    preview: parsed.rows,
+    whole: true,
+    layout: file.layout ?? null,
+    hasHeaders: file.hasHeaders !== false,
+    delimiter: parsed.delimiter,
+    encoding: decoded.encoding,
+  });
+  console.log(`  reader for ${spec.name}: ${JSON.stringify({ ...source, columns: undefined })}`);
+  return source;
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -582,7 +621,10 @@ for (const spec of CASES) {
   const dir = join(outRoot, spec.name);
   mkdirSync(dir, { recursive: true });
   const input = recipeInput(spec);
-  writeFileSync(join(dir, "input.csv"), rawCsv(spec), "utf8");
+  writeFileSync(
+    join(dir, "input.csv"),
+    spec.file === undefined ? rawCsv(spec) : fileBytes(fileText(spec, spec.file), spec.file.encoding),
+  );
   writeFileSync(join(dir, "expected.csv"), expectedCsv(spec), "utf8");
   writeFileSync(join(dir, "pandas.py"), `${pandasRecipeScript(input).code}\n`, "utf8");
   writeFileSync(join(dir, "polars.py"), `${polarsRecipeScript(input).code}\n`, "utf8");

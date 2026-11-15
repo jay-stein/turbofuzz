@@ -10,6 +10,8 @@
 # Nulls: pandas NaN/NaT; unparseable values become NaN/NaT via errors="coerce".
 # Every applied step is generated below.
 
+import re
+
 import pandas as pd
 
 # Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).
@@ -24,11 +26,15 @@ for _c in df.columns:
 
 # Clean: name
 df["name"] = df["name"].str.strip().str.replace(r"\s+", " ", regex=True)
-df["name"] = df["name"].str.title()
+def _tf_title(v):
+    return re.sub(r"\S+", lambda m: m.group(0)[:1].upper() + m.group(0)[1:].lower(), v) if isinstance(v, str) else v
+df["name"] = df["name"].map(_tf_title)
 
 # Clean: city
 df["city"] = df["city"].str.strip().str.replace(r"\s+", " ", regex=True)
-df["city"] = df["city"].str.title()
+def _tf_title(v):
+    return re.sub(r"\S+", lambda m: m.group(0)[:1].upper() + m.group(0)[1:].lower(), v) if isinstance(v, str) else v
+df["city"] = df["city"].map(_tf_title)
 df["city"] = df["city"].str.replace("Fremantel", "Fremantle", regex=False)
 
 df.to_csv("cleaned.csv", index=False)

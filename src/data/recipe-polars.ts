@@ -18,7 +18,11 @@ import {
   supportHeaderLines,
   versionHeaderLines,
   typeDateEntry,
+  afterReadLines,
+  readerPlan,
+  SKIP_LINES_HELPER,
   type RecipeScript,
+  type RecipeSource,
   type SupportEntry,
 } from "./recipe-support.js";
 import { dimensionTitle, type RecipeInput } from "./recipe.js";
@@ -1336,11 +1340,41 @@ function polarsMissingLines(nulls: NonNullable<RecipeInput["nulls"]>): string[] 
 }
 
 /** The reader call: text and identifier columns stay text (0800 does not become 800). */
-function polarsReadLines(schema: RecipeInput["schema"]): string[] {
+function polarsReadLines(schema: RecipeInput["schema"], source?: RecipeSource): string[] {
   const text = readAsTextColumns(schema);
-  if (text.length === 0) return ['df = pl.read_csv("input.csv")'];
-  const overrides = text.map((name) => `${py(name)}: pl.Utf8`).join(", ");
-  return [`df = pl.read_csv("input.csv", schema_overrides={${overrides}})`];
+  const overrides = text.length === 0 ? [] : [`schema_overrides={${text.map((name) => `${py(name)}: pl.Utf8`).join(", ")}}`];
+  const plan = readerPlan(source);
+  if (plan === null) return [`df = pl.read_csv(${["\"input.csv\"", ...overrides].join(", ")})`];
+  const lines = [...plan.notes, ...plan.codecSetup];
+  if (plan.skipRecords > 0) {
+    lines.push(...SKIP_LINES_HELPER, `_tf_skip = _tf_skip_lines("input.csv", ${plan.skipRecords}, ${py(plan.sep)}, ${plan.codec})`);
+  }
+  // pl.read_csv reads UTF-8 only: other encodings are decoded here and handed over as UTF-8 bytes.
+  let path = '"input.csv"';
+  if (plan.transcode) {
+    lines.push(
+      "import io",
+      "# Polars reads UTF-8 only: decode the file here and pass it on as UTF-8 bytes.",
+      `_tf_raw = open("input.csv", "rb").read().decode(${plan.codec}, errors="replace")`,
+    );
+    path = 'io.BytesIO(_tf_raw.encode("utf-8"))';
+  }
+  const names = plan.names ?? (plan.fileHeader ? null : schema.map((entry) => entry.name));
+  const footer = (plan.footerRows ?? 0) > 0;
+  const args = [
+    path,
+    ...(plan.sep === "," ? [] : [`separator=${py(plan.sep)}`]),
+    ...(plan.polarsEncoding === "utf8-lossy" ? ['encoding="utf8-lossy"'] : []),
+    ...(plan.skipRecords > 0 ? ["skip_rows=_tf_skip"] : []),
+    ...(plan.fileHeader ? [] : ["has_header=False"]),
+    ...(names === null ? [] : [`new_columns=[${names.map((name) => py(name)).join(", ")}]`]),
+    // Cells past the last column are dropped, as the importer does; a wider totals row cannot stop the read.
+    "truncate_ragged_lines=True",
+    // The rows left out at the end are cut after the read; typing every row keeps a "Total" label from breaking the column types.
+    ...(footer ? ["infer_schema_length=None"] : []),
+    ...overrides,
+  ];
+  return [...lines, `df = pl.read_csv(${args.join(", ")})`, ...afterReadLines(plan, "polars")];
 }
 
 export function polarsRecipeScript(input: RecipeInput): RecipeScript {
@@ -1394,7 +1428,12 @@ export function polarsRecipeScript(input: RecipeInput): RecipeScript {
   const header = [
     "# TurboFuzz Polars recipe — generated from the applied Recipe.",
     ...versionHeaderLines("polars"),
-    "# Input: the app does not record the source file format; point the reader at your data.",
+    ...(readerPlan(input.source) === null
+      ? ["# Input: the app does not record the source file format; point the reader at your data."]
+      : [
+          "# Input: the reader below repeats how TurboFuzz read your file (delimiter, encoding, rows above the header,",
+          "#   rows after the data). Point \"input.csv\" at your own file; a different export may need different options.",
+        ]),
     "# Conventions: date → pl.Date; datetime → pl.Datetime (naive stays naive);",
     "#   time → pl.Time; duration → pl.Duration; unparseable values → null (strict=False).",
     ...supportHeaderLines(entries),
@@ -1402,8 +1441,10 @@ export function polarsRecipeScript(input: RecipeInput): RecipeScript {
   const setup = [
     "import polars as pl",
     "",
-    "# Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…).",
-    ...polarsReadLines(input.schema),
+    readerPlan(input.source) === null
+      ? "# Input: replace with your own path/reader (CSV, Excel, JSON, Parquet…)."
+      : "# Input: change the path to your own file; keep the options.",
+    ...polarsReadLines(input.schema, input.source),
     ...polarsMissingLines(input.nulls ?? []),
   ];
   const code = [...header, "", ...setup, ...body].join("\n");

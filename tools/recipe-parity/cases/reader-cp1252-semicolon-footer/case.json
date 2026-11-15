@@ -1,0 +1,4 @@
+{
+  "name": "reader-cp1252-semicolon-footer",
+  "description": "a ;-delimited windows-1252 file: 2 title rows, an empty line, the header, data with accents, a Total footer"
+}
