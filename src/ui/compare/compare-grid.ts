@@ -3,6 +3,7 @@ import { ROW_CHANGED, ROW_ONLY_A, ROW_ONLY_B } from "../../data/compare/types.js
 import type { RowFilter, RowWindow } from "../../data/compare/view.js";
 import type { CompareSetupMessage } from "../../worker/protocol.js";
 import { el } from "../dom.js";
+import { diffNodes } from "./char-diff-dom.js";
 import type { SearchWorkerClient } from "../worker-client.js";
 import type { KeyChoice } from "./compare-setup.js";
 
@@ -530,6 +531,16 @@ export class SideBySide {
     return { mark: "", tone: "same" };
   }
 
+  /** For a key cell of a row paired by similar key: its text with the letters the other side lacks marked, else null. */
+  private keyLetters(block: RowWindow, at: number, column: Column, side: "a" | "b"): (Node | string)[] | null {
+    const key = this.options.key;
+    if (key.kind !== "pairs" || column.pair < 0 || !key.pairs.includes(column.pair) || (block.fuzzy[at] ?? 0) === 0) return null;
+    const a = block.a[at]?.[column.a];
+    const b = block.b[at]?.[column.b];
+    if (a === undefined || b === undefined || a === b) return null;
+    return diffNodes(a, b)[side];
+  }
+
   private drawSide(index: number, side: "a" | "b", first: number, last: number): void {
     const block = this.block!;
     const body = this.bodies[index]!;
@@ -548,6 +559,8 @@ export class SideBySide {
         const value = cells === null ? "" : cells[cellIndex] ?? "";
         const diff = cells !== null && column.pair >= 0 && block.changed[at * pairs + column.pair] === 1;
         const cell = el("span", { class: `cmp-cell${diff ? " diff" : ""}${column.numeric === true ? " num" : ""}${value === "" ? " blank" : ""}${column.ignored === true ? " ignored" : ""}${column.only === undefined ? "" : ` only-${column.only}`}`, title: value }, [value]);
+        const letters = this.keyLetters(block, at, column, side);
+        if (letters !== null) cell.replaceChildren(...letters);
         if (diff && side === "b" && column.numeric === true) {
           const delta = deltaText(block.a[at]?.[column.a], value);
           if (delta !== null) cell.append(el("span", { class: `cmp-delta ${delta.text.startsWith("+") ? "up" : "down"}`, title: delta.title }, [delta.text]));
@@ -578,7 +591,8 @@ export class SideBySide {
         const oldValue = a !== null && column.a >= 0 ? a[column.a] ?? "" : null;
         const diff = column.pair >= 0 && block.changed[at * pairs + column.pair] === 1;
         const cell = el("span", { class: `cmp-cell${diff ? " diff" : ""}${column.numeric === true ? " num" : ""}${column.ignored === true ? " ignored" : ""}${column.only === undefined ? "" : ` only-${column.only}`}` });
-        if (newValue !== null) cell.append(el("span", { class: `cmp-cell-main${newValue === "" ? " blank" : ""}`, title: newValue }, [newValue === "" && diff ? "(empty)" : newValue]));
+        const letters = this.keyLetters(block, at, column, "b");
+        if (newValue !== null) cell.append(el("span", { class: `cmp-cell-main${newValue === "" ? " blank" : ""}`, title: newValue }, letters ?? [newValue === "" && diff ? "(empty)" : newValue]));
         else if (oldValue !== null) cell.append(el("span", { class: `cmp-cell-main gone${oldValue === "" ? " blank" : ""}`, title: oldValue }, [oldValue]));
         if (diff && oldValue !== null) cell.append(el("span", { class: `cmp-cell-old${oldValue === "" ? " blank" : ""}`, title: oldValue }, [oldValue === "" ? "(empty)" : oldValue]));
         const delta = diff && column.numeric === true && newValue !== null && oldValue !== null ? deltaText(oldValue, newValue) : null;

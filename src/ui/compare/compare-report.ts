@@ -4,6 +4,7 @@ import { looksLikeIdName } from "../../data/identifier.js";
 import { TYPE_LABELS } from "../../types.js";
 import type { CompareSetupMessage } from "../../worker/protocol.js";
 import { el } from "../dom.js";
+import { diffNodes } from "./char-diff-dom.js";
 import type { KeyChoice } from "./compare-setup.js";
 import type { RowFilter } from "../../data/compare/view.js";
 
@@ -154,10 +155,11 @@ function fuzzyCard(report: CompareReport, actions: ReportActions): HTMLElement |
     reject.addEventListener("click", () => actions.rejectPair?.(pair.aRow, pair.bRow));
     const show = el("button", { type: "button", class: "link", title: "See this pairing side by side, among the other similar-key rows" }, ["Show"]);
     show.addEventListener("click", () => actions.showPair?.(pair.index));
+    const letters = diffNodes(pair.aKey, pair.bKey);
     body.append(
       el("tr", { class: pair.confidence === "Low" ? "review" : "" }, [
-        el("td", { title: pair.aKey }, [pair.aKey]),
-        el("td", { title: pair.bKey }, [pair.bKey]),
+        el("td", { title: pair.aKey }, letters.a),
+        el("td", { title: pair.bKey }, letters.b),
         el("td", {}, [`${Math.round(pair.score * 100)}%`]),
         el("td", {}, [pair.confidence]),
         el("td", { title: pair.reason }, [pair.reason]),

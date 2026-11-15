@@ -16805,6 +16805,14 @@ button.cmp-change-name:hover {
 .cmp-fuzzy-table tr.review td {
   background: color-mix(in srgb, var(--warn, #d9a400) 12%, transparent);
 }
+/* The letters one side has and the other lacks, in a similar-key pairing. */
+mark.cmp-ch {
+  background: rgba(245, 158, 11, 0.32);
+  color: inherit;
+  border-radius: 2px;
+  box-shadow: 0 -1px 0 #f59e0b inset, 0 1px 0 #f59e0b inset;
+  font-weight: 600;
+}
 .cmp-autopair,
 .cmp-pair-suggest {
   margin: 0 0 12px;
