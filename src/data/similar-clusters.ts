@@ -1,7 +1,7 @@
 import { doubleMetaphone } from "double-metaphone";
 import { jaroWinkler } from "../search/jaro-winkler.js";
 import { normalize } from "../search/normalize.js";
-import type { SimilarValue } from "../search/similar.js";
+import { mergeable, type SimilarValue } from "../search/similar.js";
 import type { ColumnData } from "./column.js";
 
 export interface SimilarClusterMember {
@@ -116,10 +116,9 @@ export function computeSimilarClusters(
         const members = [sorted[seed]];
         for (let other = seed + 1; other < sorted.length; other++) {
           if (assigned.has(other)) continue;
-          if (
-            jaroWinkler(normalize(sorted[seed].value), normalize(sorted[other].value)) >=
-            threshold
-          ) {
+          const seedKey = normalize(sorted[seed].value);
+          const otherKey = normalize(sorted[other].value);
+          if (jaroWinkler(seedKey, otherKey) >= threshold && mergeable(seedKey, otherKey)) {
             assigned.add(other);
             members.push(sorted[other]);
           }

@@ -46,3 +46,20 @@ test("unrelated values stay in separate clusters or none at all", () => {
     [],
   );
 });
+
+test("values with different numbers never cluster; matching numbers still do", async () => {
+  const { clusterSimilar } = await import("../src/search/similar.js");
+  assert.equal(clusterSimilar([{ value: "278 Lake Road", count: 3 }, { value: "267 Lake Rd", count: 2 }]).length, 0);
+  assert.equal(clusterSimilar([{ value: "278 Lake Road", count: 3 }, { value: "278 Lake Rd", count: 2 }, { value: "278 lake  road", count: 1 }]).length, 1);
+});
+
+test("short first names are different values, a slip or spacing variant is not", async () => {
+  const { mergeable } = await import("../src/search/similar.js");
+  assert.equal(mergeable("angel", "angela"), false);
+  assert.equal(mergeable("stephen", "stephanie"), false);
+  assert.equal(mergeable("jonson", "johnson"), true);
+  assert.equal(mergeable("smyth", "smith"), true);
+  assert.equal(mergeable("jhon", "john"), true);
+  assert.equal(mergeable("st kilda", "st. kilda"), true);
+  assert.equal(mergeable("northcote", "northcote hill"), true);
+});

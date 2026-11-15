@@ -66,3 +66,13 @@ test("findings summarise clusters with the seed spelling and an analysed label",
   assert.ok(finding?.evidence.some((item) => item.metric === "analysed"));
   assert.deepEqual(finding?.action, { kind: "merge", column: 0 });
 });
+
+test("computeSimilarClusters keeps house numbers apart and reports a truncated analysis", () => {
+  const rows: string[][] = [];
+  for (let i = 0; i < 4; i++) rows.push(["278 Lake Road"]);
+  for (let i = 0; i < 3; i++) rows.push(["267 Lake Rd"]);
+  for (let i = 0; i < 2; i++) rows.push(["Angel"]);
+  for (let i = 0; i < 2; i++) rows.push(["Angela"]);
+  const data = buildDataset("t", ["street"], rows);
+  assert.equal(computeSimilarClusters(data.columns, data.rowCount, ids(data.rowCount)).length, 0);
+});

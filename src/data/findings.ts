@@ -792,7 +792,11 @@ export function similarClusterFindings(entries: readonly SimilarClusterEntry[]):
       severity: "review",
       title: `“${entry.label}” has ${clusters.toLocaleString()} cluster${
         clusters === 1 ? "" : "s"
-      } of near-duplicate values${preview}`,
+      } of near-duplicate values${preview}${
+        entry.truncated
+          ? `, among the ${entry.analysedValues.toLocaleString()} most frequent of ${entry.totalDistinct.toLocaleString()} values`
+          : ""
+      }`,
       evidence: [
         { metric: "clusters", value: clusters.toLocaleString(), n: clusters },
         { metric: "rows affected", value: affectedRows.toLocaleString(), n: affectedRows },

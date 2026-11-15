@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-11 — Merge similar values: different house numbers and first-name look-alikes are no longer merged
+
+- **Status:** Verified (unit: similar, similar-clusters; wrong rewrites measured on 50,000 people)
+- **Related issue / decision:** stress test 2026-11-15 S18-03/04: merge suggestions rewrote 278 Lake Road to 267 Lake Rd and Angel to Angela; the default reached about 10% of rows needing a fix.
+- **What changed:** Digit runs must be identical; values of 4-9 letters merge only on an equal compact form or one in-word slip with the same first letter. Wrong rewrites: first_name 2,506 to 338, street_address 28,890 to 740. A truncated analysis says it covered the 2,000 most frequent of N values.
+- **Not covered yet:** Merge still analyses only the top 2,000 values by default.
+- **Files / components changed:** src/search/similar.ts, src/data/similar-clusters.ts, src/data/findings.ts, test/similar.test.ts, test/similar-clusters.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-10 — Search: Normal fuzzy keeps typos without matching different surnames
 
 - **Status:** Verified (unit: fuzzy-looseness, fuzzy; threshold sweep on 50,000 people)
