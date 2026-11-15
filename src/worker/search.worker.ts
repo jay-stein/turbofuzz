@@ -3,6 +3,8 @@ import { setNumberLocale } from "../data/display-locale.js";
 import { setDateTieBreak } from "../parse/conventions.js";
 import { createProgressThrottle } from "../parse/progress-throttle.js";
 import { detectSuggestions } from "../data/suggestions.js";
+import { matchGeoName } from "../data/geo.js";
+import { reviewCoordinates } from "../data/coordinate-review.js";
 import { ColumnData } from "../data/column.js";
 import { isGroupableColumn } from "../data/groupable.js";
 import { keepRows, type ChartExclusion } from "../data/chart-exclusions.js";
@@ -3967,6 +3969,15 @@ function handlePreviewClean(message: PreviewCleanRequest): void {
   post({ type: "cleanPreview", requestId: message.requestId, columns });
 }
 
+/** A latitude column carries its (0,0) and swapped-pair counts against the named longitude column. */
+function coordinateStats(dataset: Dataset, column: ColumnData): ColumnData["stats"] {
+  if (!isNumericLikeType(column.type) || matchGeoName(column.name) !== "lat") return column.stats;
+  const lonIndex = dataset.columns.findIndex((other) => isNumericLikeType(other.type) && matchGeoName(other.name) === "lon");
+  if (lonIndex < 0) return column.stats;
+  const review = reviewCoordinates(column.numbers(), dataset.columns[lonIndex].numbers(), lonIndex);
+  return review === null ? column.stats : { ...column.stats, coordinates: review };
+}
+
 function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMeta {
   const role = column.role ?? undefined;
   if (isNumericLikeType(column.type)) {
@@ -3994,7 +4005,7 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     dateOrder: column.dateOrder,
     ...(column.dateAmbiguous ? { dateAmbiguous: true } : {}),
     ...(column.type === "datetime" ? { timeZoneAware: column.timeZoneAware } : {}),
-    stats: column.stats,
+    stats: coordinateStats(dataset, column),
     anomalyCounts: {
       values: dataset.valueColumnBits[index]?.count() ?? 0,
       lengths: dataset.lengthColumnBits[index]?.count() ?? 0,

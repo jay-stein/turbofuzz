@@ -25,6 +25,8 @@ export type FindingAction =
   | { kind: "keyDuplicates"; columns: number[]; label: string }
   /** Rows where column a is below column b (a ship date before its order date). */
   | { kind: "pairCheck"; a: number; b: number; operator: PairOperator }
+  /** Rows at (0,0) or with latitude and longitude swapped, shown by filtering both columns. */
+  | { kind: "filterCoordinates"; lat: number; lon: number; mode: "zeroPair" | "swapped" }
   | { kind: "filterRange"; column: number; min: number | null; max: number | null }
   | { kind: "filterText"; column: number; query: string }
   | { kind: "cleanNulls"; column: number }
@@ -315,6 +317,42 @@ export function qualityFindings(
         fixLabel: "Show rows",
         action: { kind: "filterRange", column, min: 1 + Number.EPSILON, max: null },
       });
+    }
+
+    // A latitude column paired with a longitude: points at (0,0) and likely swapped pairs.
+    const coords = meta.stats.coordinates;
+    if (coords !== undefined) {
+      const lonName = columns[coords.lonColumn]?.name ?? "longitude";
+      const pairs: { mode: "zeroPair" | "swapped"; count: number; title: string; fixLabel: string }[] = [
+        {
+          mode: "zeroPair",
+          count: coords.zeroPair,
+          title: `${coords.zeroPair.toLocaleString()} ${coords.zeroPair === 1 ? "row sits" : "rows sit"} at exactly 0, 0 in “${meta.name}” and “${lonName}”: often a missing location written as zeros`,
+          fixLabel: "Show rows",
+        },
+        {
+          mode: "swapped",
+          count: coords.swapped,
+          title: `${coords.swapped.toLocaleString()} ${coords.swapped === 1 ? "row looks" : "rows look"} swapped: “${meta.name}” is beyond 90 while “${lonName}” fits a latitude`,
+          fixLabel: "Show rows",
+        },
+      ];
+      for (const pair of pairs) {
+        if (pair.count === 0) continue;
+        findings.push({
+          id: `coordinates.${pair.mode}.${column}`,
+          report: "quality.constraintViolations",
+          severity: "review",
+          title: pair.title,
+          evidence: [
+            { metric: "rows", value: pair.count.toLocaleString(), n: pair.count },
+            { metric: "rows checked", value: coords.checked.toLocaleString(), n: coords.checked },
+          ],
+          impact: { rows: pair.count, columns: [column, coords.lonColumn] },
+          fixLabel: pair.fixLabel,
+          action: { kind: "filterCoordinates", lat: column, lon: coords.lonColumn, mode: pair.mode },
+        });
+      }
     }
 
     // Join readiness: a unique key candidate (and its hygiene).

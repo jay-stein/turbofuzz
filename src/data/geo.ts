@@ -56,7 +56,7 @@ export function parseLongitude(text: string): number | null {
 }
 
 const LAT_NAME = /(^|[^a-z])lat(itude)?($|[^a-z])/i;
-const LON_NAME = /(^|[^a-z])(lon|lng|longitude)($|[^a-z])/i;
+const LON_NAME = /(^|[^a-z])(lon|lng|long|longitude)($|[^a-z])/i;
 
 /**
  * Real words one edit away from latitude/longitude that are not coordinates.

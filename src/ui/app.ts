@@ -5104,6 +5104,17 @@ export class App {
         this.setView("table");
         break;
       }
+      case "filterCoordinates":
+        if (action.mode === "zeroPair") {
+          this.changeFilter(action.lat, { kind: "compare", op: "eq", value: 0 });
+          this.changeFilter(action.lon, { kind: "compare", op: "eq", value: 0 });
+        } else {
+          this.changeFilter(action.lat, { kind: "compare", op: "outside", value: -90, value2: 90 });
+          this.changeFilter(action.lon, { kind: "range", min: -90, max: 90 });
+        }
+        this.setView("table");
+        this.table?.flashColumn(action.lat);
+        break;
       case "filterRange":
         this.changeFilter(action.column, { kind: "range", min: action.min, max: action.max });
         this.setView("table");

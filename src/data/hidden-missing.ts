@@ -1,6 +1,7 @@
 import { classifyDateValue } from "../parse/dates.js";
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
 import type { ColumnType } from "../types.js";
+import { matchGeoName } from "./geo.js";
 import { firstHint } from "./name-hints.js";
 import type { ColumnSuggestion } from "./suggestions.js";
 
@@ -33,7 +34,7 @@ export function detectHiddenZeros(
   locale: NumberLocale,
 ): Sentinel | null {
   if (type !== "integer" && type !== "number") return null;
-  const word = firstHint(name, "zeroImplausible");
+  const word = firstHint(name, "zeroImplausible") ?? (matchGeoName(name) !== null ? "coordinate" : null);
   if (word === null) return null;
   let present = 0;
   let zeros = 0;

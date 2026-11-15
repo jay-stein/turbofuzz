@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-08 — Data Quality: impossible, swapped and (0,0) coordinates are flagged for review
+
+- **Status:** Verified (unit: coordinates-dq; before/after counts on the damaged cities file; Show rows not yet seen in a browser)
+- **Related issue / decision:** stress test 2026-11-15 S19-01, S19-03: latitudes beyond 90, points at (0,0) and swapped pairs passed with no warning and were drawn in the wrong countries.
+- **What changed:** Latitude beyond ±90 and longitude beyond ±180 raise the out-of-range issue; a minority of exact zeros offers the existing treat-as-missing; rows at exactly (0,0) and visibly swapped pairs are listed under Worth reviewing with Show rows. The map recognises Long and LONG_WGS84. On the test file: 331 latitudes, 204 longitudes, 171 points at (0,0) and 189 swapped pairs found.
+- **Not covered yet:** Treat-as-missing for out-of-range values needs a new recipe step; swaps where the true longitude is under 90 cannot be told from valid points (153 of 342 planted).
+- **Files / components changed:** src/data/geo.ts, plausibility.ts, hidden-missing.ts, coordinate-review.ts, findings.ts, src/parse/infer.ts, src/worker/search.worker.ts, src/ui/app.ts, test/coordinates-dq.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-07 — Search: apostrophes and letters like ø, ł, ß no longer block a match
 
 - **Status:** Verified (unit: normalize-fold, encoding)

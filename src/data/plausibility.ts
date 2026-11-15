@@ -1,4 +1,5 @@
 import { parseNumber, type NumberLocale } from "../parse/numbers.js";
+import { matchGeoName } from "./geo.js";
 import { nameHas, nameTokens, type HintGroup } from "./name-hints.js";
 import type { ColumnType } from "../types.js";
 
@@ -21,6 +22,20 @@ export interface PlausibilityRule {
   /** Plain sentence shown to the user. */
   sentence: (max: number) => string;
 }
+
+/** Latitude and longitude by NAME: degrees outside +-90 / +-180 cannot be a place on Earth. */
+const COORDINATE_RULES: Record<"lat" | "lon", PlausibilityRule> = {
+  lat: {
+    id: "latitude", group: "percent", min: -90, max: 90,
+    looksLike: { min: -360, max: 360, share: 0.8 },
+    sentence: () => "A latitude is between -90 and 90",
+  },
+  lon: {
+    id: "longitude", group: "percent", min: -180, max: 180,
+    looksLike: { min: -360, max: 360, share: 0.8 },
+    sentence: () => "A longitude is between -180 and 180",
+  },
+};
 
 export const PLAUSIBILITY_RULES: readonly PlausibilityRule[] = [
   {
@@ -75,7 +90,8 @@ export function checkPlausibility(
   year: number = new Date().getFullYear(),
 ): RangeViolation | null {
   if (type !== "integer" && type !== "number") return null;
-  const rule = PLAUSIBILITY_RULES.find((candidate) => nameHas(name, candidate.group));
+  const geo = matchGeoName(name);
+  const rule = geo !== null ? COORDINATE_RULES[geo] : PLAUSIBILITY_RULES.find((candidate) => nameHas(name, candidate.group));
   if (rule === undefined) return null;
   const max = rule.max ?? year + 1;
 

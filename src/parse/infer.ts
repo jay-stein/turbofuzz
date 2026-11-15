@@ -68,6 +68,8 @@ export interface ColumnStats {
   repeats?: { rows: number; values: number };
   /** Share-named columns written as fractions (0.15) with a few percentages (15) among them. */
   scaleMix?: { above: number; checked: number; examples: string[] };
+  /** Latitude columns only: points at (0,0) and likely swapped pairs, against the paired longitude column. */
+  coordinates?: { lonColumn: number; checked: number; zeroPair: number; swapped: number };
 }
 
 const TRUE_VALUES = new Set(["true", "yes", "y", "t", "1"]);
