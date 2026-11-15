@@ -110,7 +110,11 @@ const SHAPE_RULES: readonly {
   { key: "medicare", class: "government_id", noun: "Medicare numbers", collisionProne: true, hint: "government" },
   { key: "ip", class: "location", noun: "IP addresses", collisionProne: false, hint: "network" },
   { key: "latLon", class: "location", noun: "coordinate pairs", collisionProne: false, hint: "coordinate" },
+  { key: "handle", class: "contact", noun: "social media handles", collisionProne: false, hint: null },
 ];
+
+/** Share of sampled values shaped like a person's name before a bare "name" column counts as people. */
+const PERSON_NAME_SHARE = 0.8;
 
 /**
  * Whether the sensitive scan should read this column's values. Text columns always;
@@ -305,7 +309,25 @@ export function scoreSensitivity(inputs: readonly ColumnSensitivityInput[]): Sen
     const best = strongest(signals);
     if (best === null) {
       const tokens = nameTokens(input.name);
-      if (input.semantic?.type !== "identifier" && tokens.includes("name") && !tokens.some((token) => THING_WORDS.has(token))) bare.push(input);
+      if (input.semantic?.type !== "identifier" && tokens.includes("name") && !tokens.some((token) => THING_WORDS.has(token))) {
+        // taster_name, reviewer_name: the name says "name" and the values read as people's names.
+        const share = input.shapes === null || input.sampled <= 0 ? 0 : input.shapes.personName / input.sampled;
+        if (share >= PERSON_NAME_SHARE) {
+          findings.push({
+            column: input.column,
+            name: input.name,
+            class: "personal_name",
+            confidence: "medium",
+            reasons: [
+              { kind: "name", label: "the column name contains “name”" },
+              { kind: "value", label: `${percent(share)} of sampled values are written like people's names`, share, count: input.shapes?.personName ?? 0 },
+            ],
+            sampled: input.sampled,
+            scanned: input.scanned,
+            label: suggestedLabel("personal_name", "medium"),
+          });
+        } else bare.push(input);
+      }
       continue;
     }
     const used = signals.filter((signal) => signal.class === best.cls);

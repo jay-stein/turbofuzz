@@ -21,6 +21,14 @@ export interface TextShapeCounts {
   ip: number;
   /** A latitude, longitude pair written in one cell. */
   latLon: number;
+  /** A social media handle: @ then letters, digits, _ or . (@vossroger). */
+  handle: number;
+  /**
+   * Two to four capitalised words, as a person's name is written (Roger Voss, Kerin O’Keefe,
+   * Anne-Marie van Dijk). Titled phrases (Pinot Noir, Napa Valley) match too, so this is only
+   * evidence where the column name already says "name".
+   */
+  personName: number;
 }
 
 /**
@@ -69,6 +77,9 @@ const IPV6 = /^(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{0,4}$/i;
 const LAT_LON = /^[-+]?\d{1,2}\.\d{4,}\s*[,;]\s*[-+]?\d{1,3}\.\d{4,}$/;
 const MEDICARE_CANDIDATE = /^[2-6]\d{3}[ -]?\d{5}[ -]?\d$/;
 const NUMERIC = /^[-+]?\d*\.?\d+$/;
+const HANDLE = /^@[A-Za-z0-9_.]{2,30}$/;
+/** Capitalised words with ’ ' - . inside, allowing lower-case particles between them (van, de, bin). */
+const PERSON_NAME = /^\p{Lu}[\p{L}'’.-]*(?:\s+(?:(?:van|von|de|der|den|da|di|du|la|le|del|della|bin|binti|al|ibn)\s+)?\p{Lu}[\p{L}'’.-]*){1,3}$/u;
 const DATE_LIKE = /^\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}/;
 
 function luhnValid(value: string): boolean {
@@ -204,6 +215,8 @@ export function textProfile(
     medicare: 0,
     ip: 0,
     latLon: 0,
+    handle: 0,
+    personName: 0,
   };
   let rows = 0;
   let characters = 0;
@@ -233,6 +246,8 @@ export function textProfile(
     else if (PHONE.test(trimmed) && !NUMBER_RANGE.test(trimmed)) shapes.phone++;
     else if (NUMERIC.test(trimmed)) shapes.numeric++;
     else if (DATE_LIKE.test(trimmed)) shapes.dateLike++;
+    else if (HANDLE.test(trimmed)) shapes.handle++;
+    else if (PERSON_NAME.test(trimmed)) shapes.personName++;
     if (trimmed === trimmed.toUpperCase() && /[\p{L}]/u.test(trimmed)) shapes.uppercase++;
     if (/\d/.test(trimmed)) shapes.hasDigits++;
 

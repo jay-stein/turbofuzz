@@ -154,6 +154,44 @@ test("a bare name column counts as a person only when an email column is flagged
   assert.equal(byName(product, "product_name"), undefined);
 });
 
+// The wine reviews: taster_name holds people, taster_twitter_handle their handles.
+const TASTERS = ["Roger Voss", "Michael Schachner", "Kerin O’Keefe", "Virginie Boone", "Paul Gregutt", "Anne Krebiehl MW", "Jean-Luc van der Berg"];
+
+test("a name column whose values read as people's names is flagged, from the values", () => {
+  const found = scoreSensitivity(inputs({ taster_name: rows(400, (i) => TASTERS[i % TASTERS.length]!) }));
+  const taster = byName(found, "taster_name");
+  assert.equal(taster?.class, "personal_name");
+  assert.equal(taster?.confidence, "medium");
+  assert.ok(taster?.reasons.some((r) => r.kind === "value" && /people's names/.test(r.label)));
+});
+
+test("titled phrases are not people unless the column name says name", () => {
+  const found = scoreSensitivity(
+    inputs({
+      variety: rows(400, (i) => ["Pinot Noir", "Cabernet Sauvignon", "Red Blend"][i % 3]!),
+      region_1: rows(400, (i) => ["Napa Valley", "Columbia Valley", "Russian River Valley"][i % 3]!),
+      winery_name: rows(400, (i) => ["Wines Of Chile", "Testarossa", "Gloria Ferrer"][i % 3]!),
+      company_name: rows(400, (i) => TASTERS[i % TASTERS.length]!),
+    }),
+  );
+  assert.equal(byName(found, "variety"), undefined);
+  assert.equal(byName(found, "region_1"), undefined);
+  assert.equal(byName(found, "company_name"), undefined, "a thing word wins over person-shaped values");
+});
+
+test("social media handles are contact data, and make a bare name column beside them a person", () => {
+  const found = scoreSensitivity(
+    inputs({
+      reviewer_name: rows(400, (i) => `Reviewer ${i % 9}`),
+      taster_twitter_handle: rows(400, (i) => ["@vossroger", "@wineschach", "@kerinokeefe", "@vboone"][i % 4]!),
+    }),
+  );
+  const handle = byName(found, "taster_twitter_handle");
+  assert.equal(handle?.class, "contact");
+  assert.equal(handle?.confidence, "high");
+  assert.equal(byName(found, "reviewer_name")?.class, "personal_name");
+});
+
 test("strong name hints are Medium without values; Card_Category is not a card number", () => {
   const findings = scoreSensitivity(
     inputs({

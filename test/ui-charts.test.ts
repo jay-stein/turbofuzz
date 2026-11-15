@@ -248,6 +248,8 @@ const stubOptions = (): ChartsPanelOptions => ({
         medicare: 0,
         ip: 0,
         latLon: 0,
+        handle: 0,
+        personName: 0,
       },
       },
       ms: 1,
