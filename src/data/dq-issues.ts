@@ -22,6 +22,10 @@ export type IssueKind =
   | "unreadable"
   | "offFormat"
   | "dateFormat"
+  /** Slashed dates that are day-first in some rows and month-first in others. */
+  | "dateConflict"
+  /** Text decoded with the wrong encoding ("Ã©" for "é"). */
+  | "mojibake"
   | "numberSymbols"
   | "outOfRange"
   | "empty"
@@ -54,6 +58,7 @@ export type FixStep =
   | { kind: "convert"; column: number; to: ColumnType }
   | { kind: "dropColumn"; column: number; preview: FixPreviewLine[] }
   | { kind: "dateFormat"; column: number; order: DateOrder; preview: FixPreviewLine[] }
+  | { kind: "mojibake"; column: number; preview: FixPreviewLine[] }
   | { kind: "numberSymbols"; column: number; locale: "dot" | "comma"; preview: FixPreviewLine[] };
 
 export type DistClass = "variant" | "target" | "placeholder" | "neutral";
@@ -92,6 +97,8 @@ export interface PageIssue {
   /** True when the fix only does safe, reversible tidying (spelling, placeholders). */
   batchSafe: boolean;
   check?: ScoreCheck;
+  /** Row filters offered beside "Show rows", one per side of a conflict. */
+  sides?: { label: string; special: "dateDayFirst" | "dateMonthFirst"; count: number }[];
   finding?: Finding;
   /** Rows the issue touches (for ordering and the health strip). */
   rows: number;
@@ -385,6 +392,73 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
           batchSafe: true,
           check,
           rows: symbols.minority,
+        });
+        continue;
+      }
+
+      if (check.id.startsWith("validity.mojibake.")) {
+        const mojibake = meta.mojibake;
+        if (mojibake === null || mojibake === undefined) continue;
+        const fixable = mojibake.fixable > 0;
+        issues.push({
+          id: `mojibake.${column}`,
+          severity: "fix",
+          kind: "mojibake",
+          column,
+          columnName: meta.name,
+          title: `“${meta.name}” text looks wrongly decoded (mojibake)`,
+          evidence: `${n(mojibake.count)} of ${n(mojibake.total)} values contain double-encoded characters${
+            fixable ? `; ${n(mojibake.fixable)} can be repaired exactly, the rest are left as they are` : ", but none can be repaired exactly"
+          }.`,
+          impact: `${n(mojibake.count)} ${plural(mojibake.count, "value shows", "values show")} symbols in place of letters, so searching, grouping and joining on them will miss their real spelling`,
+          points: fixable ? points : null,
+          examples: mojibake.examples.map((e) => (e.to === null ? e.from : `${e.from} → ${e.to}`)),
+          dist: null,
+          fixes: fixable
+            ? [
+                {
+                  kind: "mojibake",
+                  column,
+                  preview: mojibake.examples
+                    .filter((e) => e.to !== null)
+                    .map((e) => ({ from: e.from, to: e.to ?? "", count: 1 })),
+                },
+              ]
+            : [],
+          fixLabel: fixable ? "Repair the text…" : "Show rows",
+          batchSafe: false,
+          check,
+          rows: mojibake.count,
+        });
+        continue;
+      }
+
+      if (check.id.startsWith("validity.dateconflict.")) {
+        const conflict = meta.dateConflict;
+        if (conflict === null || conflict === undefined) continue;
+        issues.push({
+          id: `dateconflict.${column}`,
+          severity: "fix",
+          kind: "dateConflict",
+          column,
+          columnName: meta.name,
+          title: `“${meta.name}” has dates in two orders`,
+          evidence: `${n(conflict.dayFirst)} dates are day-first and ${n(conflict.monthFirst)} month-first: pick one reading. The column stays text and nothing was converted${
+            conflict.either > 0 ? `; ${n(conflict.either)} more read either way` : ""
+          }.`,
+          impact: `Read as dates, the wrong order would silently swap day and month on ${n(Math.min(conflict.dayFirst, conflict.monthFirst))}+ rows.`,
+          points,
+          examples: [conflict.dayFirstExample, conflict.monthFirstExample],
+          dist: null,
+          fixes: [],
+          fixLabel: "Show rows",
+          batchSafe: false,
+          check,
+          sides: [
+            { label: `Show ${n(conflict.dayFirst)} day-first`, special: "dateDayFirst", count: conflict.dayFirst },
+            { label: `Show ${n(conflict.monthFirst)} month-first`, special: "dateMonthFirst", count: conflict.monthFirst },
+          ],
+          rows: conflict.dayFirst + conflict.monthFirst,
         });
         continue;
       }

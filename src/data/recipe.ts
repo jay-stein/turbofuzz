@@ -23,6 +23,7 @@ import {
 } from "./recipe-support.js";
 import type { ColumnType } from "../types.js";
 import { pandasDateArgs } from "../parse/date-format.js";
+import type { NumericDateFormat } from "../parse/numeric-dates.js";
 
 export interface RecipeInput {
   cleans: readonly { name: string; ops: readonly CleanOp[] }[];
@@ -715,6 +716,45 @@ function cleanLines(
           "import hashlib",
           `${column} = ${column}.map(lambda v: hashlib.sha256((${py(op.salt)} + "\\x00" + v.strip()).encode("utf-8")).hexdigest()[:16] if isinstance(v, str) and v.strip() != "" else v)`,
         ].join("\n");
+      case "fixMojibake":
+        // The same two steps as the app; a cell that cannot be taken back exactly stays as it is.
+        return [
+          "def _tf_fix_mojibake(v):",
+          "    if not isinstance(v, str):",
+          "        return v",
+          "    try:",
+          '        return v.encode("cp1252").decode("utf-8")',
+          "    except (UnicodeEncodeError, UnicodeDecodeError):",
+          "        return v",
+          `${column} = ${column}.map(_tf_fix_mojibake)`,
+        ].join("\n");
+      case "numberToDate": {
+        // Same ranges as the app (the range fixes the digit count); a value outside them stays as it was.
+        const lines: Record<NumericDateFormat, string[]> = {
+          excelSerial: [
+            `_n = pd.to_numeric(${column}, errors="coerce")`,
+            `_ok = (_n == _n.round()) & _n.between(20000, 80000)`,
+            `${column} = pd.to_datetime((_n - 25569) * 86400, unit="s", errors="coerce").dt.strftime("%Y-%m-%d").where(_ok, ${column})`,
+          ],
+          epochSeconds: [
+            `_n = pd.to_numeric(${column}, errors="coerce")`,
+            `_ok = (_n == _n.round()) & _n.between(946684800, 4102444800)`,
+            `${column} = pd.to_datetime(_n, unit="s", errors="coerce").dt.strftime("%Y-%m-%dT%H:%M:%S.%f").str[:-3].str.replace(r"\.000$", "", regex=True).add("Z").where(_ok, ${column})`,
+          ],
+          epochMillis: [
+            `_n = pd.to_numeric(${column}, errors="coerce")`,
+            `_ok = (_n == _n.round()) & _n.between(946684800000, 4102444800000)`,
+            `${column} = pd.to_datetime(_n, unit="ms", errors="coerce").dt.strftime("%Y-%m-%dT%H:%M:%S.%f").str[:-3].str.replace(r"\.000$", "", regex=True).add("Z").where(_ok, ${column})`,
+          ],
+          yyyymmdd: [
+            `_n = pd.to_numeric(${column}, errors="coerce")`,
+            `_p = pd.to_datetime(_n.astype("Int64").astype("string"), format="%Y%m%d", errors="coerce")`,
+            `_ok = (_n == _n.round()) & _n.between(19000101, 21001231) & _p.notna()`,
+            `${column} = _p.dt.strftime("%Y-%m-%d").where(_ok, ${column})`,
+          ],
+        };
+        return lines[op.format].join("\n");
+      }
       case "toDate":
       case "toDateTime": {
         const read = pandasDateRead(column, op.order, false);

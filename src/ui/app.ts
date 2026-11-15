@@ -14,7 +14,7 @@ import {
 import { decompressBzip2 } from "../parse/bz2.js";
 import { decodeText } from "../parse/encoding.js";
 import { parseDelimited } from "../parse/parse.js";
-import { detectTable, statedMissingCodes, type HeaderLayout } from "../parse/header-detect.js";
+import { detectTable, rowLooksLikeData, statedMissingCodes, type HeaderLayout } from "../parse/header-detect.js";
 import { combineSheets, type SheetGrid } from "../parse/combine-sheets.js";
 import { renderSheetPicker } from "./sheet-picker.js";
 import { openHeaderRowDialog } from "./header-row-dialog.js";
@@ -586,7 +586,7 @@ interface LoadContext {
  * and whether anything above, under or after the data was left out. `whole` says the rows seen are the whole source, so what is
  * left out at the end can be counted.
  */
-function describeHeader(preview: string[][], layout: HeaderLayout | null, whole: boolean): string {
+function describeHeader(preview: string[][], layout: HeaderLayout | null, whole: boolean, hasHeaders = true): string {
   const t = detectTable(preview, layout ?? undefined);
   const rows = (n: number): string => `${n} row${n === 1 ? "" : "s"}`;
   const how = layout === null ? "assumed" : "chosen by you";
@@ -602,7 +602,11 @@ function describeHeader(preview: string[][], layout: HeaderLayout | null, whole:
   if (whole && t.footerRows > 0) left.push(`${rows(t.footerRows)} of totals or notes after the data left out`);
   const dropped = layout?.skipColumns?.length ?? 0;
   if (dropped > 0) left.push(`${dropped} column${dropped === 1 ? "" : "s"} left out`);
-  return `${head}${left.length > 0 ? ` ${left.join("; ")}.` : t.headerRows > 0 && t.skipRows === 0 ? " Nothing skipped." : ""}`;
+  const asData =
+    hasHeaders && layout === null && t.headerRows > 0 && rowLooksLikeData(preview, t.skipRows)
+      ? " The first row looks like data, not a header: untick “First row is header” to use it as data."
+      : "";
+  return `${head}${left.length > 0 ? ` ${left.join("; ")}.` : t.headerRows > 0 && t.skipRows === 0 ? " Nothing skipped." : ""}${asData}`;
 }
 
 /** Where the table on screen was read from, for a report's provenance. */
@@ -3929,6 +3933,10 @@ export class App {
       void this.confirmSignSuffix(column, name, suggestion);
       return;
     }
+    if (suggestion.kind === "numericDate") {
+      void this.confirmNumericDate(column, name, suggestion);
+      return;
+    }
     this.confirmFix(
       `Apply this fix to “${name}”?`,
       `${suggestionLabel(suggestion)}. The change is recorded in the Recipe and can be undone.`,
@@ -3962,6 +3970,27 @@ export class App {
         `Until you decide they are left out of totals and charts. Apply to read every one of them as a decimal (→ ${reading}); ` +
         "Cancel to leave them as they are. The change is recorded in the Recipe and can be undone.",
       changed === undefined ? "Apply fix" : `Read ${count} as decimals`,
+      () => this.applySuggestionNow(column, suggestion),
+    );
+  }
+
+  /** Numbers that look like dates are converted only after the dialog shows the count and one example. */
+  private async confirmNumericDate(
+    column: number,
+    name: string,
+    suggestion: Extract<ColumnSuggestion, { kind: "numericDate" }>,
+  ): Promise<void> {
+    const existing = this.cleanedColumns.get(column) ?? [];
+    const preview = await this.client
+      .previewClean([{ column, ops: [...existing, { kind: "numberToDate", format: suggestion.format }] }])
+      .catch(() => null);
+    const changed = preview?.columns[0]?.changed;
+    const count = changed === undefined ? "Some" : changed.toLocaleString();
+    this.confirmFix(
+      `Read “${name}” as dates?`,
+      `${count} value${changed === 1 ? "" : "s"} would change. ${suggestionLabel(suggestion)}: ${suggestion.example} becomes ${suggestion.result}. ` +
+        "Check that this matches what the column means before applying; values outside the date range stay as they are. The change is recorded in the Recipe and can be undone.",
+      changed === undefined ? "Apply fix" : `Convert ${count} to dates`,
       () => this.applySuggestionNow(column, suggestion),
     );
   }
@@ -4029,6 +4058,11 @@ export class App {
         this.applyClean([
           { column, ops: [...existing, { kind: "toDate", order: meta?.dateOrder ?? "dmy" }] },
         ]);
+        break;
+      }
+      case "numericDate": {
+        const existing = this.cleanedColumns.get(column) ?? [];
+        this.applyClean([{ column, ops: [...existing, { kind: "numberToDate", format: suggestion.format }] }]);
         break;
       }
       case "time":
@@ -5352,6 +5386,7 @@ export class App {
       onProtect: (card, anchor) => this.openProtectMenu(card, anchor),
       onFixIssues: (issues) => this.fixIssues(issues),
       onShowIssue: (issue) => this.showIssue(issue),
+      onShowIssueSide: (issue, special) => this.showIssueSide(issue, special),
       onReviewIssue: (issue) => this.reviewIssue(issue),
       onDismissIssue: (issue) => this.dismissIssue(issue),
       reviewedList: () => Object.entries(getReviewed(this.datasetName)).map(([id, mark]) => ({ id, title: mark.title, rows: mark.rows })),
@@ -5530,12 +5565,30 @@ export class App {
       this.openClean(issue.column, "nulls");
       return;
     }
+    if (issue.kind === "mojibake" && issue.column !== null) {
+      if (this.columnSpecials.get(issue.column)?.has("mojibake") !== true) this.toggleColumnSpecial(issue.column, "mojibake");
+      this.setView("table");
+      this.table?.flashColumn(issue.column);
+      return;
+    }
     if (issue.kind === "unreadable" && issue.column !== null) {
       this.setView("table");
       this.table?.flashColumn(issue.column);
       return;
     }
     this.handleQualityFilter(issue.check);
+  }
+
+  /** One side of a date-order conflict: only that side's rows, with the other side's filter off. */
+  private showIssueSide(issue: PageIssue, special: "dateDayFirst" | "dateMonthFirst"): void {
+    const column = issue.column;
+    if (column === null) return;
+    const other = special === "dateDayFirst" ? "dateMonthFirst" : "dateDayFirst";
+    const active = this.columnSpecials.get(column);
+    if (active?.has(other) === true) this.toggleColumnSpecial(column, other);
+    if (active?.has(special) !== true) this.toggleColumnSpecial(column, special);
+    this.setView("table");
+    this.table?.flashColumn(column);
   }
 
   /** Counts the distinct rows that fail a check (worker pass) and shows them on the tile. */
@@ -5686,7 +5739,9 @@ export class App {
           ? { kind: "toNumber", locale: step.locale }
           : step.kind === "dateFormat"
             ? { kind: "toDate", order: step.order }
-            : null;
+            : step.kind === "mojibake"
+              ? { kind: "fixMojibake" }
+              : null;
     if (op !== null) {
       this.fixOps.add(op);
       // In order and read when it runs, so a second step on the same column stacks instead of replacing the first.
@@ -6959,6 +7014,12 @@ export class App {
           `${extraCellRows.toLocaleString()} row${extraCellRows === 1 ? "" : "s"} with ${extraCells.toLocaleString()} extra cell${extraCells === 1 ? "" : "s"} beyond ${loaded.columnCount} columns — trimmed`,
         );
       }
+      const replaced = loaded.ragged.replaced;
+      if (replaced !== undefined) {
+        parts.push(
+          `${replaced.count === 1 ? "1 character" : `${replaced.count.toLocaleString()} characters`} could not be read and show as � (first on line ${replaced.line.toLocaleString()}); the rest of the file is read correctly`,
+        );
+      }
       const stray = loaded.ragged.strayQuoteLines ?? [];
       if (stray.length > 0) {
         const lines = stray.slice(0, 5).join(", ") + (stray.length > 5 ? ` and ${stray.length - 5} more` : "");
@@ -7301,7 +7362,7 @@ export class App {
         }
         if (this.importSource === source) {
           this.recipeRead = { source, preview, tail, whole, hasHeaders };
-          note = describeHeader(preview, source.layout, whole);
+          note = describeHeader(preview, source.layout, whole, hasHeaders);
           // The notes above the table sometimes say what a code means ("A value of '-9' is used for a missing value").
           this.overview?.setStatedCodes(statedMissingCodes(preview.slice(0, detectTable(preview, source.layout ?? undefined).skipRows)));
         }

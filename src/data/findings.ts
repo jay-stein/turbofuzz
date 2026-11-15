@@ -129,6 +129,7 @@ export function qualityFindings(
       } else if (
         suggestion.kind === "number" ||
         suggestion.kind === "date" ||
+        suggestion.kind === "numericDate" ||
         suggestion.kind === "time" ||
         suggestion.kind === "duration" ||
         suggestion.kind === "boolean"
@@ -136,7 +137,7 @@ export function qualityFindings(
         const label =
           suggestion.kind === "boolean"
             ? "booleans"
-            : suggestion.kind === "date"
+            : suggestion.kind === "date" || suggestion.kind === "numericDate"
               ? "dates"
               : suggestion.kind === "time"
                 ? "clock times"

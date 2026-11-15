@@ -70,7 +70,10 @@ export type ColumnQaKind =
   | "valueAnomalies"
   | "lengthAnomalies"
   | "groupAnomalies"
-  | "pattern";
+  | "pattern"
+  | "dateDayFirst"
+  | "dateMonthFirst"
+  | "mojibake";
 
 export interface ResultTableOptions {
   onSort: (column: number, dir: 1 | -1 | 0) => void;
@@ -891,6 +894,33 @@ export class ResultTable {
         noun: { one: "long value", many: "long values" },
         action: "View long values",
         hint: "show this column's overlong values",
+      });
+    }
+    const mojibake = column.mojibake ?? null;
+    if (mojibake !== null) {
+      issues.push({
+        kind: "mojibake",
+        count: mojibake.count,
+        noun: { one: "wrongly decoded value", many: "wrongly decoded values" },
+        action: "View mojibake",
+        hint: "show values with double-encoded characters such as Ã©",
+      });
+    }
+    const conflict = column.dateConflict ?? null;
+    if (conflict !== null) {
+      issues.push({
+        kind: "dateDayFirst",
+        count: conflict.dayFirst,
+        noun: { one: "day-first date", many: "day-first dates" },
+        action: "View day-first",
+        hint: "show dates that can only be day-first (23/03/2024); the other order is in the next chip",
+      });
+      issues.push({
+        kind: "dateMonthFirst",
+        count: conflict.monthFirst,
+        noun: { one: "month-first date", many: "month-first dates" },
+        action: "View month-first",
+        hint: "show dates that can only be month-first (03/23/2024)",
       });
     }
     const pattern = column.pattern ?? null;

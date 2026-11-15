@@ -28,6 +28,8 @@ export interface RaggedInfo {
   extraCells: number;
   /** File lines where a quote never closed and was dropped so the rows after it read normally. */
   strayQuoteLines?: number[];
+  /** Unreadable characters shown as U+FFFD in the decoded text: how many, and the file line of the first. */
+  replaced?: { count: number; line: number };
 }
 
 export interface StructuredTable {
@@ -119,14 +121,18 @@ function lineOf(text: string, at: number): number {
 }
 
 /** Where a stray opening quote sits when the error says one swallowed a line break; -1 otherwise. */
-function strayQuoteAt(input: string, error: Papa.ParseError): number {
+function strayQuoteAt(input: string, error: Papa.ParseError, data: readonly unknown[]): number {
   if (error.code !== "MissingQuotes" && error.code !== "InvalidQuotes") return -1;
   const at = error.index === undefined ? -1 : error.index - 1;
   if (at < 0 || input.charCodeAt(at) !== 34) return -1;
   if (error.code === "MissingQuotes") return at;
   const nextQuote = input.indexOf('"', at + 1);
   const nextLine = input.indexOf("\n", at + 1);
-  return nextLine !== -1 && (nextQuote === -1 || nextLine < nextQuote) ? at : -1;
+  if (nextLine !== -1 && (nextQuote === -1 || nextLine < nextQuote)) return at;
+  // `"VAL" VALMA PAUL`: the quote closes on its own line but junk follows, so Papaparse reads on to some
+  // later quote. When the row it built holds line breaks, those were rows: drop the opening quote.
+  const row = typeof error.row === "number" ? data[error.row] : undefined;
+  return Array.isArray(row) && row.some((cell) => typeof cell === "string" && cell.includes("\n")) ? at : -1;
 }
 
 export function parseDelimited(text: string, options: ParseOptions = {}): ParsedTable {  const delimiter =
@@ -146,7 +152,7 @@ export function parseDelimited(text: string, options: ParseOptions = {}): Parsed
   // drop that quote, read again, and say which line. A malformed quote that
   // swallows no line break (`"5" long`) is left as Papaparse reads it.
   const strayQuoteLines: number[] = [];
-  const strayAt = (error: Papa.ParseError): number => strayQuoteAt(input, error);
+  const strayAt = (error: Papa.ParseError): number => strayQuoteAt(input, error, result.data);
   for (let repairs = 0; repairs < MAX_QUOTE_REPAIRS; repairs++) {
     let at = -1;
     for (const error of result.errors) {
@@ -251,7 +257,7 @@ export async function parseDelimitedAsync(
   for (let repairs = 0; result !== null && repairs < MAX_QUOTE_REPAIRS; repairs++) {
     let at = -1;
     for (const error of result.errors) {
-      at = strayQuoteAt(input, error);
+      at = strayQuoteAt(input, error, result.data);
       if (at >= 0) break;
     }
     if (at < 0) break;

@@ -690,6 +690,19 @@ export class Overview {
       );
     } else if (loaded.encoding === "utf-16le" || loaded.encoding === "utf-16be") {
       line.append(el("span", { class: "overview-badge", title: "Read as UTF-16 (the layout Excel calls Unicode Text)." }, [loaded.encoding === "utf-16le" ? "UTF-16 LE" : "UTF-16 BE"]));
+    } else if (loaded.encoding === "utf-32le" || loaded.encoding === "utf-32be") {
+      line.append(el("span", { class: "overview-badge", title: "Read as UTF-32, announced by the byte-order mark at the start of the file." }, [loaded.encoding === "utf-32le" ? "UTF-32 LE" : "UTF-32 BE"]));
+    }
+    const replaced = loaded.type === "loaded" ? loaded.ragged?.replaced : undefined;
+    if (replaced !== undefined) {
+      const many = replaced.count === 1 ? "1 character" : `${replaced.count.toLocaleString()} characters`;
+      line.append(
+        el(
+          "span",
+          { class: "overview-badge warn", title: `${many} in the file could not be read as text and show as the replacement character (�). The first is on line ${replaced.line.toLocaleString()}. The rest of the file is read correctly; look at those rows, or check how the file was saved.` },
+          [`${many} unreadable · first on line ${replaced.line.toLocaleString()}`],
+        ),
+      );
     }
     const stats = el(
       "button",

@@ -303,6 +303,8 @@ export function buildIssueCard(
   actions: {
     fix: (issue: PageIssue) => void;
     show: (issue: PageIssue) => void;
+    /** Shows the rows of one side of an issue (day-first or month-first dates). */
+    showSide?: (issue: PageIssue, special: "dateDayFirst" | "dateMonthFirst") => void;
     optional?: (issue: PageIssue, optional: boolean) => void;
     dismiss?: (issue: PageIssue) => void;
     /** Open the one-by-one review for an issue that has choices to make. */
@@ -353,6 +355,11 @@ export function buildIssueCard(
     show.addEventListener("click", () => actions.show(issue));
     buttons.append(show);
   }
+  for (const side of actions.showSide === undefined ? [] : (issue.sides ?? [])) {
+    const showSide = el("button", { class: "link", type: "button", "data-qp": `show-${side.special}` }, [side.label]);
+    showSide.addEventListener("click", () => actions.showSide?.(issue, side.special));
+    buttons.append(showSide);
+  }
   if (issue.check !== undefined && issue.kind !== "empty" && actions.dismiss !== undefined) {
     const ok = el("button", { class: "link", type: "button", "data-qp": "dismiss" }, ["Not a problem"]);
     ok.title = "I have looked at these rows and they are fine. Set this aside and leave it out of the score; it comes back if more rows are affected.";
@@ -379,6 +386,7 @@ export function buildIssuesTab(
   actions: {
     fix: (issue: PageIssue) => void;
     show: (issue: PageIssue) => void;
+    showSide?: (issue: PageIssue, special: "dateDayFirst" | "dateMonthFirst") => void;
     toggleAll: () => void;
     openChecks: () => void;
     undo: (entry: FixedEntry) => void;

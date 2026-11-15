@@ -109,3 +109,77 @@ export function summariseDateFormats(
   const minority = total - (formats[0]?.count ?? 0);
   return { formats, total, minority, ambiguous, order, dominantKey: keyed[0]?.key ?? "" };
 }
+
+/**
+ * A text column of slashed dates that contradicts itself: some values can only be
+ * day-first (23/03/2024), others only month-first (03/21/2024). Nothing here
+ * guesses which reading is right; the person picks.
+ */
+export interface DateConflict {
+  dayFirst: number;
+  monthFirst: number;
+  /** Values that read either way (both numbers at or below 12). */
+  either: number;
+  total: number;
+  dayFirstExample: string;
+  monthFirstExample: string;
+}
+
+/** Which reading a slashed value forces: day-first, month-first, or neither (null). */
+export function dateSideOf(raw: string): "day" | "month" | null {
+  const value = raw.trim();
+  const m = SLASH.exec(value) ?? SLASH_TIME.exec(value);
+  if (m === null) return null;
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  if (a > 12 && a <= 31 && b >= 1 && b <= 12) return "day";
+  if (b > 12 && b <= 31 && a >= 1 && a <= 12) return "month";
+  return null;
+}
+
+/** The side with fewer clear rows (ties go to month-first), or null when there is no conflict. */
+export function minoritySide(conflict: DateConflict | null): "day" | "month" | null {
+  if (conflict === null) return null;
+  return conflict.dayFirst < conflict.monthFirst ? "day" : "month";
+}
+
+const CONFLICT_PROBE = 200;
+
+/**
+ * Exact over every populated value, but only for columns that are almost entirely
+ * slashed dates (a quick probe of the first values rules out ordinary text).
+ * Null when only one reading appears.
+ */
+export function detectDateConflict(raw: readonly string[], isMissing: (value: string) => boolean): DateConflict | null {
+  const slashed = (value: string): boolean => SLASH.test(value) || SLASH_TIME.test(value);
+  let probed = 0;
+  let hits = 0;
+  for (let i = 0; i < raw.length && probed < CONFLICT_PROBE; i++) {
+    const value = (raw[i] ?? "").trim();
+    if (value === "" || isMissing(value)) continue;
+    probed++;
+    if (slashed(value)) hits++;
+  }
+  if (probed === 0 || hits / probed < 0.9) return null;
+  let total = 0;
+  let slashedCount = 0;
+  let dayFirst = 0;
+  let monthFirst = 0;
+  let dayFirstExample = "";
+  let monthFirstExample = "";
+  for (let i = 0; i < raw.length; i++) {
+    const value = (raw[i] ?? "").trim();
+    if (value === "" || isMissing(value)) continue;
+    total++;
+    if (!slashed(value)) continue;
+    slashedCount++;
+    const side = dateSideOf(value);
+    if (side === "day") {
+      if (dayFirst++ === 0) dayFirstExample = value;
+    } else if (side === "month") {
+      if (monthFirst++ === 0) monthFirstExample = value;
+    }
+  }
+  if (dayFirst === 0 || monthFirst === 0 || slashedCount / total < 0.95) return null;
+  return { dayFirst, monthFirst, either: slashedCount - dayFirst - monthFirst, total, dayFirstExample, monthFirstExample };
+}

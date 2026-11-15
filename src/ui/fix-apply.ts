@@ -36,6 +36,7 @@ function cleanOpOf(step: FixStep): CleanOp | null {
   if (step.kind === "standardise") return { kind: "recode", pairs: step.pairs };
   if (step.kind === "numberSymbols") return { kind: "toNumber", locale: step.locale };
   if (step.kind === "dateFormat") return { kind: "toDate", order: step.order };
+  if (step.kind === "mojibake") return { kind: "fixMojibake" };
   return null;
 }
 

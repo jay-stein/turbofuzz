@@ -1,7 +1,8 @@
 import type { ColumnData } from "./column.js";
 import { rowFitsIntended } from "./conformance.js";
-import { dateShapeKey } from "./date-formats.js";
+import { dateShapeKey, dateSideOf, minoritySide } from "./date-formats.js";
 import { maskValue } from "./mask-value.js";
+import { looksMojibake } from "./mojibake.js";
 import { hasNumberSymbol } from "./number-symbols.js";
 import { parseNumber } from "../parse/numbers.js";
 import { csvEscape } from "../worker/csv.js";
@@ -67,6 +68,8 @@ export function collectExceptions(
     const conformance = column.conformance;
     const dateFormats = column.dateFormats ?? null;
     const symbols = column.numberSymbols ?? null;
+    const garbled = column.mojibake != null;
+    const conflict = minoritySide(column.dateConflict ?? null);
     const range = column.rangeViolation ?? null;
     const optional = options.optional.has(index);
     for (let row = 0; row < rowCount; row++) {
@@ -97,6 +100,14 @@ export function collectExceptions(
       }
       if (dateFormats !== null && dateShapeKey(raw) !== dateFormats.dominantKey) {
         emit(row, index, column, `validity.dateformat.${index}`, "validity", "review", raw, "Date written in a different format from most of the column");
+        continue;
+      }
+      if (garbled && looksMojibake(raw)) {
+        emit(row, index, column, `validity.mojibake.${index}`, "validity", FIX, raw, "Text looks wrongly decoded (double-encoded characters)");
+        continue;
+      }
+      if (conflict !== null && dateSideOf(raw) === conflict) {
+        emit(row, index, column, `validity.dateconflict.${index}`, "validity", "review", raw, "Date order disagrees with most of the column (day-first against month-first)");
         continue;
       }
       if (symbols !== null && hasNumberSymbol(raw, column.numberLocale, symbols.groupedCounts) === (symbols.minorityIs === "withSymbol")) {

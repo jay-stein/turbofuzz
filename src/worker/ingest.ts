@@ -1,6 +1,6 @@
 import { buildDataset, buildDatasetAsync } from "../data/build.js";
 import type { Dataset } from "../data/dataset.js";
-import { decodeText, type FileEncoding } from "../parse/encoding.js";
+import { decodeText, type FileEncoding, type ReplacedChars } from "../parse/encoding.js";
 import { detectTable, type HeaderLayout } from "../parse/header-detect.js";
 import { isJsonName, parseJsonGrid } from "../parse/json.js";
 import type { NumberLocale } from "../parse/numbers.js";
@@ -94,7 +94,7 @@ function buildProgress(options: IngestOptions): (progress: {
  */
 function prepareGrid(
   options: IngestOptions,
-  done?: { encoding: FileEncoding | null; parsed: ParsedTable },
+  done?: { encoding: FileEncoding | null; parsed: ParsedTable; replaced?: ReplacedChars },
 ): PreparedGrid {
   if (options.table !== undefined) {
     const { headers, rows, ragged } = structureTable(
@@ -106,12 +106,14 @@ function prepareGrid(
 
   let text = options.text;
   let encoding: FileEncoding | null = done?.encoding ?? null;
+  let replaced = done?.replaced;
 
   if (done === undefined && text === undefined && options.buffer !== undefined) {
     options.onProgress?.({ phase: "read", detail: "Reading file…" });
     const decoded = decodeText(options.buffer);
     text = decoded.text;
     encoding = decoded.encoding;
+    replaced = decoded.replaced;
   }
 
   const source = text ?? "";
@@ -180,6 +182,7 @@ function prepareGrid(
     }
   }
 
+  if (replaced !== undefined) ragged = { ...ragged, replaced };
   return { headers, rows, encoding, delimiter: parsed.delimiter, ragged, numberPrior };
 }
 
@@ -199,6 +202,7 @@ async function prepareGridAsync(
   if (options.table !== undefined || options.maxRows !== undefined) return prepareGrid(options);
   let text = options.text;
   let encoding: FileEncoding | null = null;
+  let replaced: ReplacedChars | undefined;
   if (text === undefined && options.buffer !== undefined) {
     options.onProgress?.({ phase: "read", detail: "Reading file…" });
     // Let the "Reading" report out before the decode holds the thread.
@@ -207,6 +211,7 @@ async function prepareGridAsync(
     const decoded = decodeText(options.buffer);
     text = decoded.text;
     encoding = decoded.encoding;
+    replaced = decoded.replaced;
     await yieldTick();
     if (control.cancelled?.() === true) return null;
   }
@@ -230,7 +235,7 @@ async function prepareGridAsync(
     },
   );
   if (parsed === null) return null;
-  return prepareGrid(plain, { encoding, parsed });
+  return prepareGrid(plain, { encoding, parsed, ...(replaced === undefined ? {} : { replaced }) });
 }
 
 export function ingestDataset(options: IngestOptions): IngestResult {
@@ -375,6 +380,9 @@ export async function ingestFilesAsync(
       extraCellRows: ragged.extraCellRows + grid.ragged.extraCellRows,
       extraCells: ragged.extraCells + grid.ragged.extraCells,
       ...(grid.ragged.strayQuoteLines === undefined ? {} : { strayQuoteLines: [...(ragged.strayQuoteLines ?? []), ...grid.ragged.strayQuoteLines] }),
+      ...(grid.ragged.replaced === undefined && ragged.replaced === undefined
+        ? {}
+        : { replaced: { count: (ragged.replaced?.count ?? 0) + (grid.ragged.replaced?.count ?? 0), line: ragged.replaced?.line ?? grid.ragged.replaced?.line ?? 1 } }),
     };
     if (control.cancelled?.() === true) return null;
   }

@@ -59,6 +59,8 @@ export async function profileBuffer(
       typeDowngrade: column.typeDowngrade,
       conformance: column.conformance,
       dateFormats: column.dateFormats,
+      dateConflict: column.dateConflict,
+      mojibake: column.mojibake,
       numberSymbols: column.numberSymbols,
       rangeViolation: column.rangeViolation,
       semantic: column.semantic,

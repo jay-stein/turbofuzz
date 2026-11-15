@@ -296,6 +296,30 @@ function polarsCleanLines(
             name,
           ),
         ].join("\n");
+      case "fixMojibake":
+        // The same two steps as the app; a cell that cannot be taken back exactly stays as it is.
+        return [
+          "def _tf_fix_mojibake(v):",
+          "    if v is None:",
+          "        return v",
+          "    try:",
+          '        return v.encode("cp1252").decode("utf-8")',
+          "    except (UnicodeEncodeError, UnicodeDecodeError):",
+          "        return v",
+          assign(`${column}.map_elements(_tf_fix_mojibake, return_dtype=pl.Utf8)`, name),
+        ].join("\n");
+      case "numberToDate": {
+        // Same ranges as the app; a value outside them stays as it was.
+        const text = `${column}.cast(pl.Utf8).str.strip_chars()`;
+        const whole = `${text}.cast(pl.Int64, strict=False)`;
+        const ranges = {
+          excelSerial: { ok: `${text}.str.len_chars().is_between(5, 5) & ${whole}.is_between(20000, 80000)`, to: `(pl.date(1899, 12, 30) + pl.duration(days=${whole})).dt.strftime("%Y-%m-%d")` },
+          epochSeconds: { ok: `${text}.str.len_chars().eq(10) & ${whole}.is_between(946684800, 4102444800)`, to: stampText(`pl.from_epoch(${whole}, time_unit="s")`, "toDateTime") },
+          epochMillis: { ok: `${text}.str.len_chars().eq(13) & ${whole}.is_between(946684800000, 4102444800000)`, to: stampText(`pl.from_epoch(${whole}, time_unit="ms")`, "toDateTime") },
+          yyyymmdd: { ok: `${text}.str.len_chars().eq(8) & ${text}.str.to_date("%Y%m%d", strict=False).dt.year().is_between(1900, 2100)`, to: `${text}.str.to_date("%Y%m%d", strict=False).dt.strftime("%Y-%m-%d")` },
+        }[op.format];
+        return assign(`pl.when(${ranges.ok}).then(${ranges.to}).otherwise(${column}.cast(pl.Utf8))`, name);
+      }
       case "toDate":
       case "toDateTime": {
         // A column can mix layouts, and one format would null the rest.

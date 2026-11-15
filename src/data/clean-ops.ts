@@ -1,3 +1,5 @@
+import { repairMojibake } from "../parse/encoding.js";
+import { NUMERIC_DATE_LABELS, numericDateText, type NumericDateFormat } from "../parse/numeric-dates.js";
 import { parseDate, toDateInputValue, toDateTimeValue, type DateOrder } from "../parse/dates.js";
 import { escapeFormula } from "./formula.js";
 import { describeOrder } from "../parse/date-format.js";
@@ -31,6 +33,10 @@ export type CleanOp =
   /** Cells edited by hand: row (in the rows this clean sees), the old and the new text. */
   | { kind: "setCells"; edits: { row: number; from: string; to: string }[] }
   | { kind: "toDate"; order: DateOrder }
+  /** Text decoded with the wrong encoding ("Ã©"): each cell that was double-encoded is taken back to its bytes and read as UTF-8; all other cells stay. */
+  | { kind: "fixMojibake" }
+  /** Whole numbers read as dates (spreadsheet serial days, Unix seconds or milliseconds, yyyymmdd); anything out of range stays as it was. */
+  | { kind: "numberToDate"; format: NumericDateFormat }
   | { kind: "toDateTime"; order: DateOrder }
   | {
       kind: "cast";
@@ -156,6 +162,12 @@ function compileOp(op: CleanOp): (value: string) => string {
         return Number.isFinite(parsed) ? toDateInputValue(parsed) : value;
       };
     }
+    case "numberToDate": {
+      const format = op.format;
+      return (value) => numericDateText(value, format) ?? value;
+    }
+    case "fixMojibake":
+      return (value) => repairMojibake(value) ?? value;
     case "toDateTime": {
       const order = op.order;
       return (value) => {
@@ -300,6 +312,10 @@ export function describeCleanOp(op: CleanOp): string {
       return "Keep only text (Unit 4B, Level 2 → Unit B Level)";
     case "toDate":
       return `Convert to date (date only, ${describeOrder(op.order)})`;
+    case "numberToDate":
+      return `Convert ${NUMERIC_DATE_LABELS[op.format]} to dates`;
+    case "fixMojibake":
+      return "Repair wrongly decoded text (Ã© → é)";
     case "toDateTime":
       return `Convert to date & time (keeps the clock, stored as UTC — ${describeOrder(op.order)})`;
     case "mask":
@@ -348,6 +364,10 @@ export function describeCleanOpDetail(op: CleanOp): string {
       return `setCells(${op.edits.map((e) => `row ${e.row + 1}=${JSON.stringify(e.to)}`).join(", ")})`;
     case "toDate":
       return `toDate(order=${op.order})`;
+    case "numberToDate":
+      return `numberToDate(format=${op.format})`;
+    case "fixMojibake":
+      return "fixMojibake(cp1252 bytes read as utf-8)";
     case "toDateTime":
       return `toDateTime(order=${op.order})`;
     case "cast":

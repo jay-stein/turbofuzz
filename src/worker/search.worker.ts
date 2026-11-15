@@ -98,6 +98,7 @@ import {
 } from "../search/query-engine.js";
 import { isNumericLikeType, type ColumnType } from "../types.js";
 import { buildCsv } from "./csv.js";
+import { compareReportWorkbook } from "../ui/compare/compare-xlsx.js";
 import { buildXlsxWorkbook } from "./xlsx-export.js";
 import {
   ingestDataset,
@@ -1381,7 +1382,7 @@ function handleSetSpecial(message: {
       if (kinds.size === 0) columnSpecials.delete(message.column);
     }
   } else {
-    if (message.kind === "pattern") {
+    if (message.kind === "pattern" || message.kind === "dateDayFirst" || message.kind === "dateMonthFirst" || message.kind === "mojibake") {
       // Column-only special: without a column there is nothing to intersect.
       return;
     }
@@ -4031,6 +4032,8 @@ function metaFor(dataset: Dataset, column: ColumnData, index: number): ColumnMet
     typeDowngrade: column.typeDowngrade,
     conformance: column.conformance,
     dateFormats: column.dateFormats,
+    dateConflict: column.dateConflict,
+    mojibake: column.mojibake,
     numberSymbols: column.numberSymbols,
     rangeViolation: column.rangeViolation,
     semantic: column.semantic,

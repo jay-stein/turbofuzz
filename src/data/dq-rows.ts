@@ -1,7 +1,8 @@
 import { BitSet } from "../search/bitset.js";
 import type { ColumnData } from "./column.js";
 import { rowFitsIntended } from "./conformance.js";
-import { dateShapeKey } from "./date-formats.js";
+import { dateShapeKey, dateSideOf, minoritySide } from "./date-formats.js";
+import { looksMojibake } from "./mojibake.js";
 import { hasNumberSymbol } from "./number-symbols.js";
 
 const NONE: ReadonlySet<string> = new Set();
@@ -44,7 +45,9 @@ export function computeRowsAffected(
     const conformance = aside("validity") ? null : column.conformance;
     const dateFormats = aside("validity.dateformat") ? null : (column.dateFormats ?? null);
     const symbols = aside("validity.symbols") ? null : (column.numberSymbols ?? null);
-    if (minority === null && tokens.size === 0 && conformance === null && dateFormats === null && symbols === null) return;
+    const garbled = !aside("validity.mojibake") && column.mojibake != null;
+    const conflict = aside("validity.dateconflict") ? null : minoritySide(column.dateConflict ?? null);
+    if (minority === null && tokens.size === 0 && conformance === null && dateFormats === null && symbols === null && conflict === null && !garbled) return;
     for (let row = 0; row < rowCount; row++) {
       if (bits.get(row)) continue;
       const raw = column.raw[row];
@@ -65,6 +68,14 @@ export function computeRowsAffected(
         continue;
       }
       if (dateFormats !== null && dateShapeKey(raw) !== dateFormats.dominantKey) {
+        bits.set(row);
+        continue;
+      }
+      if (garbled && looksMojibake(raw)) {
+        bits.set(row);
+        continue;
+      }
+      if (conflict !== null && dateSideOf(raw) === conflict) {
         bits.set(row);
         continue;
       }

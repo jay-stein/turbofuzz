@@ -238,6 +238,15 @@ export function readerPlan(source: RecipeSource | undefined): ReaderPlan | null 
       codec = '"cp1252"';
       pandasEncoding = ['encoding="cp1252"', 'encoding_errors="replace"'];
       break;
+    case "utf-32le":
+    case "utf-32be":
+      // Same as UTF-16: the codec named "utf-32" needs the byte-order mark, the explicit ones keep it as a character.
+      codec = "_tf_encoding";
+      codecSetup.push(
+        `_tf_encoding = "utf-32" if open("input.csv", "rb").read(4) in (b"\\xff\\xfe\\x00\\x00", b"\\x00\\x00\\xfe\\xff") else "${encoding === "utf-32le" ? "utf-32-le" : "utf-32-be"}"`,
+      );
+      pandasEncoding = ["encoding=_tf_encoding"];
+      break;
     case "utf-16le":
     case "utf-16be":
       // Python's "utf-16" needs a byte-order mark, and the explicit -le/-be codecs keep it as a character.

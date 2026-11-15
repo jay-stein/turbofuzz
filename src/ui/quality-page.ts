@@ -77,6 +77,7 @@ export interface QualityPageCallbacks {
   onReviewIssue?(issue: PageIssue): Promise<FixOutcome | null>;
   /** Show the rows behind an issue (filters the table or runs its finding action). */
   onShowIssue?(issue: PageIssue): void;
+  onShowIssueSide?(issue: PageIssue, special: "dateDayFirst" | "dateMonthFirst"): void;
   /** The user reviewed an issue and set it aside ("not a problem"). */
   onDismissIssue?(issue: PageIssue): void;
   /** Issues set aside earlier for this file. */
@@ -332,6 +333,7 @@ export class QualityPage {
             restore: (id: string) => this.callbacks.onRestoreReviewed?.(id),
             fix: (issue) => void this.fixOne(issue),
             show: (issue) => this.callbacks.onShowIssue?.(issue),
+            showSide: (issue, special) => this.callbacks.onShowIssueSide?.(issue, special),
             ...(this.callbacks.onOptionalChange === undefined
               ? {}
               : {

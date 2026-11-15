@@ -1,5 +1,6 @@
 import { detectDateOrder, parseDate, parseDuration, parseTimeOfDay } from "../parse/dates.js";
 import { looksLikeFormula } from "./formula.js";
+import { detectNumericDate, NUMERIC_DATE_LABELS, type NumericDateFormat } from "../parse/numeric-dates.js";
 import { stratifiedSample } from "../parse/infer.js";
 import { detectDecimalStyle, parseNumber, signSuffixOf, type NumberLocale } from "../parse/numbers.js";
 import {
@@ -22,6 +23,8 @@ export type ColumnSuggestion =
   | { kind: "boolean"; truthy: string[]; falsy: string[] }
   | { kind: "number"; locale: NumberLocale; ratio: number; hasSymbol: boolean }
   | { kind: "date"; ratio: number; sampled: number }
+  /** Whole numbers named like dates (serial days, Unix time, yyyymmdd): offered with a preview, never converted silently. */
+  | { kind: "numericDate"; format: NumericDateFormat; ratio: number; sampled: number; example: string; result: string }
   | { kind: "time"; ratio: number; sampled: number }
   | { kind: "duration"; ratio: number; sampled: number }
   | { kind: "mixedNumber"; locale: NumberLocale; count: number; ratio: number; sampled: number }
@@ -64,6 +67,8 @@ export function suggestionLabel(suggestion: ColumnSuggestion): string {
       return "Convert to number";
     case "date":
       return "Convert to date";
+    case "numericDate":
+      return `Convert ${NUMERIC_DATE_LABELS[suggestion.format]} to dates`;
     case "time":
       return "Convert to time of day";
     case "duration":
@@ -90,6 +95,8 @@ export function suggestionShortLabel(suggestion: ColumnSuggestion): string {
       return "convert to number";
     case "date":
       return "convert to date";
+    case "numericDate":
+      return "looks like dates";
     case "time":
       return "convert to time of day";
     case "duration":
@@ -116,6 +123,8 @@ export function describeSuggestion(suggestion: ColumnSuggestion): string {
       return `About ${Math.round(suggestion.ratio * 100)}% of values look numeric${suggestion.hasSymbol ? " with currency or percent symbols" : ""}. Click to strip the formatting and convert.`;
     case "date":
       return `About ${Math.round(suggestion.ratio * 100)}% of values look like dates. Click to convert them to ISO dates.`;
+    case "numericDate":
+      return `The values look like ${NUMERIC_DATE_LABELS[suggestion.format]} (${suggestion.example} would be ${suggestion.result}). Nothing is converted until you choose: click to preview and convert.`;
     case "time":
       return `About ${Math.round(suggestion.ratio * 100)}% of values look like clock times (HH:MM). They may be times of day or elapsed durations, so they stay text until you choose: click to treat them as time of day.`;
     case "duration":
@@ -145,6 +154,8 @@ export function detectSuggestions(
   locale: NumberLocale = "dot",
   /** Identifier-like columns (ids, phones, codes) never get a conversion offer. */
   noConvert = false,
+  /** The column name: numbers named like dates (order_date, created_at) can be offered as dates. */
+  name = "",
 ): ColumnSuggestion[] {
   const nonNull = stratifiedSample(raw, MAX_SAMPLE)
     .map((value) => value.trim())
@@ -342,6 +353,14 @@ export function detectSuggestions(
         sampled: nonNull.length,
         example,
       });
+    }
+  }
+
+  // Serial numbers, Unix time and yyyymmdd in a date-named number column.
+  if (type === "integer" || type === "number" || type === "identifier") {
+    const numeric = detectNumericDate(name, nonNull);
+    if (numeric !== null) {
+      suggestions.push({ kind: "numericDate", format: numeric.format, ratio: numeric.ratio, sampled: nonNull.length, example: numeric.example, result: numeric.result });
     }
   }
 

@@ -2,6 +2,8 @@ import { BitSet } from "./bitset.js";
 import { normalize } from "./normalize.js";
 import { FUZZY_THRESHOLDS, type FuzzyLooseness } from "./fuzzy-index.js";
 import type { Dataset } from "../data/dataset.js";
+import { dateSideOf } from "../data/date-formats.js";
+import { looksMojibake } from "../data/mojibake.js";
 import type { TextMode } from "../types.js";
 
 export type ColumnFilter =
@@ -48,7 +50,29 @@ export type ColumnSpecialKind =
   | "valueAnomalies"
   | "lengthAnomalies"
   | "groupAnomalies"
-  | "pattern";
+  | "pattern"
+  | "dateDayFirst"
+  | "dateMonthFirst"
+  | "mojibake";
+
+/** Rows that can only be day-first / month-first, per column's raw array (built when first asked for). */
+const dateSideBits = new WeakMap<readonly string[], { day: BitSet; month: BitSet }>();
+
+const mojibakeBits = new WeakMap<readonly string[], BitSet>();
+
+function dateSidesOf(raw: readonly string[]): { day: BitSet; month: BitSet } {
+  let sides = dateSideBits.get(raw);
+  if (sides === undefined) {
+    sides = { day: new BitSet(raw.length), month: new BitSet(raw.length) };
+    for (let row = 0; row < raw.length; row++) {
+      const side = dateSideOf(raw[row] ?? "");
+      if (side === "day") sides.day.set(row);
+      else if (side === "month") sides.month.set(row);
+    }
+    dateSideBits.set(raw, sides);
+  }
+  return sides;
+}
 
 export class QueryEngine {
   private readonly special = new Set<SpecialFilter>();
@@ -134,6 +158,24 @@ export class QueryEngine {
         return this.dataset.groupColumnBits[column] ?? null;
       case "pattern":
         return this.dataset.patternColumnBits[column] ?? null;
+      case "mojibake": {
+        const raw = this.dataset.columns[column]?.raw;
+        if (raw === undefined) return null;
+        let bits = mojibakeBits.get(raw);
+        if (bits === undefined) {
+          bits = new BitSet(raw.length);
+          for (let row = 0; row < raw.length; row++) if (looksMojibake(raw[row] ?? "")) bits.set(row);
+          mojibakeBits.set(raw, bits);
+        }
+        return bits;
+      }
+      case "dateDayFirst":
+      case "dateMonthFirst": {
+        const raw = this.dataset.columns[column]?.raw;
+        if (raw === undefined) return null;
+        const sides = dateSidesOf(raw);
+        return kind === "dateDayFirst" ? sides.day : sides.month;
+      }
     }
   }
 

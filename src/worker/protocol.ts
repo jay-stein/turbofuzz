@@ -22,6 +22,7 @@ import type { RowFilter, RowWindow } from "../data/compare/view.js";
 import type { DiffColumn, DiffOp, DiffSummary } from "../data/compare/diffs.js";
 import type { GroupMeasure, GroupShift, ShiftReport } from "../data/compare/shift.js";
 import type { ChangeTables } from "../data/compare/export.js";
+import type { ReportMeta } from "../ui/compare/compare-xlsx.js";
 import type { SimilarClusterEntry } from "../data/similar-clusters.js";
 import type { AnimationResult, FrameStep } from "../data/chart-frames.js";
 import type { BootstrapProgress, IntervalKind } from "../data/error-bars.js";
@@ -38,7 +39,8 @@ import type { HistogramData, NullTokenCount } from "../data/column.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import type { HeaderLayout } from "../parse/header-detect.js";
 import type { Conformance } from "../data/conformance.js";
-import type { DateFormatSummary } from "../data/date-formats.js";
+import type { DateConflict, DateFormatSummary } from "../data/date-formats.js";
+import type { MojibakeSummary } from "../data/mojibake.js";
 import type { NumberSymbolSummary } from "../data/number-symbols.js";
 import type { RangeViolation } from "../data/plausibility.js";
 import type { Semantic } from "../data/semantic-type.js";
@@ -102,6 +104,10 @@ export interface ColumnMeta {
   conformance?: Conformance | null;
   /** Mixed text formats inside a date column (exact), or null. */
   dateFormats?: DateFormatSummary | null;
+  /** Slashed dates read day-first in some rows and month-first in others (exact), or null. */
+  dateConflict?: DateConflict | null;
+  /** Text decoded with the wrong encoding in 2%+ of the values (exact), or null. */
+  mojibake?: MojibakeSummary | null;
   /** Currency or grouping symbols on part of a numeric column (exact), or null. */
   numberSymbols?: NumberSymbolSummary | null;
   /** Values outside the plausible range the column name implies (exact), or null. */
@@ -223,6 +229,9 @@ export type SpecialKind =
   | "groupAnomalies"
   | "outliers"
   | "pattern"
+  | "dateDayFirst"
+  | "dateMonthFirst"
+  | "mojibake"
   | "keyDuplicates"
   | "pairCheck"
   | "affectedRows"

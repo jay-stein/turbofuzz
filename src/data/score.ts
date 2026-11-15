@@ -327,7 +327,45 @@ export function computeDQScore(
         na: meta.stats.nulls,
         column,
         filter: null,
-        fixLabel: formats.ambiguous ? null : "Standardise to yyyy-mm-dd",
+        fixLabel: formats.ambiguous || formats.formats.some((f) => f.label.includes("hh:mm")) ? null : "Standardise to yyyy-mm-dd",
+      });
+    }
+
+    // Dates that contradict themselves (day-first in some rows, month-first in others): the column stays
+    // text and the person picks one reading. The rows that disagree with the larger side count as failing.
+    const conflict = meta.dateConflict ?? null;
+    if (conflict !== null) {
+      const minority = Math.min(conflict.dayFirst, conflict.monthFirst);
+      checks.push({
+        id: `validity.dateconflict.${column}`,
+        dimension: "validity",
+        label: `“${meta.name}” uses one date order`,
+        detail: `${formatCount(conflict.dayFirst)} dates are day-first and ${formatCount(conflict.monthFirst)} month-first: pick one reading. Nothing was converted`,
+        pass: Math.max(0, conflict.total - minority),
+        fail: minority,
+        na: meta.stats.nulls,
+        column,
+        filter: null,
+        fixLabel: null,
+      });
+    }
+
+    // Text that was decoded with the wrong encoding and stored that way ("Ã©" for "é").
+    const mojibake = meta.mojibake ?? null;
+    if (mojibake !== null) {
+      checks.push({
+        id: `validity.mojibake.${column}`,
+        dimension: "validity",
+        label: `“${meta.name}” text is read correctly`,
+        detail: `${formatCount(mojibake.count)} of ${formatCount(mojibake.total)} values look wrongly decoded (mojibake), e.g. ${mojibake.examples
+          .map((e) => `“${e.from}”${e.to === null ? "" : ` for “${e.to}”`}`)
+          .join(", ")}`,
+        pass: mojibake.total - mojibake.count,
+        fail: mojibake.count,
+        na: meta.stats.nulls,
+        column,
+        filter: null,
+        fixLabel: mojibake.fixable > 0 ? "Repair the text" : "Show rows",
       });
     }
 

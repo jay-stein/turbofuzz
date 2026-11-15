@@ -319,6 +319,64 @@ function isHeaderlessNumeric(grid: readonly string[][], index: number): boolean 
   return seen > 0;
 }
 
+/** A cell shape that carries digits: the evidence a row holds values rather than labels ("C00059" → "a9"). */
+function hasDigitShape(shape: string): boolean {
+  return shape.includes("9");
+}
+
+/**
+ * True when a row reads as a record of the table below it, not as column names: at least half its filled
+ * cells share the shape of the cells under them, and at least two of those carry digits (an id, a year, an
+ * amount). A header such as "Name | City" over "Ann | Paris" has no digits, so it never qualifies.
+ */
+export function rowLooksLikeData(grid: readonly string[][], index: number): boolean {
+  const row = grid[index] ?? [];
+  const below: (readonly string[])[] = [];
+  for (let next = index + 1; next < grid.length && below.length < SHAPE_LOOKAHEAD; next++) {
+    const candidate = grid[next] ?? [];
+    if (candidate.some((cell) => cell !== "")) below.push(candidate);
+  }
+  if (below.length < 3) return false;
+  let filled = 0;
+  let alike = 0;
+  let alikeWithDigits = 0;
+  const limit = Math.min(row.length, MAX_SCAN_COLUMNS);
+  for (let column = 0; column < limit; column++) {
+    const cell = row[column] ?? "";
+    if (cell.trim() === "") continue;
+    filled++;
+    const shape = cellShape(cell);
+    let same = 0;
+    let seen = 0;
+    for (const other of below) {
+      const value = other[column] ?? "";
+      if (value.trim() === "") continue;
+      seen++;
+      if (cellShape(value) === shape) same++;
+    }
+    if (seen > 0 && same * 2 > seen) {
+      alike++;
+      if (hasDigitShape(shape)) alikeWithDigits++;
+    }
+  }
+  return filled >= 2 && alike * 2 >= filled && alikeWithDigits >= 2;
+}
+
+/** True when any non-empty row above `bestIndex` is a full-width record or looks like the rows below it. */
+function skippedRowsAreRecords(grid: readonly string[][], bestIndex: number, width: number): boolean {
+  if (width < 3) return false;
+  for (let row = 0; row < bestIndex; row++) {
+    const cells = grid[row] ?? [];
+    const filled = filledCount(cells);
+    if (filled === 0) continue;
+    // One label repeated across the row is a merged title, however wide.
+    if (new Set(cells.filter((cell) => cell.trim() !== "").map((cell) => cell.trim())).size === 1) continue;
+    if (populatedExtent(cells) >= width && filled >= width) return true;
+    if (filled >= 3 && rowLooksLikeData(grid, row)) return true;
+  }
+  return false;
+}
+
 /** Applies a user-chosen layout; no guessing. Column count comes from the widest row seen. */
 function applyLayout(grid: readonly string[][], layout: HeaderLayout): DetectedTable {
   const skipRows = Math.max(0, Math.min(Math.floor(layout.skipRows), grid.length));
@@ -494,6 +552,12 @@ export function detectTable(grid: readonly string[][], layout?: HeaderLayout): D
       );
     }
     return finish(firstNonEmpty, 1, 0, mergeHeaders(grid, firstNonEmpty, 1, width));
+  }
+
+  // A title is a short note above the table. Rows above the best header that are full records (as wide
+  // as the table, or shaped like the rows below) mean the file has no header: every row is data.
+  if (skippedRowsAreRecords(grid, bestIndex, width)) {
+    return finish(0, 0, 0, Array.from({ length: width }, (_, index) => `Column ${index + 1}`));
   }
 
   let headerRows = 1;

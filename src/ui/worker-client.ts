@@ -10,6 +10,7 @@ import type { HeaderLayout } from "../parse/header-detect.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { CompareRules } from "../data/compare/types.js";
 import type { DiffOp } from "../data/compare/diffs.js";
+import type { ReportMeta } from "./compare/compare-xlsx.js";
 import type { RowFilter } from "../data/compare/view.js";
 import type { GroupMeasure } from "../data/compare/shift.js";
 import type { ChartExclusion } from "../data/chart-exclusions.js";

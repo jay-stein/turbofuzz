@@ -23,7 +23,8 @@ import { detectSuggestions, type ColumnSuggestion } from "./suggestions.js";
 import { detectHiddenZeros, detectNegativeCodes, detectNinesCode } from "./hidden-missing.js";
 import { spellingVariants, spellingVariantsFromRaw, type VariantSummary } from "./variants.js";
 import { measureConformance, type Conformance } from "./conformance.js";
-import { summariseDateFormats, type DateFormatSummary } from "./date-formats.js";
+import { detectMojibake, type MojibakeSummary } from "./mojibake.js";
+import { detectDateConflict, summariseDateFormats, type DateConflict, type DateFormatSummary } from "./date-formats.js";
 import { summariseNumberSymbols, type NumberSymbolSummary } from "./number-symbols.js";
 import { checkPlausibility, checkScaleMix, type RangeViolation } from "./plausibility.js";
 import { blocksConversion, inferSemanticType, skipsSimilarity, type Semantic } from "./semantic-type.js";
@@ -129,6 +130,10 @@ export class ColumnData {
   conformance: Conformance | null = null;
   /** Text formats inside a date column when it mixes more than one; otherwise null. */
   dateFormats: DateFormatSummary | null = null;
+  /** A text column of slashed dates that is day-first in some rows and month-first in others; otherwise null. */
+  dateConflict: DateConflict | null = null;
+  /** Text decoded with the wrong encoding ("Ã©" for "é") in 2%+ of the values; otherwise null. */
+  mojibake: MojibakeSummary | null = null;
   /** Currency symbols or thousands separators on only part of a numeric column; otherwise null. */
   numberSymbols: NumberSymbolSummary | null = null;
   /** Values outside the plausible range the column name implies (age, percent, year); otherwise null. */
@@ -305,7 +310,7 @@ export class ColumnData {
     const noConvert = blocksConversion(column.semantic);
     column.suggestions = options.skipSuggestions
       ? []
-      : detectSuggestions(raw, inferred.type, nullPolicy, column.numberLocale, noConvert);
+      : detectSuggestions(raw, inferred.type, nullPolicy, column.numberLocale, noConvert, name);
     if (inferred.type === "date" || inferred.type === "datetime") column.dateAmbiguous = dateOrderIsAmbiguous(sample);
     column.timeZoneAware =
       inferred.timeZoneAware ??
@@ -320,8 +325,16 @@ export class ColumnData {
       column.dateOrder,
     );
     column.dateFormats =
-      !options.skipSuggestions && inferred.type === "date"
+      !options.skipSuggestions && (inferred.type === "date" || inferred.type === "datetime")
         ? summariseDateFormats(raw, (value) => isNullWithPolicy(value, nullPolicy))
+        : null;
+    column.dateConflict =
+      !options.skipSuggestions && inferred.type === "string"
+        ? detectDateConflict(raw, (value) => isNullWithPolicy(value, nullPolicy))
+        : null;
+    column.mojibake =
+      !options.skipSuggestions && (inferred.type === "string" || inferred.type === "category")
+        ? detectMojibake(raw, (value) => isNullWithPolicy(value, nullPolicy))
         : null;
     column.numberSymbols =
       !options.skipSuggestions && (inferred.type === "number" || inferred.type === "integer")
@@ -424,6 +437,8 @@ export class ColumnData {
     this.typeDowngrade = null;
     this.conformance = null;
     this.dateFormats = null;
+    this.dateConflict = null;
+    this.mojibake = null;
     this.numberSymbols = null;
     this.rangeViolation = null;
     this.semantic = null;

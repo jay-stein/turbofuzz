@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-16 — Import and quality: mixed date layouts, header-less files and encoding safety
+
+- **Status:** Verified (unit 398 tests across the related suites, full suite run once; 100,000-row ingest about 1.9 s with 21 ms added by the new detectors; not seen in a browser)
+- **Related issue / decision:** stress test 2026-11-15 S17-02/03/04, S12-01, S10-02/03, S09-01/02/03.
+- **What changed:** Dates: mixed layouts are caught in datetime columns too; a column mixing day-first and month-first dates stays text with an issue and Show rows per side; date-named number columns holding Excel serials, Unix seconds/ms or yyyymmdd get a looks-like-dates suggestion (new numberToDate Recipe step). Header-less files: a leading row is not skipped as a title when it is full width or shaped like the rows below, the Overview note says the first row looks like data, and a parser bug that swallowed rows after a quoted nickname is fixed (cm.txt 20,915 to 20,937 records, cn.txt 9,494 to 9,796). Encoding: UTF-32 and BOM-less CJK UTF-16 decode correctly; a column with 2% or more values like Ã© gets an issue and a one-click fixMojibake Recipe step exported to both scripts; unreadable characters are counted with the first line.
+- **Not covered yet:** UTF-32 without a byte-order mark only for ASCII-range text; cp1250, Shift_JIS, GBK and MacRoman still read as windows-1252 (GBK and Shift_JIS are now flagged as wrongly decoded); a triple-encoded file needs the repair run twice; pandas reads a numberToDate column with blanks as floats; Overview conflict chips, the numeric-date dialog and the header-less note are not checked in a browser.
+- **Files / components changed:** src/parse/*, src/data/column.ts, score.ts, dq-issues.ts, clean-ops.ts, recipe*.ts, src/ui/overview.ts, app.ts, quality-page.ts, protocol.ts, search.worker.ts, tests
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-15 — Compare: a formatted Excel report with a Differences sheet
 
 - **Status:** Verified (unit 49 compare and xlsx tests; read back with SheetJS and openpyxl; opened in a real Excel; bench 51,300 differing rows in 2.5-3.1 s; export-menu e2e not yet run)
