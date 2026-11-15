@@ -4,6 +4,16 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-02 — Import: a table whose rows start with Total is data, not a footer
+
+- **Status:** Verified (unit: header-detect)
+- **Related issue / decision:** stress test 2026-11-15 S11-01 (Critical): a real 139,860-row file whose every row starts "Total Nacional" loaded as 1 row.
+- **What changed:** A trailing block of Total rows is dropped only when it is a handful of rows (up to 5) and less than half the table; otherwise the rows are kept as data.
+- **Not covered yet:** The note that rows were left out is still only printed when the preview is the whole file.
+- **Files / components changed:** src/parse/header-detect.ts, test/header-detect.test.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-01 — Export: a clock-time column keeps its seconds
 
 - **Status:** Verified (unit: csv, temporal)

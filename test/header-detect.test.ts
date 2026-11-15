@@ -319,3 +319,18 @@ test("a merged Excel title spread across the row is not taken as the header", ()
   assert.deepEqual(table.headers, ["Date", "Payee", "Amount", "Posted"]);
   assert.equal(table.rows.length, 4);
 });
+
+test("a table whose every row starts with Total is data, not a footer", () => {
+  const grid: string[][] = [["Concept", "Province", "Period", "Value"]];
+  for (let i = 0; i < 40; i++) grid.push(["Total Nacional", `P${i % 5}`, `2024M${(i % 12) + 1}`, String(100 + i)]);
+  assert.equal(detectTable(grid).rows.length, 40);
+});
+
+test("a short trailing Total block is still dropped", () => {
+  const grid: string[][] = [["Month", "Passengers"]];
+  for (let i = 0; i < 12; i++) grid.push([`M${i}`, String(10 + i)]);
+  grid.push(["Total", "999"]);
+  const detected = detectTable(grid);
+  assert.equal(detected.rows.length, 12);
+  assert.equal(detected.footerRows, 1);
+});

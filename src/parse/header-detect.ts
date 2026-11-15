@@ -253,6 +253,8 @@ function footerStart(rows: readonly string[][], width: number): number {
  * is a Total label: it sums the rows above, so keeping it double-counts every
  * figure in sums, pivots and charts.
  */
+const MAX_TOTAL_ROWS = 5;
+
 function totalRowsStart(rows: readonly string[][], stop: number): number {
   let start = stop;
   for (let index = stop - 1; index > 0; index--) {
@@ -279,7 +281,11 @@ function applyDataEnd(
     if (blank !== -1) stop = blank;
   } else if (end === "auto") {
     stop = footerStart(rows, width);
-    stop = totalRowsStart(rows, stop);
+    // A summary block is a handful of rows. When most of the table starts with "Total ..."
+    // (every row of a "Total Nacional" file does), those are data, not a footer.
+    const totals = totalRowsStart(rows, stop);
+    const block = stop - totals;
+    if (block <= MAX_TOTAL_ROWS && block * 2 < rows.length) stop = totals;
   }
   while (stop > 0 && isEmptyRow(rows[stop - 1])) stop--;
   let footerRows = 0;
