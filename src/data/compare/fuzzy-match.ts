@@ -43,7 +43,7 @@ export function fuzzyReason(pair: { aKey: string; bKey: string; score: number; a
   const parts: string[] = [];
   parts.push(
     pair.score >= 1
-      ? "Same name once tidied (case, punctuation, suffixes such as Pty Ltd, abbreviations and word order ignored)"
+      ? "Same name once tidied"
       : `Spelled ${Math.round(pair.score * 100)}% alike`,
   );
   if (pair.agreeColumns.length > 0) parts.push(`${pair.agreeColumns.join(", ")} agree${pair.agreeColumns.length === 1 ? "s" : ""}`);

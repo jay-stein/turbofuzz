@@ -303,7 +303,9 @@ export class SideBySide {
       if (this.changedOnly && !changed.has(index) && !keyPairs.has(index)) return;
       const nameA = setup.a.columns[pair.a]?.name ?? "";
       const nameB = setup.b.columns[pair.b]?.name ?? "";
-      columns.push({ a: index, b: index, pair: index, nameA, nameB, width: widthFor(nameA.length > nameB.length ? nameA : nameB) });
+      // Where the similar-key rows are shown the key is what is being judged, so it gets room to be read in full.
+      const wide = this.filter.show === "similar" && this.options.key.kind === "pairs" && this.options.key.pairs.includes(index);
+      columns.push({ a: index, b: index, pair: index, nameA, nameB, width: wide ? 260 : widthFor(nameA.length > nameB.length ? nameA : nameB) });
     });
     if (!this.changedOnly) {
       setup.pairing.onlyA.forEach((column, i) => {

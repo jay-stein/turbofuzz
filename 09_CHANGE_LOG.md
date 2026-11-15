@@ -4,6 +4,14 @@ Record shipped or attempted UX changes and what was verified.
 
 ## Entry template
 
+### CHG-2026-11-15-20 — Compare: similar-key views read in full
+
+- **Status:** Verified by eye in the browser (light and dark) and by tests (unit 1730 of 1730; compare e2e 21 of 21). The Excel file was not opened in Excel.
+- **What changed:** After looking at the new views: the key column is wide in the Similar keys filter so both names can be read; the Report's reasons are short ("Same name once tidied", with what tidied means said once in the introduction and in the Excel sheet's note); the "See them all" link sits under the description.
+- **Files / components changed:** src/data/compare/fuzzy-match.ts, src/ui/compare/compare-grid.ts, compare-report.ts, compare-xlsx.ts
+- **Decision:** Ship
+- **Date:** 2026-11-15
+
 ### CHG-2026-11-15-19 — Compare: see the similar-key pairings in context
 
 - **Status:** Verified (unit 1729 of 1730, the one miss a worker timing test that passes alone 3 of 3; compare e2e 21 of 21)

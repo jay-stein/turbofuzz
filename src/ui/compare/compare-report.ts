@@ -137,12 +137,12 @@ function fuzzyCard(report: CompareReport, actions: ReportActions): HTMLElement |
   const total = fuzzy.confident + fuzzy.review;
   const box = el("section", { class: "cmp-fuzzy-card", "aria-label": "Rows paired by similar key" }, [
     el("h2", {}, ["Rows paired by similar key"]),
-    ...(fuzzy.confident + fuzzy.review > 0 ? [openAll(actions)] : []),
     el("p", { class: "cmp-note" }, [
       total === 0
         ? "No leftover rows had a key similar enough to pair. Loosen the slider on the setup to look further."
-        : `${nf.format(total)} row${total === 1 ? "" : "s"} had no exact key and were paired by similarity: ${nf.format(fuzzy.byConfidence.high)} high confidence, ${nf.format(fuzzy.byConfidence.medium)} medium, ${nf.format(fuzzy.byConfidence.low)} low. Reject a pairing that is not the same record and both rows go back to removed and added.`,
+        : `${nf.format(total)} row${total === 1 ? "" : "s"} had no exact key and were paired by similarity: ${nf.format(fuzzy.byConfidence.high)} high confidence, ${nf.format(fuzzy.byConfidence.medium)} medium, ${nf.format(fuzzy.byConfidence.low)} low. "Tidied" means case, punctuation, suffixes such as Pty Ltd, abbreviations such as St and word order are ignored. Reject a pairing that is not the same record and both rows go back to removed and added.`,
     ]),
+    ...(total > 0 ? [openAll(actions)] : []),
   ]);
   if (total === 0) return box;
   const table = el("table", { class: "cmp-fuzzy-table" }, [

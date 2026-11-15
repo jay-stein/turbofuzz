@@ -600,7 +600,7 @@ function writeSimilar(book: XlsxBuilder, name: string, fuzzy: NonNullable<MatchR
   const medium = fuzzy.pairs.filter((pair) => pair.confidence === "Medium").length;
   sheet.row(
     1,
-    [`${nf.format(total)} rows were paired by similar key, not an exact one: ${nf.format(total - low - medium)} high confidence, ${nf.format(medium)} medium, ${nf.format(low)} low. Least trusted first. Row numbers count data rows, not the header. A reason that says "changed" is a value that differs between the files.`],
+    [`${nf.format(total)} rows were paired by similar key, not an exact one: ${nf.format(total - low - medium)} high confidence, ${nf.format(medium)} medium, ${nf.format(low)} low. Least trusted first. "Tidied" means case, punctuation, suffixes such as Pty Ltd, abbreviations such as St and word order are ignored. Row numbers count data rows, not the header. A reason that says "changed" is a value that differs between the files.`],
     [style({ italic: true, color: P.dim, wrap: true, valign: "top" })],
     36,
   );
