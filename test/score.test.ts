@@ -52,6 +52,26 @@ function stats(overrides: Partial<DatasetStats> = {}): DatasetStats {
   };
 }
 
+test("rows that repeat apart from the id column count against Uniqueness", () => {
+  // The wine reviews: a 0..n-1 row number makes every row unique, yet many are the same review twice.
+  const columns = [meta({ name: "Column 1", type: "integer", stats: { ...meta().stats, distinct: 100 } }), meta({ name: "points" })];
+  const clean = computeDQScore(columns, stats(), 100);
+  assert.equal(clean.dimensions.find((d) => d.dimension === "uniqueness")?.score, 100, "not counted yet: exact duplicates only");
+
+  const counted = computeDQScore(columns, stats(), 100, { nearDuplicates: { rows: 8, groups: 8, ignored: "“Column 1”" } });
+  const uniqueness = counted.dimensions.find((d) => d.dimension === "uniqueness");
+  const check = uniqueness?.checks.find((c) => c.id === "uniqueness.rowsIgnoringId");
+  assert.equal(check?.fail, 8);
+  assert.equal(check?.pass, 92);
+  assert.equal(check?.label, "Rows are unique apart from “Column 1”");
+  assert.equal(uniqueness?.score, 92, "8 of 100 rows repeat: the always-passing exact-row check is replaced, not averaged in");
+  assert.equal(uniqueness?.checks.some((c) => c.id === "uniqueness.rows"), false);
+  assert.ok((counted.overall ?? 100) < (clean.overall ?? 0));
+
+  const none = computeDQScore(columns, stats(), 100, { nearDuplicates: { rows: 0, groups: 0, ignored: "“Column 1”" } });
+  assert.equal(none.dimensions.find((d) => d.dimension === "uniqueness")?.score, 100, "no repeats: still perfect");
+});
+
 test("weights applicable dimensions and excludes N.A. ones", () => {
   const columns = [
     meta({ name: "city" }),

@@ -117,6 +117,12 @@ export interface DQScoreConfig {
   capBand?: boolean;
   /** Distinct rows failing at least one check; counted separately (one pass in the worker). Absent: no row limit yet. */
   rowsAffected?: { count: number; total: number } | null;
+  /**
+   * Rows equal to another row on every column except the id column(s), counted in the
+   * worker (blank matches blank). With an id, no two rows are ever exact duplicates, so
+   * this is what keeps Uniqueness honest. Absent or null until counted.
+   */
+  nearDuplicates?: { rows: number; groups: number; ignored: string } | null;
 }
 
 function sentenceCase(word: string): string {
@@ -460,8 +466,11 @@ export function computeDQScore(
     });
   });
 
-  // Uniqueness: exact duplicate rows (null-key hygiene comes with keydup).
-  checks.push({
+  // Uniqueness: exact duplicate rows (null-key hygiene comes with keydup). Once rows repeating
+  // apart from the id are counted, that check replaces this one: with an id column no two rows are
+  // ever exactly equal, so this would always pass and water the repeats down.
+  const near = config.nearDuplicates ?? null;
+  if (near === null) checks.push({
     id: "uniqueness.rows",
     dimension: "uniqueness",
     label: "Rows are unique",
@@ -475,6 +484,23 @@ export function computeDQScore(
     filter: stats.duplicateRows > 0 ? "duplicates" : null,
     fixLabel: stats.duplicateRows > 0 ? "Show duplicates" : null,
   });
+
+  // Uniqueness: rows that repeat once the id column is set aside (the same record entered
+  // twice under two ids). Its rows are shown from the matching finding on the Issues tab.
+  if (near !== null) {
+    checks.push({
+      id: "uniqueness.rowsIgnoringId",
+      dimension: "uniqueness",
+      label: `Rows are unique apart from ${near.ignored}`,
+      detail: `${formatCount(near.rows)} row${near.rows === 1 ? " repeats" : "s repeat"} another row when ${near.ignored} is ignored (${formatCount(near.groups)} group${near.groups === 1 ? "" : "s"})`,
+      pass: Math.max(0, rowCount - near.rows),
+      fail: near.rows,
+      na: 0,
+      column: null,
+      filter: null,
+      fixLabel: null,
+    });
+  }
 
   const reviewed = config.reviewed ?? {};
   const setAside: string[] = [];

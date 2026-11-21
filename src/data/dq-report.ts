@@ -57,7 +57,7 @@ export interface ReportColumn {
 }
 
 /** Bumped when the scoring rules change in a way that moves scores. */
-export const SCORE_VERSION = 3;
+export const SCORE_VERSION = 4;
 
 /** What the report adds beyond the score. Everything is optional. */
 export interface ReportExtras {

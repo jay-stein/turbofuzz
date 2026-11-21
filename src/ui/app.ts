@@ -905,6 +905,10 @@ export class App {
   /** Bumps on every worker stats update, so a fix that changes no null or type still recounts the rows. */
   private statsVersion = 0;
   private nearDuplicate: Finding | null = null;
+  /** The same count for the Uniqueness score; null until counted or when there is no id column. */
+  private nearDuplicateCount: { rows: number; groups: number; ignored: string } | null = null;
+  /** The count in flight, so an export can wait for it. */
+  private nearDuplicateRun: Promise<void> | null = null;
   private nearDuplicateKey = "";
   private suggestedPairsKey = "";
   private accuracyKey = "";
@@ -5325,7 +5329,7 @@ export class App {
       this.metas,
       stats,
       this.rowCount,
-      { ...this.dqConfig, optional: getOptionalMarks(), reviewed: this.reviewedRows(), rowsAffected: this.rowsAffected },
+      { ...this.dqConfig, optional: getOptionalMarks(), reviewed: this.reviewedRows(), rowsAffected: this.rowsAffected, nearDuplicates: this.nearDuplicateCount },
       this.dqUserChecks,
     );
     this.dqScore = score;
@@ -6120,22 +6124,38 @@ export class App {
   }
 
   /** Rows equal on every column except an id column; counted once per load, off the main thread. */
-  private async refreshNearDuplicates(): Promise<void> {
+  private refreshNearDuplicates(): Promise<void> {
     const ids = idLikeColumns(this.metas, this.rowCount);
     const compared = columnsIgnoring(this.metas, ids);
     const key = `${this.generation}:${this.rowCount}:${ids.join(",")}`;
-    if (key === this.nearDuplicateKey) return;
+    if (key === this.nearDuplicateKey) return this.nearDuplicateRun ?? Promise.resolve();
     this.nearDuplicateKey = key;
     this.nearDuplicate = null;
-    if (ids.length === 0 || compared.length === 0) return;
-    try {
-      const message = await this.client.countKeyDuplicates(compared, true);
-      if (key !== this.nearDuplicateKey) return;
-      this.nearDuplicate = nearDuplicateFinding(this.metas, ids, compared, message.duplicateRows, message.duplicateGroups);
-    } catch {
-      return;
+    const hadCount = this.nearDuplicateCount !== null;
+    this.nearDuplicateCount = null;
+    if (ids.length === 0 || compared.length === 0) {
+      this.nearDuplicateRun = null;
+      if (hadCount) this.refreshScore(true);
+      return Promise.resolve();
     }
-    this.renderQualityPage();
+    const run = (async (): Promise<void> => {
+      try {
+        const message = await this.client.countKeyDuplicates(compared, true);
+        if (key !== this.nearDuplicateKey) return;
+        this.nearDuplicate = nearDuplicateFinding(this.metas, ids, compared, message.duplicateRows, message.duplicateGroups);
+        this.nearDuplicateCount = {
+          rows: message.duplicateRows,
+          groups: message.duplicateGroups,
+          ignored: ids.map((column) => `“${this.metas[column]?.name ?? "?"}”`).join(", "),
+        };
+      } catch {
+        return;
+      }
+      // The count arrives after the first score: no "▼" delta, the score was not changed by a step.
+      this.refreshScore(true);
+    })();
+    this.nearDuplicateRun = run;
+    return run;
   }
 
   /** The Quality page's own counts (null until the score exists), shared with the Overview. */
@@ -6524,9 +6544,7 @@ export class App {
    * Resolves with a note for the page (empty when there is nothing to add).
    */
   private async downloadQualityWorkbook(includeRaw: boolean): Promise<string> {
-    const score = this.dqScore;
-    const stats = this.latestStats;
-    if (score === null || stats === null) return "Load a file first.";
+    if (this.dqScore === null || this.latestStats === null) return "Load a file first.";
     // The sensitive scan runs after a load; a report taken before it ends would say "none"
     // and leave names unmasked. Wait for it (a restarted scan is waited for too, a few times at most).
     for (let tries = 0; tries < 3 && !this.sensitiveScanned && this.sensitiveScan !== null; tries++) {
@@ -6534,6 +6552,14 @@ export class App {
       await this.sensitiveScan.done.catch(() => undefined);
       await Promise.resolve();
     }
+    // The repeated-rows count feeds Uniqueness; read the score only once it is in.
+    if (this.nearDuplicateRun !== null) {
+      this.setAction("Counting repeated rows…");
+      await this.nearDuplicateRun;
+    }
+    const score = this.dqScore;
+    const stats = this.latestStats;
+    if (score === null || stats === null) return "Load a file first.";
     this.setAction("Building the Excel data-quality report…");
     const report = this.buildReport(score, await this.sourceProvenance(score));
     const cards = this.sensitiveCards().filter((card) => card.dismissed !== true);

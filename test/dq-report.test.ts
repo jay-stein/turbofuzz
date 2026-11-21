@@ -138,5 +138,5 @@ test("the HTML report is self-contained, escapes text and hides values of flagge
   assert.match(html, /Syd, Sydney/);
   assert.match(html, /&lt;b&gt;sales&lt;\/b&gt;/);
   assert.doesNotMatch(html, /<script|<link|src=/);
-  assert.equal(report.scoreVersion, 3);
+  assert.equal(report.scoreVersion, 4);
 });
