@@ -24,7 +24,7 @@ export interface DetectedTable {
 
 /** One thing the automatic read decided that is not plain, in words for the person (row numbers count from 1). */
 export interface LayoutReason {
-  code: "skipped" | "levels" | "noHeader" | "between" | "footer" | "repeated" | "anotherTable" | "firstRowData" | "closeCall" | "unnamed";
+  code: "skipped" | "levels" | "noHeader" | "between" | "footer" | "repeated" | "anotherTable" | "firstRowData" | "closeCall";
   message: string;
 }
 
@@ -721,16 +721,7 @@ function reviewLayout(
       reasons.push({ code: "anotherTable", message: `Another table seems to start at row ${row + 1}; it is read as more rows of this one.` });
     }
   }
-  const unnamed: number[] = [];
-  if (headerRows > 0) {
-    table.headers.forEach((name, index) => {
-      if (name.trim() === "" && table.rows.some((row) => (row[index] ?? "").trim() !== "")) unnamed.push(index);
-    });
-  }
-  if (unnamed.length > 0) {
-    const shown = unnamed.slice(0, 5).map((index) => String(index + 1)).join(", ");
-    reasons.push({ code: "unnamed", message: `${unnamed.length === 1 ? "Column" : "Columns"} ${shown}${unnamed.length > 5 ? ", …" : ""} ${unnamed.length === 1 ? "has" : "have"} values but no name.` });
-  }
+  // A column with values but no name is not asked about: it loads under a made-up name the person can rename (owner, 2026-11-21).
   return reasons;
 }
 
