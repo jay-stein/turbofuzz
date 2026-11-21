@@ -319,7 +319,7 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
               ? TITLES.variantsAndPlaceholders(meta.name, spellings, variants.groups, cells)
               : TITLES.variants(meta.name, spellings, variants.groups),
           evidence: `${n(variants.minorityRows)} ${plural(variants.minorityRows, "row", "rows")} use a less common spelling${
-            cells > 0 ? `, and ${n(cells)} ${plural(cells, "cell holds", "cells hold")} placeholder text` : ""
+            cells > 0 ? `, and ${n(cells)} ${plural(cells, "cell holds", "cells hold")} junk text` : ""
           }`,
           impact: IMPACT.variants(meta.name, meta.stats.distinct, meta.stats.distinct - variants.mappings.length),
           points,

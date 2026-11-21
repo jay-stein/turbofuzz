@@ -765,8 +765,8 @@ function buildNullsTab(
     apply.disabled = nullCells === 0 && extra.size === 0;
     apply.title =
       apply.disabled
-        ? "No placeholder values are ticked, so there is nothing to blank"
-        : "Replace the ticked placeholder values with real blanks";
+        ? "No junk text is ticked, so there is nothing to blank"
+        : "Replace the ticked junk text with real blanks";
   }
 
   function addExtra(): void {

@@ -586,7 +586,7 @@ export function syncDataIssues(card: ChartCard): void {
         `${issue.similar.toLocaleString()} group${issue.similar === 1 ? "" : "s"} of near-identical values, each drawn separately (merge them from the column's Review similar)`,
       );
     }
-    if (tokenCount > 0) details.push(`${tokenCount.toLocaleString()} placeholders`);
+    if (tokenCount > 0) details.push(`${tokenCount.toLocaleString()} junk text`);
     if (issue.sentinels.length > 0) {
       details.push(
         issue.sentinels
@@ -640,7 +640,7 @@ export function syncDataIssues(card: ChartCard): void {
           type: "button",
           title: "Preview-free null-policy change; undo is available in the status bar",
         },
-        [`Fix: convert ${tokenCount.toLocaleString()} placeholders`],
+        [`Fix: blank ${tokenCount.toLocaleString()} junk text`],
       ) as HTMLButtonElement;
       fix.addEventListener("click", () =>
         card.options.onConvertToken?.(

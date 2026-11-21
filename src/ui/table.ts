@@ -872,9 +872,9 @@ export class ResultTable {
         kind: "nulls",
         count: column.stats.nulls,
         noun: { one: "empty cell", many: "empty cells" },
-        action: placeholders ? "View placeholders" : "View empty cells",
+        action: placeholders ? "View empty cells and junk text" : "View empty cells",
         hint: placeholders
-          ? "show the rows where this column is missing or holds placeholder text"
+          ? "show the rows where this column is empty or holds junk text such as NA or TBD"
           : "show rows where this column is empty",
       });
     }
@@ -1188,18 +1188,16 @@ export class ResultTable {
       "button",
       { class: "th-qa-chip fix token", type: "button" },
       [
-        `Fix: Blank ${total.toLocaleString()} ${
-          total === 1 ? "placeholder" : "placeholders"
-        }`,
+        `Fix: Blank ${total.toLocaleString()} junk text ${total === 1 ? "cell" : "cells"}`,
       ],
     ) as HTMLButtonElement;
     const examples = ranked.slice(0, 3).map((label) => `“${label}”`).join(", ");
     const blanks = Math.max(0, column.stats.nulls - total);
     chip.title = `${column.stats.nulls.toLocaleString()} cells in “${column.name}” are missing${
       blanks > 0
-        ? ` (${blanks.toLocaleString()} blank + ${total.toLocaleString()} placeholder text)`
+        ? ` (${blanks.toLocaleString()} blank + ${total.toLocaleString()} junk text)`
         : ""
-    } — click to blank the placeholder text ${examples}${
+    } — click to blank the junk text ${examples}${
       ranked.length > 3 ? ", …" : ""
     } (undo in the Recipe)`;
     chip.addEventListener("click", () => this.options.onConvertToken?.(index, ranked));
@@ -1580,7 +1578,7 @@ export class ResultTable {
         // Placeholder tokens ("NA", "TBD") keep a bold red value so the raw
         // text stays readable through the hatching and looks clickable.
         cell.classList.add("null-token-cell");
-        cell.title = `“${value}” is read as a missing value — convert placeholder tokens from the Overview or Clean → Nulls`;
+        cell.title = `“${value}” is junk text, read as a missing value — blank it from the column's chip, the Overview or Clean → Nulls`;
       }
       return;
     }

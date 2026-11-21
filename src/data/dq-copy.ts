@@ -63,10 +63,10 @@ export const TITLES = {
     `“${column}” has ${n(spellings)} spellings of ${n(values)} ${plural(values, "value", "values")}`,
 
   variantsAndPlaceholders: (column: string, spellings: number, values: number, cells: number): string =>
-    `${TITLES.variants(column, spellings, values)}, plus ${n(cells)} ${plural(cells, "placeholder", "placeholders")}`,
+    `${TITLES.variants(column, spellings, values)}, plus ${n(cells)} junk text ${plural(cells, "cell", "cells")}`,
 
   placeholders: (column: string, cells: number): string =>
-    `“${column}” has ${n(cells)} ${plural(cells, "placeholder", "placeholders")} stored as text`,
+    `“${column}” has ${n(cells)} junk text ${plural(cells, "cell", "cells")} standing in for missing values`,
 
   unreadable: (column: string, count: number, typeLabel: string): string =>
     `“${column}” has ${n(count)} ${plural(count, "value", "values")} that ${plural(count, "is", "are")} not ${typeLabel}`,

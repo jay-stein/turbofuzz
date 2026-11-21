@@ -318,7 +318,7 @@ export function pickNextSteps(
         .join(", ");
       rules.push({
         id: "nullTokens",
-        text: `${cells.toLocaleString()} cells hold placeholder text like ${examples}`,
+        text: `${cells.toLocaleString()} cells hold junk text like ${examples}`,
         button: "Convert to nulls",
         score: stats.rowsWithNulls,
         action: { kind: "blankTokens", tokens: ranked.map(([label]) => label) },

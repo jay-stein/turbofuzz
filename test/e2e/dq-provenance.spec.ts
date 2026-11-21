@@ -56,9 +56,9 @@ test("once the table is changed, the report says it describes the changed table"
   await page.locator('input[type="file"]').first().setInputFiles({ name: "orders.csv", mimeType: "text/csv", buffer: Buffer.from(CSV) });
   await showQuality(page);
   await page.locator(".health-issues").click();
-  await page.locator(".context-item", { hasText: /^Blank 2 placeholders/ }).click();
+  await page.locator(".context-item", { hasText: /^Blank 2 junk text cells/ }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Convert to missing" }).click();
-  await expect(page.getByRole("button", { name: /^Fix: convert 2 placeholders/ })).toBeHidden();
+  await expect(page.getByRole("button", { name: /^Fix: blank 2 junk text/ })).toBeHidden();
   const p = await provenanceOf(page);
   expect(p["Changes since loading"]).toMatch(/^\d+ steps?, so this report describes .*missing-value policy/);
   // The file it came from is still the one on record, with the same fingerprint.

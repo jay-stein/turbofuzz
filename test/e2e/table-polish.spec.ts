@@ -98,7 +98,7 @@ test("the toolbar folds its issues into one Issues menu: the rows first, then th
   await expect(page.locator(".table-rows .tr")).toHaveCount(1);
   await expect(issues).toHaveClass(/\bactive\b/);
   await issues.click();
-  await expect(page.locator(".context-item", { hasText: /^Blank \d+ placeholders/ })).toBeVisible();
+  await expect(page.locator(".context-item", { hasText: /^Blank \d+ junk text cells/ })).toBeVisible();
   await page.locator(".context-item", { hasText: "Fill missing cells…" }).click();
   await expect(page.locator(".context-menu")).toBeVisible();
 });

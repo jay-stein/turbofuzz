@@ -214,7 +214,7 @@ export function openColumnInspector(
   if (tokens.length > 0) {
     findings.push({
       level: "warn",
-      text: `${tokens.reduce((sum, token) => sum + token.count, 0).toLocaleString()} cells hold placeholder text (${tokens
+      text: `${tokens.reduce((sum, token) => sum + token.count, 0).toLocaleString()} cells hold junk text (${tokens
         .slice(0, 3)
         .map((token) => `“${token.label}”`)
         .join(", ")})`,

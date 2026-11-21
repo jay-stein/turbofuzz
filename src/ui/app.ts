@@ -978,7 +978,7 @@ export class App {
       },
       {
         id: "placeholder-action",
-        text: "Placeholder text like “N/A” is counted as missing — Issues → “Blank placeholders” turns those cells empty for real.",
+        text: "Junk text like “N/A” is counted as missing — Issues → “Blank junk text” turns those cells empty for real.",
         target: () =>
           this.healthHost.querySelector<HTMLElement>(".placeholder-action"),
       },
@@ -1721,9 +1721,9 @@ export class App {
       onBlankTokens: (tokens) => {
         const examples = tokens.slice(0, 3).map((token) => `“${token}”`).join(", ");
         this.confirmFix(
-          `Blank placeholder values ${examples}?`,
-          "Matching placeholder text becomes empty cells in every affected column. This is recorded in the Recipe and can be undone.",
-          "Blank placeholders",
+          `Blank junk text ${examples}?`,
+          "Matching junk text becomes empty cells in every affected column. This is recorded in the Recipe and can be undone.",
+          "Blank junk text",
           () => this.applyNullPolicyAll(tokens, []),
         );
       },
@@ -5720,7 +5720,7 @@ export class App {
           const meta = this.metas[column];
           if (meta === undefined) return false;
           const changed = await this.applyNullPolicy(column, [...new Set([...meta.nullPolicy.extra, ...tokens])], [...meta.nullPolicy.keep], {
-            label: `${meta.name}: placeholder text treated as missing`,
+            label: `${meta.name}: junk text treated as missing`,
             ordered: true,
           });
           const edit = this.nullEdits[this.nullEdits.length - 1];
@@ -5807,7 +5807,7 @@ export class App {
       const extra = [...new Set([...previous.extra, ...step.tokens])];
       let edit: NullEdit | undefined;
       void this.applyNullPolicy(step.column, extra, previous.keep, {
-        label: `${meta.name}: placeholder text treated as missing`,
+        label: `${meta.name}: junk text treated as missing`,
         ordered: true,
       }).then((changed) => {
         if (changed) edit = this.nullEdits[this.nullEdits.length - 1];
@@ -6750,7 +6750,7 @@ export class App {
             : `View empty cells · ${columnsWithNulls.length.toLocaleString()} ${columnsWithNulls.length === 1 ? "col" : "cols"}`,
         title:
           placeholderTotal > 0
-            ? "Show rows with missing cells, including placeholder text like “NA”"
+            ? "Show rows with missing cells, including junk text like “NA”"
             : "Show rows with at least one empty cell",
       });
     }
@@ -6759,8 +6759,8 @@ export class App {
       const ranked = [...tokenTotals.entries()].sort((a, b) => b[1] - a[1]).map(([label]) => label);
       const examples = ranked.slice(0, 3).map((label) => `“${label}”`).join(", ");
       fixes.push({
-        label: `Blank ${placeholderTotal.toLocaleString()} placeholders`,
-        title: `Blank ${placeholderTotal.toLocaleString()} placeholder cells (${examples}) across all columns. Filters and charts then treat them as missing instead of real categories. Undo is in the Recipe.`,
+        label: `Blank ${placeholderTotal.toLocaleString()} junk text ${placeholderTotal === 1 ? "cell" : "cells"}`,
+        title: `Blank ${placeholderTotal.toLocaleString()} junk text cells (${examples}) across all columns. Filters and charts then treat them as missing instead of real categories. Undo is in the Recipe.`,
         run: () =>
           this.confirmFix(
             `Convert ${placeholderTotal.toLocaleString()} placeholders to missing?`,
@@ -9247,13 +9247,13 @@ export class App {
       .reduce((sum, token) => sum + token.count, 0);
     const examples = tokens.slice(0, 3).map((token) => `“${token}”`).join(", ");
     this.confirmFix(
-      `Convert placeholders in “${meta.name}” to missing?`,
+      `Treat the junk text in “${meta.name}” as missing?`,
       `${total.toLocaleString()} cell${total === 1 ? "" : "s"} (${examples}) will become empty. This is recorded in the Recipe and can be undone.`,
       "Convert to missing",
       () => {
         const extra = [...new Set([...meta.nullPolicy.extra, ...tokens])];
         this.applyNullPolicy(column, extra, meta.nullPolicy.keep, {
-          label: `${meta.name}: placeholder text treated as missing`,
+          label: `${meta.name}: junk text treated as missing`,
         });
       },
     );

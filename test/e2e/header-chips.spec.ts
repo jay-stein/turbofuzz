@@ -23,14 +23,14 @@ test("a column header shows one chip for what is wrong, which never covers the t
   expect(await covers()).toBe(false);
   // Its menu offers the rows and the fixes; choosing the rows filters the table, and the header stays tidy.
   await th.locator(".th-qa-summary").click();
-  await page.getByRole("menuitem", { name: /^View (empty cells|placeholders|outliers)/ }).first().click();
+  await page.getByRole("menuitem", { name: /^View (empty cells|outliers)/ }).first().click();
   await page.mouse.move(700, 400);
   expect(await covers()).toBe(false);
   await type.hover();
   expect(await covers()).toBe(false);
 });
 
-test("a column with placeholder text shows one chip, and its menu offers to blank them", async ({ page }) => {
+test("a column with junk text shows one chip, and its menu offers to blank them", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 800 });
   await page.goto("/");
   const rows = ["id,city,score"];
@@ -46,6 +46,6 @@ test("a column with placeholder text shows one chip, and its menu offers to blan
   const strip = await th.locator(".th-qa").boundingBox();
   expect(box!.x + box!.width).toBeLessThanOrEqual(strip!.x + strip!.width + 1);
   await chip.click();
-  await expect(page.getByRole("menuitem", { name: /Blank \d+ placeholders/ })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: /^View placeholders/ })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: /Blank \d+ junk text cells/ })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: /^View empty cells and junk text/ })).toBeVisible();
 });

@@ -98,7 +98,7 @@ test("copy templates handle plurals, zero, rounding and never print undefined", 
   assert.equal(IMPACT.variants("status", 8, 3), "A pivot by “status” shows 8 groups instead of 3.");
   assert.equal(IMPACT.placeholders(1, ["N/A"]), "1 cell says “N/A” instead of being empty.");
   assert.equal(IMPACT.unreadable(1), "1 value is read as text, so sums and charts skip it.");
-  assert.equal(TITLES.variantsAndPlaceholders("status", 8, 3, 312), "“status” has 8 spellings of 3 values, plus 312 placeholders");
+  assert.equal(TITLES.variantsAndPlaceholders("status", 8, 3, 312), "“status” has 8 spellings of 3 values, plus 312 junk text cells");
 });
 
 test("masks are described in words, never shown raw", () => {
@@ -114,7 +114,7 @@ test("one issue list: variants merge with placeholders, fixes first, points on f
   const issues = buildIssues({ score, metas, rowCount: 400, review: [], sensitiveColumns: new Set() });
   const status = issues.find((issue) => issue.id === "variants.1");
   assert.ok(status !== undefined, issues.map((i) => i.id).join(","));
-  assert.match(status.title, /“status” has 3 spellings of 1 value, plus 80 placeholders/);
+  assert.match(status.title, /“status” has 3 spellings of 1 value, plus 80 junk text cells/);
   assert.equal(status.severity, "fix");
   assert.ok((status.points ?? 0) > 0);
   assert.deepEqual(status.fixes.map((fix) => fix.kind), ["standardise", "placeholders"]);
