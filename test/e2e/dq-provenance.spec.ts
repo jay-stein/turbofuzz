@@ -93,14 +93,13 @@ test("choosing the header row by hand re-reads the same file: the record keeps t
   await openQuality(page);
   const titled = Buffer.from(`Orders export,,\n${CSV}`);
   await page.locator('input[type="file"]').first().setInputFiles({ name: "titled.csv", mimeType: "text/csv", buffer: titled });
-  await page.locator(".nav-row").waitFor();
-  await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Reshape data" }).click();
-  await page.getByRole("menuitem", { name: "Import settings…" }).click();
+  // A title row above the table: the reading is checked before it loads.
   // Row 2 (id, name, amount) is the header, chosen by hand rather than guessed.
   await page.locator(".header-row-line").nth(1).click();
-  await page.getByRole("button", { name: "Apply and reload" }).click();
+  await page.getByRole("button", { name: "Load with these settings" }).click();
   await expect(page.locator(".header-row-modal")).toHaveCount(0);
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
   await showQuality(page);
   const p = await provenanceOf(page);
   expect(p["File"]).toMatch(/^titled\.csv/);

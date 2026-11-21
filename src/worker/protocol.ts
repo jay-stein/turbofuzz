@@ -1335,6 +1335,8 @@ export interface CompareLoadRequest {
   text?: string;
   delimiter: Delimiter | "auto";
   hasHeaders: boolean;
+  /** The layout the person settled on when B's automatic read needed checking. */
+  headerLayout?: HeaderLayout;
 }
 
 /** Pairs the columns (with any made by hand) and suggests key columns. */

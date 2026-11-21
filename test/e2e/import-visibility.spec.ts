@@ -1,9 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function load(page: Page, name: string, csv: string): Promise<void> {
+async function load(page: Page, name: string, csv: string, check = false): Promise<void> {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await page.locator('input[type="file"]').setInputFiles({ name, mimeType: "text/csv", buffer: Buffer.from(csv) });
+  if (check) {
+    // Not a plain table: the read is checked before anything loads.
+    const dialog = page.locator(".header-row-modal");
+    await expect(dialog).toContainText("will be read");
+    await dialog.getByRole("button", { name: "Load with these settings" }).click();
+  }
   await page.locator(".nav-row").waitFor();
   // A file opens on Table; these tests read the Overview.
   await page.keyboard.press("Escape");
@@ -18,9 +24,10 @@ function longFile(): string {
 }
 
 test("the Overview says which row was taken as the header, and the import dialog shows both ends of the file", async ({ page }) => {
-  await load(page, "roads.csv", longFile());
+  // The footnotes at the end make it a table to check first.
+  await load(page, "roads.csv", longFile(), true);
   const note = page.locator(".overview-header-note");
-  await expect(note).toContainText("Header: row 1 (assumed)", { timeout: 10_000 });
+  await expect(note).toContainText("Header: row 1 (chosen by you)", { timeout: 10_000 });
   await note.getByRole("button", { name: /Change how it was read/ }).click();
   const dialog = page.locator(".header-row-modal");
   await expect(dialog).toBeVisible();
@@ -78,10 +85,23 @@ test("Import settings can leave columns out, and the Overview note says so", asy
   await expect(page.locator(".overview-header-note")).toContainText("1 column left out");
 });
 
+test("a table that is not plain is checked before it loads, and Don't load leaves nothing loaded", async ({ page }) => {
+  const rows = ["Road deaths", "", "id,age,speed", "1,20,50", "2,30,60", "3,40,70"];
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "titled.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) });
+  const dialog = page.locator(".header-row-modal");
+  // Rows are numbered as the preview shows them (a delimited file's blank lines are not rows).
+  await expect(dialog.locator(".header-row-reasons")).toContainText("Row 1 above the column names is left out");
+  await dialog.getByRole("button", { name: "Don't load" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".nav-row")).toBeHidden();
+});
+
 test("a missing-value code stated in the file's own notes is named as such, even when it is rare in a big column", async ({ page }) => {
   const rows = ["Road deaths", "Note: A value of '-9' is used for a missing/unknown value.", "id,age,speed"];
   for (let i = 1; i <= 3000; i++) rows.push(`${i},${i % 1000 === 0 ? -9 : 18 + (i % 70)},${40 + (i % 8) * 10}`);
-  await load(page, "stated.csv", rows.join("\n"));
+  await load(page, "stated.csv", rows.join("\n"), true);
   const step = page.locator(".next-step-card", { hasText: "The file's own notes say -9 means missing" });
   await expect(step).toBeVisible({ timeout: 10_000 });
   await expect(step).toContainText("3 cells in age");

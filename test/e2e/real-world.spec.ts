@@ -23,6 +23,11 @@ for (const folder of folders) {
       mimeType: "text/csv",
       buffer: readFileSync(join(root, folder.name, "data.csv")),
     });
+    // A file that is not a plain table is checked before it loads: accept the reading.
+    const check = page.locator(".header-row-modal");
+    const workspace = page.locator(".workspace");
+    await expect.poll(async () => (await check.isVisible()) || (await workspace.isVisible()), { timeout: 30_000 }).toBe(true);
+    if (await check.isVisible()) await check.getByRole("button", { name: "Load with these settings" }).click();
     await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
     await page.getByRole("tab", { name: "Data Quality" }).click();
     await expect(page.locator(".quality-page")).toBeVisible();

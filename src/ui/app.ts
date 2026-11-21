@@ -18,6 +18,7 @@ import { detectTable, rowLooksLikeData, statedMissingCodes, type HeaderLayout } 
 import { combineSheets, type SheetGrid } from "../parse/combine-sheets.js";
 import { renderSheetPicker } from "./sheet-picker.js";
 import { openHeaderRowDialog } from "./header-row-dialog.js";
+import { bufferLayoutSource, checkLayoutBeforeLoad, type LayoutCheckSource } from "./layout-check.js";
 import { openProtectDialog, type ProtectMode } from "./protect-dialog.js";
 import { openFixPreview } from "./fix-preview-dialog.js";
 import { fixReportText, planFixes, runFixPlan, type PlannedFix } from "./fix-apply.js";
@@ -1893,6 +1894,12 @@ export class App {
     append?: boolean;
   }): Promise<void> {
     if (this.loading) return;
+    // A first read of one source with no layout chosen yet: an unusual table is checked before it loads.
+    const source = options.importSource;
+    const firstRead = options.reuseSource !== true && options.append !== true && (options.files?.length ?? 1) <= 1;
+    const checked = source !== undefined && source.layout === null && options.headerLayout === undefined && firstRead ? await this.checkLayoutBeforeLoad(source) : null;
+    if (checked === "cancel" || this.loading) return;
+    if (checked !== null && source !== undefined) options = { ...options, headerLayout: checked, importSource: { ...source, layout: checked } };
     this.loading = true;
     this.generation++;
     this.sends.clear();
@@ -2597,6 +2604,10 @@ export class App {
    * multi-level headers) when "first row is header" is enabled.
    */
   private async loadGrid(grid: string[][], name: string, layout?: HeaderLayout, reuse = false): Promise<void> {
+    // A first read of the sheet: an unusual layout is checked before it loads.
+    const checked = layout === undefined && !reuse ? await this.checkLayoutBeforeLoad({ name, readPreview: async () => grid, complete: true }) : null;
+    if (checked === "cancel") return;
+    if (checked !== null) layout = checked;
     const source: ImportSource = {
       name,
       layout: layout ?? null,
@@ -7449,6 +7460,7 @@ export class App {
         await this.loadFile(file);
         return this.lastLoaded === before || this.lastLoaded === null ? null : this.compareSideInfo();
       },
+      checkLayout: (name, buffer) => this.checkLayoutBeforeLoad(bufferLayoutSource(name, buffer, HEADER_PREVIEW_BYTES, HEADER_PREVIEW_ROWS)),
       // Compare is a one-off analysis: leaving it clears both datasets. Work done on A before comparing is lost, so that is asked first.
       confirmExit: async () => {
         const steps = this.lastLoaded === null ? 0 : this.stepEntries().length;
@@ -7559,6 +7571,15 @@ export class App {
       normalizeRows: false,
     }).rows;
     return rows.slice(-30);
+  }
+
+  /** An unusual table is checked by the person before its first load (see layout-check.ts). */
+  private async checkLayoutBeforeLoad(source: LayoutCheckSource): Promise<HeaderLayout | null | "cancel"> {
+    const checked = this.headersCheckbox.checked ? await checkLayoutBeforeLoad(source, HEADER_PREVIEW_ROWS) : null;
+    if (checked !== "cancel") return checked;
+    this.hideLoadProgress();
+    this.setAction(`${source.name} was not loaded.`);
+    return checked;
   }
 
   /** Opens the header-row chooser for the current table and reloads with the choice. */

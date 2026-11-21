@@ -18,6 +18,11 @@ export interface HeaderRowInput {
   tail?: string[][];
   /** Extra line under the intro, e.g. that one layout applies to several files. */
   note?: string;
+  /**
+   * Shown before the first load when the automatic read is not plain: why it should be checked. The
+   * dialog then asks "is this right?" and loads with what the person settles on (Cancel stops the load).
+   */
+  reasons?: string[];
 }
 
 type EndMode = "auto" | "file" | "blank" | "row";
@@ -60,20 +65,29 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
     const overlay = el("div", { class: "modal-overlay" });
     const modal = el("div", { class: "modal header-row-modal" });
 
+    const checking = input.reasons !== undefined && input.reasons.length > 0;
     const head = el("div", { class: "modal-head" });
-    head.append(el("h2", {}, [`Import settings for ${input.name}`]));
+    head.append(el("h2", {}, [checking ? `Check how ${input.name} will be read` : `Import settings for ${input.name}`]));
     const closeButton = el("button", { class: "icon-btn", type: "button", title: "Close" }, ["×"]);
     head.append(closeButton);
     modal.append(head);
 
     const body = el("div", { class: "chart-setup-body" });
-    body.append(
-      el("p", { class: "confirm-body" }, [
-        input.overridden
-          ? "You chose this layout. Click a row to make it the header, or adjust the numbers."
-          : "This is the automatic guess. Click the row that holds your column names, or adjust the numbers. Rows above the header, under it and after the data are left out.",
-      ]),
-    );
+    if (checking) {
+      body.append(
+        el("p", { class: "confirm-body" }, ["This isn't laid out as a plain table, so nothing is loaded until you check it. Our best reading:"]),
+        el("ul", { class: "header-row-reasons" }, (input.reasons ?? []).map((reason) => el("li", {}, [reason]))),
+        el("p", { class: "confirm-body" }, ["If that is right, load it. If not, click the row that holds your column names, or adjust the numbers below; the preview shows what will be read."]),
+      );
+    } else {
+      body.append(
+        el("p", { class: "confirm-body" }, [
+          input.overridden
+            ? "You chose this layout. Click a row to make it the header, or adjust the numbers."
+            : "This is the automatic guess. Click the row that holds your column names, or adjust the numbers. Rows above the header, under it and after the data are left out.",
+        ]),
+      );
+    }
 
     if (input.note !== undefined) {
       body.append(el("p", { class: "confirm-body" }, [input.note]));
@@ -147,11 +161,12 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
     modal.append(body);
 
     const footer = el("div", { class: "clean-footer" });
-    const cancel = el("button", { class: "ghost", type: "button" }, ["Cancel"]);
+    const cancel = el("button", { class: "ghost", type: "button" }, [checking ? "Don't load" : "Cancel"]);
     const auto = el("button", { class: "ghost", type: "button" }, ["Use automatic guess"]);
     auto.title = "Go back to the built-in detection.";
-    const apply = el("button", { class: "primary", type: "button" }, ["Apply and reload"]);
-    footer.append(cancel, auto, el("span", { class: "grow" }), apply);
+    const apply = el("button", { class: "primary", type: "button" }, [checking ? "Load with these settings" : "Apply and reload"]);
+    // Before the first load the settings shown are the automatic guess already: no "back to the guess".
+    footer.append(cancel, ...(checking ? [] : [auto]), el("span", { class: "grow" }), apply);
     modal.append(footer);
 
     let skip = input.current.skipRows;

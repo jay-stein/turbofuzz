@@ -1152,6 +1152,7 @@ async function handleCompareLoad(message: CompareLoadRequest): Promise<void> {
       hasHeaders: message.hasHeaders,
       text: message.text,
       buffer: message.buffer,
+      ...(message.headerLayout === undefined ? {} : { headerLayout: message.headerLayout }),
     });
     b = ingested?.dataset ?? null;
   }

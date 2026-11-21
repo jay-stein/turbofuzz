@@ -213,7 +213,7 @@ export class SearchWorkerClient {
   }
 
   /** Compare mode: reads B beside the loaded data, then pairs columns and suggests keys. */
-  compareLoad(options: { name: string; buffer?: ArrayBuffer; text?: string; delimiter: Delimiter | "auto"; hasHeaders: boolean }): Promise<CompareSetupMessage> {
+  compareLoad(options: { name: string; buffer?: ArrayBuffer; text?: string; delimiter: Delimiter | "auto"; hasHeaders: boolean; headerLayout?: HeaderLayout }): Promise<CompareSetupMessage> {
     return this.request<CompareSetupMessage>({ type: "compareLoad", ...options }, options.buffer === undefined ? [] : [options.buffer]);
   }
 

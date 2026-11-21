@@ -16,6 +16,8 @@ import { ValueDiffs, type ValueDiffsState } from "./compare-values.js";
 import { FUZZY_OFF, renderSetup, type KeyChoice, type SetupState } from "./compare-setup.js";
 import { thresholdForSlider } from "../../search/fuzzy-index.js";
 import type { PairSuggestion } from "../../data/compare/pair-suggest.js";
+import type { HeaderLayout } from "../../parse/header-detect.js";
+import { isParquetName } from "../../parse/parquet.js";
 
 export interface CompareModeOptions {
   client: SearchWorkerClient;
@@ -27,6 +29,11 @@ export interface CompareModeOptions {
   loaded: CompareSideInfo | null;
   /** Loads a file as the app's data (A, from the start screen); resolves null when it did not load. */
   loadA(file: File): Promise<CompareSideInfo | null>;
+  /**
+   * Before B is read: when its automatic table read is not plain, the person checks it. Resolves null to
+   * read B as detected, the layout they settled on, or "cancel" to not read B.
+   */
+  checkLayout?(name: string, buffer: ArrayBuffer): Promise<HeaderLayout | null | "cancel">;
   /** Asked before leaving: false keeps compare mode open (Exit clears both datasets). */
   confirmExit(): Promise<boolean>;
   /** Called after compare mode has closed: both datasets are cleared. */
@@ -458,9 +465,16 @@ export class CompareMode {
         this.render();
         return;
       }
+      // An unusual layout is checked first, as for A; parquet carries its own column names.
+      const layout = this.options.checkLayout === undefined || isParquetName(source.name) ? null : await this.options.checkLayout(source.name, source.buffer);
+      if (layout === "cancel") {
+        this.state.busy = null;
+        this.render();
+        return;
+      }
       // The bytes go to the worker; a table taken from a workbook or archive is kept (a plain file is simply read again).
       this.bSource = { file, resolved: source.name === file.name ? null : { name: source.name, buffer: source.buffer.slice(0) } };
-      const setup = await this.options.client.compareLoad({ name: source.name, buffer: source.buffer, delimiter: "auto", hasHeaders: true });
+      const setup = await this.options.client.compareLoad({ name: source.name, buffer: source.buffer, delimiter: "auto", hasHeaders: true, ...(layout === null ? {} : { headerLayout: layout }) });
       void this.options.memory.refresh();
       this.state.manual = [];
       this.state.ignore = { a: [], b: [] };

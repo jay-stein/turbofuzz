@@ -234,6 +234,8 @@ test("the header row can be chosen by hand and reloads the table", async ({ page
     mimeType: "text/csv",
     buffer: Buffer.from(["Quarterly report,", "Region,Sales", "North,10", "South,20", "East,30", ""].join("\n")),
   });
+  // A title row: the reading is checked before it loads; accept the guess, then change it later.
+  await page.getByRole("button", { name: "Load with these settings" }).click();
   await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
   await page.getByRole("tab", { name: "Table" }).click();
   await expect(page.locator(".th-label")).toHaveText(["Region", "Sales"]);
@@ -282,6 +284,9 @@ test("a statistics-agency file loads without its notes and the end can be set by
     mimeType: "text/csv",
     buffer: Buffer.from(csv),
   });
+  // Notes above and footnotes after: the reading is checked first, and the reasons say so.
+  await expect(page.locator(".header-row-reasons")).toContainText("left out");
+  await page.getByRole("button", { name: "Load with these settings" }).click();
   await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
   await page.getByRole("tab", { name: "Table" }).click();
   await expect(page.locator(".th-label")).toHaveText([
@@ -347,6 +352,7 @@ test("the header row can be chosen for a compressed file", async ({ page }) => {
     mimeType: "application/gzip",
     buffer: gzipSync(Buffer.from(csv)),
   });
+  await page.getByRole("button", { name: "Load with these settings" }).click();
   await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
   await page.getByRole("tab", { name: "Table" }).click();
   await expect(page.locator(".th-label")).toHaveText(["Region", "Sales"]);

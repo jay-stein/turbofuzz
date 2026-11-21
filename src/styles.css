@@ -11989,6 +11989,18 @@ body:has(.th-filter-popover) .hint-callout {
   width: min(760px, 100%);
 }
 
+/* Why the automatic read needs checking before it loads. */
+.header-row-reasons {
+  margin: 0 0 8px;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.header-row-reasons li + li {
+  margin-top: 2px;
+}
+
 .header-row-controls {
   display: flex;
   gap: 12px;
