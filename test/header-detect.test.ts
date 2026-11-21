@@ -506,6 +506,37 @@ test("on a sheet of stacked sections the first section's header is used, not non
   assert.equal(t.skipRows, 2);
 });
 
+test("a plain table has nothing to review; an unusual one says why, in row numbers", () => {
+  const plain = detectTable([["id", "name", "price"], ["1", "a", "10"], ["2", "b", "20"], ["3", "c", "30"]]);
+  assert.deepEqual(plain.review, []);
+  const titled = detectTable([["Sales report"], ["", "", ""], ["id", "name", "price"], ["1", "a", "10"], ["2", "b", "20"], ["3", "c", "30"]]);
+  assert.deepEqual(titled.review?.map((r) => r.code), ["skipped"]);
+  assert.match(titled.review![0]!.message, /^Rows 1–2 above the column names/);
+  // A chosen layout is the person's decision: nothing to review.
+  assert.equal(detectTable(titled.rows, { skipRows: 0, headerRows: 1 }).review, undefined);
+});
+
+test("stacked sections and a second table are named in the review", () => {
+  const block = (name: string): string[][] => [
+    ["Region", "Sales", "Units"],
+    [`${name} North`, "10", "2"],
+    [`${name} South`, "20", "3"],
+    ["", "", ""],
+  ];
+  const stacked = detectTable([...block("A"), ...block("B"), ...block("C")]);
+  assert.ok(stacked.review?.some((r) => r.code === "repeated"));
+  const second = detectTable([
+    ["Region", "Sales", "Units"],
+    ["North", "10", "2"],
+    ["South", "20", "3"],
+    ["", "", ""],
+    ["Store", "Visits", "Rating"],
+    ["Main St", "400", "4.5"],
+  ]);
+  const another = second.review?.find((r) => r.code === "anotherTable");
+  assert.match(another?.message ?? "", /row 5/);
+});
+
 test("a footer cut that would take most of the table is not made unless a Notes or Source line opens it", () => {
   const grid = [["Region", "Sales", "Units", "Share", "", "", "", "", "", "", "", "x"]];
   for (let i = 0; i < 6; i++) grid.push([`R${i}`, String(10 + i), "", "", "", "", "", "", "", "", "", ""]);

@@ -15,7 +15,21 @@ export interface DetectedTable {
   footerRows: number;
   /** First non-empty value from the skipped rows, if any. */
   title: string | null;
+  /**
+   * Why an automatic read should be checked by the person before it loads; empty when the table is
+   * plain (column names in row 1, nothing left out). Absent when the layout was chosen by hand.
+   */
+  review?: LayoutReason[];
 }
+
+/** One thing the automatic read decided that is not plain, in words for the person (row numbers count from 1). */
+export interface LayoutReason {
+  code: "skipped" | "levels" | "noHeader" | "between" | "footer" | "repeated" | "anotherTable" | "firstRowData" | "closeCall" | "unnamed";
+  message: string;
+}
+
+/** How close a runner-up header row may score before the pick counts as a close call (score points). */
+export const CLOSE_CALL_MARGIN = 1.0;
 
 /**
  * Where the data stops: "auto" cuts a trailing footnote block, "file" keeps
@@ -615,6 +629,115 @@ function metadataBlock(scan: readonly string[][], width: number): { header: numb
   return { header, data };
 }
 
+/**
+ * Index (within the data rows) where another table starts: after a blank row, up to three rows of labels only
+ * (a title, a heading over columns, the column names), one of them naming at least two columns and half as
+ * many as this table has, then a row with figures. Null if none.
+ */
+function laterTableStart(rows: readonly string[][], names: number): number | null {
+  for (let index = 1; index < rows.length; index++) {
+    if (!isEmptyRow(rows[index - 1] ?? [])) continue;
+    let labels = 0;
+    let named = false;
+    let next = index;
+    for (; next < rows.length && labels < 3; next++) {
+      const row = rows[next] ?? [];
+      if (isEmptyRow(row)) break;
+      const profile = profileOf(row);
+      if (profile.numeric > 0) break;
+      labels++;
+      if (profile.populated >= 2 && profile.populated * 2 >= names && !isMergedTitle(row)) named = true;
+    }
+    if (labels > 0 && named && next < rows.length && profileOf(rows[next] ?? []).numeric > 0) return index;
+  }
+  return null;
+}
+
+function rowSpan(first: number, count: number): string {
+  return count === 1 ? `Row ${first + 1}` : `Rows ${first + 1}–${first + count}`;
+}
+
+function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+/** Filled rows in [from, to). */
+function filledRowsBetween(grid: readonly string[][], from: number, to: number): number {
+  let count = 0;
+  for (let index = from; index < to; index++) if (!isEmptyRow(grid[index] ?? [])) count++;
+  return count;
+}
+
+/**
+ * What an automatic read decided that the person should confirm before it loads: rows left out above,
+ * between or after, a header that is not one row, the column names appearing again further down, a close
+ * call between two header rows, a first row that looks like data, and columns with values but no name.
+ * Empty for a plain table.
+ */
+function reviewLayout(
+  grid: readonly string[][],
+  table: DetectedTable,
+  found: { rival: number | null; anotherTable: number | null; scan: readonly string[][] },
+): LayoutReason[] {
+  const reasons: LayoutReason[] = [];
+  const { skipRows, headerRows, skipAfter } = table;
+  const above = filledRowsBetween(grid, 0, skipRows);
+  if (above > 0) {
+    reasons.push({ code: "skipped", message: `${rowSpan(0, skipRows)} above the column names ${skipRows === 1 ? "is" : "are"} left out (${plural(above, "filled row")}: titles, notes or links).` });
+  }
+  if (headerRows === 0) {
+    reasons.push({ code: "noHeader", message: "No row of column names was found, so the columns are named Column 1, Column 2, …" });
+  } else if (headerRows > 1) {
+    reasons.push({ code: "levels", message: `The column names are joined from ${rowSpan(skipRows, headerRows).toLowerCase()} (a heading over several columns).` });
+  }
+  const between = filledRowsBetween(grid, skipRows + headerRows, skipRows + headerRows + skipAfter);
+  if (between > 0) {
+    reasons.push({ code: "between", message: `${rowSpan(skipRows + headerRows, skipAfter)} between the column names and the data ${skipAfter === 1 ? "is" : "are"} left out (units, sources, series codes).` });
+  }
+  if (table.footerRows > 0) {
+    reasons.push({ code: "footer", message: `${plural(table.footerRows, "row")} after the data ${table.footerRows === 1 ? "is" : "are"} left out (notes, sources or totals).` });
+  }
+  // Judged on the scoring grid, where a header of years reads as labels.
+  if (headerRows === 1 && rowLooksLikeData(found.scan, skipRows)) {
+    reasons.push({ code: "firstRowData", message: `Row ${skipRows + 1} is used as the column names, but it looks like data.` });
+  }
+  // A rival above the header is a real alternative; one inside the data is a record, or a later table (below).
+  if (found.rival !== null && found.rival < skipRows) {
+    reasons.push({ code: "closeCall", message: `Row ${found.rival + 1} could also be the column names: it was a close call.` });
+  }
+  // The column names appearing again inside the data: sections or tables stacked on one sheet.
+  if (headerRows > 0) {
+    const names = grid[skipRows + headerRows - 1] ?? [];
+    const labelled = names.map((cell, index) => ({ cell: cell.trim(), index })).filter((entry) => entry.cell !== "");
+    let repeats = 0;
+    if (labelled.length >= 2) {
+      for (const row of table.rows) {
+        let same = 0;
+        for (const { cell, index } of labelled) if ((row[index] ?? "").trim() === cell) same++;
+        if (same >= 2 && same * 5 >= labelled.length * 3) repeats++;
+      }
+    }
+    const later = found.anotherTable ?? laterTableStart(table.rows, labelled.length);
+    if (repeats > 0) {
+      reasons.push({ code: "repeated", message: `The column names appear again ${plural(repeats, "time")} further down: the sheet seems to hold several sections stacked one under another, and those rows are read as data.` });
+    } else if (later !== null) {
+      const row = found.anotherTable !== null ? later : skipRows + headerRows + skipAfter + later;
+      reasons.push({ code: "anotherTable", message: `Another table seems to start at row ${row + 1}; it is read as more rows of this one.` });
+    }
+  }
+  const unnamed: number[] = [];
+  if (headerRows > 0) {
+    table.headers.forEach((name, index) => {
+      if (name.trim() === "" && table.rows.some((row) => (row[index] ?? "").trim() !== "")) unnamed.push(index);
+    });
+  }
+  if (unnamed.length > 0) {
+    const shown = unnamed.slice(0, 5).map((index) => String(index + 1)).join(", ");
+    reasons.push({ code: "unnamed", message: `${unnamed.length === 1 ? "Column" : "Columns"} ${shown}${unnamed.length > 5 ? ", …" : ""} ${unnamed.length === 1 ? "has" : "have"} values but no name.` });
+  }
+  return reasons;
+}
+
 /** Applies a user-chosen layout; no guessing. Column count comes from the widest row seen. */
 function applyLayout(grid: readonly string[][], layout: HeaderLayout): DetectedTable {
   const skipRows = Math.max(0, Math.min(Math.floor(layout.skipRows), grid.length));
@@ -744,7 +867,7 @@ export function detectTable(grid: readonly string[][], layout?: HeaderLayout): D
   ): DetectedTable => {
     const start = skipRows + headerRows + skipAfter;
     const ended = applyDataEnd(grid.slice(start), width, "auto", start);
-    return {
+    const table: DetectedTable = {
       skipRows,
       headerRows,
       headers,
@@ -753,7 +876,26 @@ export function detectTable(grid: readonly string[][], layout?: HeaderLayout): D
       footerRows: ended.footerRows,
       title: titleFrom(grid, skipRows, null),
     };
+    // A close call: another candidate outside the chosen header block scored within CLOSE_CALL_MARGIN of it.
+    let rival: number | null = null;
+    if (chosenRank !== null) {
+      let rivalRank = -Infinity;
+      for (const candidate of candidates) {
+        if ((candidate.row >= skipRows && candidate.row < start) || candidate.row === anotherTable) continue;
+        if (candidate.rank >= chosenRank - CLOSE_CALL_MARGIN && candidate.rank > rivalRank) {
+          rivalRank = candidate.rank;
+          rival = candidate.row;
+        }
+      }
+    }
+    table.review = reviewLayout(grid, table, { rival, anotherTable, scan });
+    return table;
   };
+  /** Every row that could be the header, with its rank; the rank of the one chosen (null when none was ranked). */
+  const candidates: { row: number; score: number; rank: number }[] = [];
+  let chosenRank: number | null = null;
+  /** Where a later table starts, when the sheet stacks tables. */
+  let anotherTable: number | null = null;
 
   const meta = metadataBlock(scan, width);
   if (meta !== null) {
@@ -771,7 +913,6 @@ export function detectTable(grid: readonly string[][], layout?: HeaderLayout): D
   let bestIndex = -1;
   let bestScore = 0;
   let bestRank = -Infinity;
-  const candidates: { row: number; score: number; rank: number }[] = [];
   for (let row = 0; row < scanRows; row++) {
     const profile = profiles[row];
     if (profile.populated < 2) continue;
@@ -834,9 +975,13 @@ export function detectTable(grid: readonly string[][], layout?: HeaderLayout): D
     if (earlier === null) {
       return finish(0, 0, 0, Array.from({ length: width }, (_, index) => `Column ${index + 1}`));
     }
+    // The later header that out-scored it starts another table on the sheet.
+    anotherTable = bestIndex;
     bestIndex = earlier.row;
     bestScore = earlier.score;
+    bestRank = earlier.rank;
   }
+  chosenRank = bestRank;
 
   let headerRows = 1;
   let headerStart = bestIndex;
