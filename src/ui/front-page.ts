@@ -10,6 +10,18 @@ import { isWorkbookName, openWorkbook, sheetAsFile, unreadableReason, SOURCE_FIL
 
 export type FrontMode = "single" | "compare";
 
+/** The front page's heading and line for each mode. */
+export const FRONT_COPY: Record<FrontMode, { title: string; sub: string }> = {
+  single: {
+    title: "Drop a messy table. Get answers in minutes.",
+    sub: "A CSV or Excel file, or several with the same columns to stack into one. It cleans the mess, flags what is odd and charts what matters, all in this tab: nothing is uploaded.",
+  },
+  compare: {
+    title: "See what changed between two tables",
+    sub: "Drop the original as A and the new version as B: two files, or two sheets of the same Excel workbook. You land on Spot the difference.",
+  },
+};
+
 const ICON_TABLE = '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/>';
 const ICON_COMPARE = '<rect x="2" y="5" width="8" height="14" rx="1.5"/><rect x="14" y="5" width="8" height="14" rx="1.5"/><path d="M11 9h2M11 15h2"/>';
 const ICON_UPLOAD = '<path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>';

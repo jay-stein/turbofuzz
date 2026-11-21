@@ -1330,6 +1330,47 @@ textarea:focus {
   display: none;
 }
 
+/* ---------- the table's one-off nudge to Data Quality (src/ui/qa-nudge.ts) ---------- */
+
+.qa-nudge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0;
+  padding: 8px 10px 8px 14px;
+  border: 1px solid var(--qa-border);
+  border-radius: var(--radius);
+  background: var(--qa-soft);
+  color: var(--text);
+  font-size: var(--fs-md);
+}
+
+/* Table view only: other lenses have their own way to Data Quality. */
+.qa-nudge:has(~ .table-host.hidden) {
+  display: none;
+}
+
+.qa-nudge-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--danger);
+}
+
+.qa-nudge-text {
+  min-width: 0;
+}
+
+.qa-nudge-close {
+  flex: none;
+}
+
+@media (max-width: 640px) {
+  .qa-nudge { flex-wrap: wrap; }
+  .qa-nudge .grow { display: none; }
+}
+
 /* ---------- the first-load card (src/ui/load-card.ts) ---------- */
 
 /* While the card is up it carries the load, so the small floating panel steps aside. */

@@ -20,6 +20,7 @@ import { renderSheetPicker } from "./sheet-picker.js";
 import { openHeaderRowDialog } from "./header-row-dialog.js";
 import { bufferLayoutSource, checkLayoutBeforeLoad, type LayoutCheckSource } from "./layout-check.js";
 import { LoadCard } from "./load-card.js";
+import { QaNudge } from "./qa-nudge.js";
 import { openProtectDialog, type ProtectMode } from "./protect-dialog.js";
 import { openFixPreview } from "./fix-preview-dialog.js";
 import { fixReportText, planFixes, runFixPlan, type PlannedFix } from "./fix-apply.js";
@@ -226,7 +227,7 @@ import { timeDimension, type TsViewSource } from "../data/timeseries/view-source
 import { fuzzyRank } from "../search/fuzzy-match.js";
 import { createMapPage, type MapPageHandle } from "./map-page.js";
 import { buildAbout, buildVersion } from "./about.js";
-import { FrontCompare, FrontSwitch, type FrontMode } from "./front-page.js";
+import { FRONT_COPY, FrontCompare, FrontSwitch, type FrontMode } from "./front-page.js";
 import { buildFileTypeIcons, buildFrontHero } from "./front-showcase.js";
 import {
   coMissingnessFindings,
@@ -356,17 +357,6 @@ function sheetGapNote(gaps: readonly { column: string; missingIn: string[] }[]):
   return ` ${names} ${gaps.length === 1 ? "is" : "are"} only in some sheets; the other sheets' rows are left empty there.`;
 }
 
-/** The front page's heading and line for each mode. */
-const FRONT_COPY: Record<FrontMode, { title: string; sub: string }> = {
-  single: {
-    title: "Drop a messy table. Get answers in minutes.",
-    sub: "A CSV or Excel file, or several with the same columns to stack into one. It cleans the mess, flags what is odd and charts what matters, all in this tab: nothing is uploaded.",
-  },
-  compare: {
-    title: "See what changed between two tables",
-    sub: "Drop the original as A and the new version as B: two files, or two sheets of the same Excel workbook. You land on Spot the difference.",
-  },
-};
 
 /** Icons for the toolbar buttons that show only the icon until the pointer or the keyboard reaches them, then spell out their name. */
 const BUTTON_ICONS = {
@@ -733,6 +723,7 @@ export class App {
   private pendingFlashName: string | null = null;
   private pasteView!: HTMLElement;
   private readonly loadCard = new LoadCard(() => this.cancelLoad());
+  private readonly qaNudge = new QaNudge(() => this.openQuality());
   private pasteCancel!: HTMLButtonElement;
   private workspace!: HTMLElement;
   private textarea!: HTMLTextAreaElement;
@@ -1684,6 +1675,7 @@ export class App {
       resultsBar,
       this.columnsStrip,
       this.qualityHost,
+      this.qaNudge.element,
       this.tableHost,
       this.chartHost,
       this.viewsHost,
@@ -6188,11 +6180,11 @@ export class App {
   }
 
   private renderQualityPage(): void {
-    if (this.qualityPage === null) return;
     const score = this.dqScore;
     const stats = this.latestStats;
     if (score === null || stats === null) {
-      this.qualityPage.render(null);
+      this.qaNudge.update(null);
+      this.qualityPage?.render(null);
       return;
     }
     const sensitiveColumns = new Set(
@@ -6207,6 +6199,8 @@ export class App {
       review: this.reviewList(stats),
       sensitiveColumns,
     });
+    if (score.overall !== null) this.qaNudge.update({ key: `${this.datasetName}:${this.generation}`, score: score.overall, fix: issues.filter((i) => i.severity === "fix").length, review: issues.filter((i) => i.severity === "review").length });
+    if (this.qualityPage === null) return; // Built on first open; the issues above still feed the table's nudge.
     this.qualityPage.render({
       score,
       rowCount: this.rowCount,
