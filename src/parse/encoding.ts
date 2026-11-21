@@ -130,9 +130,22 @@ function utf16Of(bytes: Uint8Array): "utf-16le" | "utf-16be" | null {
   const little = oddZeros >= pairs * 0.01 && evenZeros <= pairs * 0.001;
   const big = evenZeros >= pairs * 0.01 && oddZeros <= pairs * 0.001;
   if (!little && !big) return null;
+  // A stray NUL in an ordinary UTF-8 file also sits on one side; UTF-16 CJK text is never valid
+  // UTF-8 (its 0x80-0xBF bytes stand alone), so bytes that read as UTF-8 stay UTF-8.
+  if (validUtf8Head(bytes)) return null;
   const encoding = little ? "utf-16le" : "utf-16be";
   const even = bytes.subarray(0, pairs * 2);
   return plausibleShare(new TextDecoder(encoding).decode(even)) >= 0.95 ? encoding : null;
+}
+
+/** Strict UTF-8 over a head of the file; a character cut off at the end of the head does not count against it. */
+function validUtf8Head(bytes: Uint8Array): boolean {
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes, { stream: true });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** UTF-32 has no decoder in TextDecoder: four bytes per code point, anything out of range or a surrogate becomes U+FFFD. */
