@@ -497,11 +497,6 @@ export function rowLooksLikeData(grid: readonly string[][], index: number): bool
   return filled >= 2 && alike * 2 >= filled && alikeWithDigits >= 2;
 }
 
-/** True when any non-empty row above `bestIndex` is a full-width record or looks like the rows below it. */
-function skippedRowsAreRecords(grid: readonly string[][], bestIndex: number, width: number): boolean {
-  return firstRecordAbove(grid, bestIndex, width) !== -1;
-}
-
 /** The first non-empty row above `bestIndex` that is a full-width record or looks like the rows below it, or -1. */
 function firstRecordAbove(grid: readonly string[][], bestIndex: number, width: number): number {
   if (width < 3) return -1;
@@ -697,8 +692,9 @@ function reviewLayout(
   if (table.footerRows > 0) {
     reasons.push({ code: "footer", message: `${plural(table.footerRows, "row")} after the data ${table.footerRows === 1 ? "is" : "are"} left out (notes, sources or totals).` });
   }
-  // Judged on the scoring grid, where a header of years reads as labels.
-  if (headerRows === 1 && rowLooksLikeData(found.scan, skipRows)) {
+  // The header row as scored (a header of years reads as labels) over the data rows as they are.
+  const probe = grid.slice(0, skipRows + 1 + SHAPE_LOOKAHEAD * 3).map((row, index) => (index === skipRows ? (found.scan[index] ?? row) : row));
+  if (headerRows === 1 && rowLooksLikeData(probe, skipRows)) {
     reasons.push({ code: "firstRowData", message: `Row ${skipRows + 1} is used as the column names, but it looks like data.` });
   }
   // A rival above the header is a real alternative; one inside the data is a record, or a later table (below).
@@ -1017,6 +1013,11 @@ export function detectTable(grid: readonly string[][], layout?: HeaderLayout): D
       const profile = profiles[bestIndex + headerRows];
       if (profile === undefined || profile.populated === 0) break;
       if (profile.numeric > 0) break;
+      // Numbers read as labels only join the header in their place: years under a heading that spans
+      // columns ("Estimates" over 2021 | 2022). A count 1, 2, 3 … or years under plain names are records.
+      const kind = sequenceKind(grid[bestIndex + headerRows] ?? []);
+      if (kind === "count") break;
+      if (kind === "years" && !spansColumns(scan[bestIndex + headerRows - 1] ?? [])) break;
       if (extents[bestIndex + headerRows] * 5 < width * 3) break;
       headerRows++;
     }

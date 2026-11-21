@@ -516,6 +516,15 @@ test("a plain table has nothing to review; an unusual one says why, in row numbe
   assert.equal(detectTable(titled.rows, { skipRows: 0, headerRows: 1 }).review, undefined);
 });
 
+test("records that count 1, 2, 3 across the row stay records under a plain header", () => {
+  const names = Array.from({ length: 12 }, (_, i) => `col${i}`);
+  const grid = [names, ...Array.from({ length: 20 }, (_, r) => names.map((_, c) => String(r * 7 + c)))];
+  const t = detectTable(grid);
+  assert.equal(t.headerRows, 1);
+  assert.equal(t.rows.length, 20);
+  assert.deepEqual(t.review, []);
+});
+
 test("stacked sections and a second table are named in the review", () => {
   const block = (name: string): string[][] => [
     ["Region", "Sales", "Units"],
