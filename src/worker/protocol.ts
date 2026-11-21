@@ -149,7 +149,17 @@ export type ProgressPhase =
   | "sort"
   | "ready";
 
-export interface ProgressMessage {
+/** What a load has learned so far, for the load card: all of it real, none of it estimated. */
+export interface LoadProgressFacts {
+  /** Data rows read so far (parse), or in all (infer). */
+  rows?: number;
+  /** The column names, once the header is settled. */
+  headers?: string[];
+  /** The type of every column built so far, in order. */
+  types?: ColumnType[];
+}
+
+export interface ProgressMessage extends LoadProgressFacts {
   type: "progress";
   phase: ProgressPhase;
   detail?: string;

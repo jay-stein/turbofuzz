@@ -3,6 +3,7 @@ import { Dataset } from "./dataset.js";
 import { computeDatasetStats, type IngestStats } from "./stats.js";
 import { BitSet } from "../search/bitset.js";
 import type { NumberLocale } from "../parse/numbers.js";
+import type { ColumnType } from "../types.js";
 
 /** Fine-grained build progress, forwarded to the load panel in the UI. */
 export interface BuildProgress {
@@ -11,6 +12,8 @@ export interface BuildProgress {
   total?: number;
   /** "stats" is the post-column pass, so the UI can label it separately. */
   phase?: "build" | "stats";
+  /** The type of every column built so far, in order: the load card colours them in as they land. */
+  types?: ColumnType[];
 }
 
 export function buildDataset(
@@ -138,8 +141,9 @@ export async function buildDatasetAsync(
     if (options.shouldCancel?.() === true) return null;
     onProgress?.({
       detail: `Building columns (${columnIndex + 1}/${columnCount})…`,
-      current: columnIndex + 1,
+      current: columnIndex,
       total: columnCount,
+      types: columns.map((column) => column.type),
     });
     const column = ColumnData.create(
       headers[columnIndex],
@@ -153,6 +157,7 @@ export async function buildDatasetAsync(
     columns.push(column);
     if ((columnIndex + 1) % yieldEvery === 0) await yieldTick();
   }
+  onProgress?.({ detail: "Columns built", current: columnCount, total: columnCount, types: columns.map((column) => column.type) });
   if (options.shouldCancel?.() === true) return null;
   await yieldTick();
   if (options.shouldCancel?.() === true) return null;

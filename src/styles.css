@@ -1330,6 +1330,268 @@ textarea:focus {
   display: none;
 }
 
+/* ---------- the first-load card (src/ui/load-card.ts) ---------- */
+
+/* While the card is up it carries the load, so the small floating panel steps aside. */
+.load-card-on .load-progress-floating {
+  display: none;
+}
+
+.lc-backdrop {
+  position: fixed;
+  inset: 48px 0 0 0;
+  z-index: 46;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 6vh 16px 24px;
+  overflow: auto;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+}
+
+.lc-backdrop.hidden {
+  display: none;
+}
+
+.lc-card {
+  width: min(920px, 100%);
+  box-sizing: border-box;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.lc-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.lc-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.lc-title {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-sub {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+.lc-stages {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.lc-stages li {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+.lc-stages li.done,
+.lc-stages li.current {
+  color: var(--text);
+}
+
+.lc-stages li.current {
+  font-weight: 600;
+}
+
+.lc-stage-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lc-stage-track {
+  position: relative;
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.lc-stage-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+
+.lc-stages li.done .lc-stage-fill {
+  width: 100%;
+  background: var(--ok);
+}
+
+.lc-stage-fill.indeterminate {
+  width: 35%;
+  animation: load-slide 1.1s ease-in-out infinite;
+}
+
+.lc-body {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.lc-count {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lc-rows {
+  font: 700 40px var(--mono);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.lc-rows-note {
+  font-size: var(--fs-lg);
+  color: var(--text-dim);
+}
+
+.lc-label {
+  margin: 0 0 8px;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.lc-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.lc-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.lc-col.more {
+  justify-content: center;
+  font-size: var(--fs-md);
+  color: var(--text-dim);
+}
+
+.lc-col-name {
+  font: 600 var(--fs-md) var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lc-type {
+  width: fit-content;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--panel);
+}
+
+.lc-type.pending {
+  color: var(--text-dim);
+  background: var(--panel-2);
+}
+
+.lc-col.typed { border-color: transparent; }
+.lc-col.fam-text { background: var(--ty-text-bg); }
+.lc-col.fam-text .lc-type { color: var(--ty-text); }
+.lc-col.fam-category { background: var(--ty-cat-bg); }
+.lc-col.fam-category .lc-type { color: var(--ty-cat); }
+.lc-col.fam-number { background: var(--ty-num-bg); }
+.lc-col.fam-number .lc-type { color: var(--ty-num); }
+.lc-col.fam-time { background: var(--ty-date-bg); }
+.lc-col.fam-time .lc-type { color: var(--ty-date); }
+.lc-col.fam-boolean { background: var(--ty-bool-bg); }
+.lc-col.fam-boolean .lc-type { color: var(--ty-bool); }
+
+.lc-peek-block.hidden {
+  display: none;
+}
+
+.lc-peek {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  font: var(--fs-md) var(--mono);
+}
+
+.lc-peek-row {
+  display: grid;
+  grid-template-columns: repeat(var(--lc-peek-cols, 6), minmax(0, 1fr));
+  border-top: 1px solid var(--border-subtle);
+}
+
+.lc-peek-row.head {
+  border-top: none;
+  background: var(--panel-2);
+  font-weight: 600;
+}
+
+.lc-peek-cell {
+  padding: 6px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.3s ease;
+}
+
+.lc-peek-cell.fam-number { color: var(--ty-num); text-align: right; }
+.lc-peek-cell.fam-time { color: var(--ty-date); }
+.lc-peek-cell.fam-category { color: var(--ty-cat); }
+.lc-peek-cell.fam-boolean { color: var(--ty-bool); }
+
+@media (max-width: 760px) {
+  .lc-body { grid-template-columns: minmax(0, 1fr); }
+  .lc-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lc-stages { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-stage-fill, .lc-col, .lc-peek-cell { transition: none; }
+  .lc-stage-fill.indeterminate { animation: none; width: 100%; opacity: 0.5; }
+}
+
 /* The loaded table while a file is replacing it. */
 .workspace.is-replacing {
   opacity: 0.45;

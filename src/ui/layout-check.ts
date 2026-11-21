@@ -1,5 +1,5 @@
 import { decodeText } from "../parse/encoding.js";
-import { detectTable, type HeaderLayout } from "../parse/header-detect.js";
+import { detectTable, type DetectedTable, type HeaderLayout } from "../parse/header-detect.js";
 import { parseDelimited } from "../parse/parse.js";
 import { openHeaderRowDialog } from "./header-row-dialog.js";
 
@@ -38,7 +38,12 @@ export interface LayoutCheckSource {
  * for a plain table (load as read), the layout the person settled on, or "cancel" (do not load).
  * `previewRows` is how many rows a preview holds when the source is not complete.
  */
-export async function checkLayoutBeforeLoad(source: LayoutCheckSource, previewRows: number): Promise<HeaderLayout | null | "cancel"> {
+export async function checkLayoutBeforeLoad(
+  source: LayoutCheckSource,
+  previewRows: number,
+  /** The automatic read of the first rows, when it is taken as is: the load card shows them while the rest loads. */
+  onRead?: (table: DetectedTable) => void,
+): Promise<HeaderLayout | null | "cancel"> {
   let preview: string[][];
   try {
     preview = await source.readPreview();
@@ -58,7 +63,10 @@ export async function checkLayoutBeforeLoad(source: LayoutCheckSource, previewRo
   // The end of a big file is read from its last rows, so footnotes there are reviewed too.
   const auto = detectTable(complete || tail.length === 0 ? preview : [...preview, [""], ...tail]);
   const reasons = (auto.review ?? []).map((reason) => reason.message);
-  if (reasons.length === 0) return null;
+  if (reasons.length === 0) {
+    onRead?.(auto);
+    return null;
+  }
   const result = await openHeaderRowDialog({
     name: source.name,
     preview,

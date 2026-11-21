@@ -105,9 +105,10 @@ import {
   ingestDataset,
   ingestDatasetAsync,
   ingestFilesAsync,
+  type IngestProgress,
   type IngestResult,
 } from "./ingest.js";
-import type { CleanColumnsRequest, ClearExcludedRowsRequest, ColumnDetail, ColumnMeta, FileImportMeta, DropRowsRequest, FinalizeStatsRequest, CompareLoadRequest, CompareRunRequest, CompareRowsRequest, CompareDiffsRequest, CompareFindRequest, CompareSetupRequest, CompareSideInfo, GetRowsRequest, GetRowIdsRequest, FindRowRequest, GetOrderRequest, PreviewFormulaRequest, RowLimit, GetStatsRequest, GetChartBinsRequest, GetGroupedBinsRequest, GetMissingnessRequest, GetChartSeriesRequest, GetBoxStatsRequest, GetSliceBreakdownRequest, GetCrosstabRequest, GetCorrelationRequest, GetAggregateRequest, GetPivotRequest, GetCoMissingnessRequest, GetGroupAnomaliesRequest, GetOutlierAnalysisRequest, GetDependenciesRequest, GetRelationshipsRequest, GetTimeSeriesRequest, GetColumnNetworkRequest, GetTextProfileRequest, GetColumnSampleRequest, GetValueSuggestionsRequest, ScanSensitiveRequest, GetRowsAffectedRequest, GetExceptionsRequest, QualityReportXlsxRequest, GetDistributionChangesRequest, GetSimilarClustersRequest, GetGridCountsRequest, GetAnimationRequest, GetErrorBarsRequest, GetRegionValuesRequest, SuggestRegionJoinRequest, LoadRequest, PreviewCleanRequest, KnnEvaluateRequest, KnnPlanRequest, PreviewSample, PreviewTransformRequest, RenameHeadersRequest, ResolveNullsAllRequest, SetFilterRequest, SetFiltersRequest, SetNullPolicyRequest, SetNumberLocaleRequest, SetTypeRequest, CheckKeyDuplicatesRequest, CheckPairRequest, EvaluateRulesRequest, SortRequest, SpecialKind, ProgressPhase, TransformRequest, TransformPreviewNote, WorkerRequest, WorkerResponse } from "./protocol.js";
+import type { CleanColumnsRequest, ClearExcludedRowsRequest, ColumnDetail, ColumnMeta, FileImportMeta, DropRowsRequest, FinalizeStatsRequest, CompareLoadRequest, CompareRunRequest, CompareRowsRequest, CompareDiffsRequest, CompareFindRequest, CompareSetupRequest, CompareSideInfo, GetRowsRequest, GetRowIdsRequest, FindRowRequest, GetOrderRequest, PreviewFormulaRequest, RowLimit, GetStatsRequest, GetChartBinsRequest, GetGroupedBinsRequest, GetMissingnessRequest, GetChartSeriesRequest, GetBoxStatsRequest, GetSliceBreakdownRequest, GetCrosstabRequest, GetCorrelationRequest, GetAggregateRequest, GetPivotRequest, GetCoMissingnessRequest, GetGroupAnomaliesRequest, GetOutlierAnalysisRequest, GetDependenciesRequest, GetRelationshipsRequest, GetTimeSeriesRequest, GetColumnNetworkRequest, GetTextProfileRequest, GetColumnSampleRequest, GetValueSuggestionsRequest, ScanSensitiveRequest, GetRowsAffectedRequest, GetExceptionsRequest, QualityReportXlsxRequest, GetDistributionChangesRequest, GetSimilarClustersRequest, GetGridCountsRequest, GetAnimationRequest, GetErrorBarsRequest, GetRegionValuesRequest, SuggestRegionJoinRequest, LoadRequest, PreviewCleanRequest, KnnEvaluateRequest, KnnPlanRequest, PreviewSample, PreviewTransformRequest, RenameHeadersRequest, ResolveNullsAllRequest, SetFilterRequest, SetFiltersRequest, SetNullPolicyRequest, SetNumberLocaleRequest, SetTypeRequest, CheckKeyDuplicatesRequest, CheckPairRequest, EvaluateRulesRequest, SortRequest, SpecialKind, TransformRequest, TransformPreviewNote, WorkerRequest, WorkerResponse } from "./protocol.js";
 
 const scope = self as unknown as {
   onmessage: ((event: MessageEvent<WorkerRequest>) => void) | null;
@@ -270,26 +271,11 @@ const FIRST_PAGE_ROWS = 40;
 const loadProgressGate = createProgressThrottle(250);
 
 /** Progress tied to one load, so the client can drop messages from old loads. */
-function postLoadProgress(
-  requestId: number,
-  progress: {
-    phase: ProgressPhase;
-    detail?: string;
-    current?: number;
-    total?: number;
-  },
-): void {
+function postLoadProgress(requestId: number, progress: IngestProgress): void {
   // A few reports a second keep the main thread free; a new phase always goes out.
   const finished = progress.current !== undefined && progress.current === progress.total;
   if (!loadProgressGate(`${requestId}:${progress.phase}`, finished)) return;
-  post({
-    type: "progress",
-    requestId,
-    phase: progress.phase,
-    detail: progress.detail,
-    current: progress.current,
-    total: progress.total,
-  });
+  post({ ...progress, type: "progress", requestId });
 }
 
 function post(message: WorkerResponse, transfer?: Transferable[]): void {
@@ -813,13 +799,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
           maxRows: message.maxRows,
           headerLayout: message.headerLayout,
           deferStats: message.deferStats,
-          onProgress: (progress) =>
-            postLoadProgress(message.requestId, {
-              phase: progress.phase,
-              detail: progress.detail,
-              current: progress.current,
-              total: progress.total,
-            }),
+          onProgress: (progress) => postLoadProgress(message.requestId, progress),
         },
         { cancelled },
       );
@@ -836,12 +816,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
         grid.headers,
         grid.rows,
         (progress) =>
-          postLoadProgress(message.requestId, {
-            phase: progress.phase ?? "build",
-            detail: progress.detail,
-            current: progress.current,
-            total: progress.total,
-          }),
+          postLoadProgress(message.requestId, { ...progress, phase: progress.phase ?? "build" }),
         "dot",
         { shouldCancel: cancelled, deferStats: message.deferStats },
       );
@@ -876,18 +851,7 @@ async function handleLoad(message: LoadRequest): Promise<void> {
         maxRows: message.maxRows,
         headerLayout: message.headerLayout,
         deferStats: message.deferStats,
-        onProgress: (progress: {
-          phase: ProgressPhase;
-          detail?: string;
-          current?: number;
-          total?: number;
-        }) =>
-          postLoadProgress(message.requestId, {
-            phase: progress.phase,
-            detail: progress.detail,
-            current: progress.current,
-            total: progress.total,
-          }),
+        onProgress: (progress: IngestProgress) => postLoadProgress(message.requestId, progress),
       };
       ingested = cancellable
         ? await ingestDatasetAsync(options, { cancelled })

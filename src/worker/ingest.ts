@@ -13,9 +13,9 @@ import {
   type RaggedInfo,
 } from "../parse/parse.js";
 import type { Delimiter } from "../parse/delimiter.js";
-import type { FileImportMeta, ProgressPhase } from "./protocol.js";
+import type { FileImportMeta, LoadProgressFacts, ProgressPhase } from "./protocol.js";
 
-export interface IngestProgress {
+export interface IngestProgress extends LoadProgressFacts {
   phase: ProgressPhase;
   detail?: string;
   current?: number;
@@ -79,12 +79,7 @@ function buildProgress(options: IngestOptions): (progress: {
   phase?: "build" | "stats";
 }) => void {
   return (progress) => {
-    options.onProgress?.({
-      phase: progress.phase ?? "build",
-      detail: progress.detail,
-      current: progress.current,
-      total: progress.total,
-    });
+    options.onProgress?.({ ...progress, phase: progress.phase ?? "build" });
   };
 }
 
@@ -234,6 +229,7 @@ async function prepareGridAsync(
           detail: `Reading rows: ${rows.toLocaleString()} so far`,
           current: chars,
           total,
+          rows,
         }),
     },
   );
@@ -273,7 +269,7 @@ export async function ingestDatasetAsync(
 ): Promise<IngestResult | null> {
   const prepared = await prepareGridAsync(options, control);
   if (prepared === null) return null;
-  options.onProgress?.({ phase: "infer", detail: "Inferring schema…" });
+  options.onProgress?.({ phase: "infer", detail: "Inferring schema…", headers: prepared.headers, rows: prepared.rows.length });
   const dataset = await buildDatasetAsync(
     options.name,
     prepared.headers,
@@ -390,7 +386,7 @@ export async function ingestFilesAsync(
     if (control.cancelled?.() === true) return null;
   }
 
-  options.onProgress?.({ phase: "infer", detail: "Inferring schema." });
+  options.onProgress?.({ phase: "infer", detail: "Inferring schema.", headers, rows: rows.length });
   const dataset = await buildDatasetAsync(
     options.name,
     headers,

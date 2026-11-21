@@ -19,6 +19,7 @@ import { combineSheets, type SheetGrid } from "../parse/combine-sheets.js";
 import { renderSheetPicker } from "./sheet-picker.js";
 import { openHeaderRowDialog } from "./header-row-dialog.js";
 import { bufferLayoutSource, checkLayoutBeforeLoad, type LayoutCheckSource } from "./layout-check.js";
+import { LoadCard } from "./load-card.js";
 import { openProtectDialog, type ProtectMode } from "./protect-dialog.js";
 import { openFixPreview } from "./fix-preview-dialog.js";
 import { fixReportText, planFixes, runFixPlan, type PlannedFix } from "./fix-apply.js";
@@ -730,8 +731,8 @@ export class App {
   private pendingEditRestore: { row: number; column: number } | null = null;
   /** A column just added: scrolled to and flashed once the new table arrives. */
   private pendingFlashName: string | null = null;
-
   private pasteView!: HTMLElement;
+  private readonly loadCard = new LoadCard(() => this.cancelLoad());
   private pasteCancel!: HTMLButtonElement;
   private workspace!: HTMLElement;
   private textarea!: HTMLTextAreaElement;
@@ -1294,7 +1295,7 @@ export class App {
     singlePane.append(sampleButton);
 
     // The main show is the card; the Swiss Army knife (About) and Version sit quietly beneath it.
-    view.append(buildFrontHero(card), buildAbout(), buildVersion());
+    view.append(buildFrontHero(card), buildAbout(), buildVersion(), this.loadCard.element);
     return view;
   }
 
@@ -2715,6 +2716,7 @@ export class App {
     // The table underneath is about to be replaced: show it as such, not live and idle.
     this.workspace.classList.add("is-replacing");
     this.loadTicker ??= window.setInterval(() => this.renderLoadDetail(), 500);
+    if (!this.pasteView.classList.contains("hidden")) this.loadCard.start(name, bytes); // A front-page load gets the card, if still running a moment later.
   }
 
   /** Stops the in-flight import at the worker's next checkpoint. */
@@ -2728,6 +2730,7 @@ export class App {
   private hideLoadProgress(): void {
     const wasShown = !this.loadPanel.classList.contains("hidden");
     this.loadPanel.classList.add("hidden");
+    this.loadCard.stop();
     this.workspace.classList.remove("is-replacing");
     if (this.loadTicker !== null) window.clearInterval(this.loadTicker);
     this.loadTicker = null;
@@ -2763,6 +2766,7 @@ export class App {
   }
 
   private handleProgress(progress: ProgressMessage): void {
+    this.loadCard.update(progress);
     if (progress.phase === "read" || progress.phase === "parse" || progress.phase === "infer") {
       const fallback =
         progress.phase === "read"
@@ -7571,7 +7575,7 @@ export class App {
 
   /** An unusual table is checked by the person before its first load (see layout-check.ts). */
   private async checkLayoutBeforeLoad(source: LayoutCheckSource): Promise<HeaderLayout | null | "cancel"> {
-    const checked = this.headersCheckbox.checked ? await checkLayoutBeforeLoad(source, HEADER_PREVIEW_ROWS) : null;
+    const checked = this.headersCheckbox.checked ? await checkLayoutBeforeLoad(source, HEADER_PREVIEW_ROWS, (table) => this.loadCard.setPeek(table.headers, table.rows)) : null;
     if (checked !== "cancel") return checked;
     this.hideLoadProgress();
     this.setAction(`${source.name} was not loaded.`);
