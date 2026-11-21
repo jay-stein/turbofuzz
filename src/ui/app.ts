@@ -225,7 +225,8 @@ import { timeDimension, type TsViewSource } from "../data/timeseries/view-source
 import { fuzzyRank } from "../search/fuzzy-match.js";
 import { createMapPage, type MapPageHandle } from "./map-page.js";
 import { buildAbout, buildVersion } from "./about.js";
-import { FrontCompare, FrontSwitch, buildStackGuide, type FrontMode } from "./front-page.js";
+import { FrontCompare, FrontSwitch, type FrontMode } from "./front-page.js";
+import { buildFileTypeIcons, buildFrontHero } from "./front-showcase.js";
 import {
   coMissingnessFindings,
   distributionFindings,
@@ -357,8 +358,8 @@ function sheetGapNote(gaps: readonly { column: string; missingIn: string[] }[]):
 /** The front page's heading and line for each mode. */
 const FRONT_COPY: Record<FrontMode, { title: string; sub: string }> = {
   single: {
-    title: "Clean, reshape and explore a table",
-    sub: "Drop a messy CSV or Excel file, or several with the same columns to stack into one. Type-aware cleanup, transforms and search, all offline: nothing leaves this tab.",
+    title: "Drop a messy table. Get answers in minutes.",
+    sub: "A CSV or Excel file, or several with the same columns to stack into one. It cleans the mess, flags what is odd and charts what matters, all in this tab: nothing is uploaded.",
   },
   compare: {
     title: "See what changed between two tables",
@@ -1141,11 +1142,6 @@ export class App {
     this.frontTitle = el("h1", {}, [FRONT_COPY.single.title]);
     this.frontSub = el("p", { class: "sub" }, [FRONT_COPY.single.sub]);
     card.append(el("div", { class: "paste-head" }, [this.frontTitle, this.pasteCancel]), this.frontSub);
-    singlePane.append(
-      el("p", { class: "sub sub-formats" }, [
-        "CSV · TSV · PSV · JSON · Excel (.xlsx/.xls) · Parquet · ZIP/GZ/BZ2 — limited only by your browser's memory.",
-      ]),
-    );
 
     const dropzone = el("div", {
       class: "dropzone",
@@ -1166,7 +1162,7 @@ export class App {
         "0 bytes uploaded · 0 network requests — files are parsed in this browser",
       ]),
     ]);
-    singlePane.append(dropzone);
+    singlePane.append(dropzone, buildFileTypeIcons());
     card.append(singlePane, this.comparePane, privacy);
 
     this.loadPanel = el("div", {
@@ -1295,10 +1291,10 @@ export class App {
       this.sampleRequested = true;
       void this.loadFromTextarea();
     });
-    singlePane.append(sampleButton, buildStackGuide());
+    singlePane.append(sampleButton);
 
     // The main show is the card; the Swiss Army knife (About) and Version sit quietly beneath it.
-    view.append(card, buildAbout(), buildVersion());
+    view.append(buildFrontHero(card), buildAbout(), buildVersion());
     return view;
   }
 

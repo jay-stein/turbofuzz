@@ -11,7 +11,7 @@ test("loads a small CSV and shows columns and rows", async ({ page }, testInfo) 
 
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Clean, reshape and explore a table" }),
+    page.getByRole("heading", { name: "Drop a messy table. Get answers in minutes." }),
   ).toBeVisible();
 
   await page.locator('input[type="file"]').setInputFiles({
