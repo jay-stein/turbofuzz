@@ -97,10 +97,13 @@ function prepareGrid(
   done?: { encoding: FileEncoding | null; parsed: ParsedTable; replaced?: ReplacedChars },
 ): PreparedGrid {
   if (options.table !== undefined) {
-    const { headers, rows, ragged } = structureTable(
-      options.table.rows,
-      options.table.hasHeaders,
+    // Blank rows are spacing in a worksheet (a gap under the header, between sections), not records:
+    // drop them as a delimited file's empty lines are, so a sheet never loads rows of nothing.
+    const hasHeaders = options.table.hasHeaders;
+    const kept = options.table.rows.filter(
+      (row, index) => (hasHeaders && index === 0) || row.some((cell) => cell.trim() !== ""),
     );
+    const { headers, rows, ragged } = structureTable(kept, hasHeaders);
     return { headers, rows, encoding: null, delimiter: null, ragged, numberPrior: "dot" };
   }
 

@@ -102,3 +102,10 @@ test("look-alike: a properly quoted multi-line cell is still one cell", () => {
   assert.equal(parsed.rows.length, 3);
   assert.equal(parsed.rows[1]![1], "line one\nline two");
 });
+
+test("blank worksheet rows (a gap under the header, between sections) are not loaded as empty records", () => {
+  const rows = [["id", "name", "price"], ["", "", ""], ["1", "a", "10"], ["2", "b", "20"], ["", " ", ""], ["3", "c", "30"]];
+  const { dataset } = ingestDataset({ name: "sheet", delimiter: "auto", hasHeaders: true, table: { rows, hasHeaders: true } });
+  assert.equal(dataset.rowCount, 3);
+  assert.deepEqual(dataset.columns[0]!.raw, ["1", "2", "3"]);
+});
