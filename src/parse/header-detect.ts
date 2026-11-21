@@ -39,6 +39,8 @@ export interface HeaderLayout {
 }
 
 const MAX_SCAN_ROWS = 25;
+/** How far down the scan may reach past empty rows looking for MAX_SCAN_ROWS filled ones. */
+const MAX_SCAN_DEPTH = 500;
 const MAX_SCAN_COLUMNS = 300;
 const DATA_LOOKAHEAD = 5;
 const MIN_SCORE = 2.5;
@@ -94,6 +96,73 @@ function numericDataBelow(grid: readonly string[][], index: number): number {
   return best;
 }
 
+const WHOLE_CELL = /^['"]?(\d{1,4})['"]?$/;
+const YEAR = /^(?:1[6-9]|20|21)\d\d$/;
+
+/**
+ * True when a row's numbers are labels rather than a record: a run of years stepping evenly left to
+ * right ("1960 | 1961 | …", "2015 | 2020 | 2025", at least three), or a count 0, 1, 2, … across five or
+ * more columns (the column numbers some sheets keep above their header for lookups).
+ */
+function isSequenceRow(row: readonly string[]): boolean {
+  return sequenceKind(row) !== null;
+}
+
+/** "years" for a header of years, "count" for a row of column numbers 0, 1, 2, …; null otherwise. */
+function sequenceKind(row: readonly string[]): "years" | "count" | null {
+  const values: number[] = [];
+  let numbers = 0;
+  const limit = Math.min(row.length, MAX_SCAN_COLUMNS);
+  for (let i = 0; i < limit; i++) {
+    const cell = (row[i] ?? "").trim();
+    if (cell === "" || !isNumericCell(cell)) continue;
+    numbers++;
+    const whole = WHOLE_CELL.exec(cell);
+    if (whole !== null) values.push(Number(whole[1]));
+  }
+  if (values.length < 3 || values.length * 4 < numbers * 3) return null;
+  if (values.every((value) => YEAR.test(String(value)))) {
+    // Years may repeat in groups under a super-header ("2021 … 2025 | 2021 … 2025"): each group steps evenly
+    // by 1-10 years, a step back starts the next group, and at least one group holds three or more years.
+    let step = 0;
+    let run = 1;
+    let longest = 1;
+    for (let i = 1; i < values.length; i++) {
+      const diff = values[i]! - values[i - 1]!;
+      if (diff <= 0) {
+        step = 0;
+        run = 1;
+        continue;
+      }
+      if (diff > 10 || (step !== 0 && diff !== step)) return null;
+      step = diff;
+      run++;
+      longest = Math.max(longest, run);
+    }
+    // One year in every column under different headings ("2025 | 2025 | 2025") labels them too.
+    const single = values.length >= 3 && values.every((value) => value === values[0]);
+    return longest >= 3 || single ? "years" : null;
+  }
+  const step = values[1]! - values[0]!;
+  for (let i = 2; i < values.length; i++) if (values[i]! - values[i - 1]! !== step) return null;
+  return step === 1 && values.length >= 5 ? "count" : null;
+}
+
+/**
+ * The rows the scoring looks at, with a sequence row's numbers read as labels ("1960" -> "y1960"), so a
+ * header of years (or a row of column numbers) neither scores as numbers nor matches the shape of the
+ * figures under it. Column names still come from the real grid.
+ */
+function scoringGrid(grid: readonly string[][], rows: number): string[][] {
+  const scan: string[][] = [];
+  const limit = Math.min(grid.length, rows);
+  for (let index = 0; index < limit; index++) {
+    const row = grid[index] ?? [];
+    scan.push(isSequenceRow(row) ? row.map((cell) => (WHOLE_CELL.test(cell.trim()) ? `y${cell.trim()}` : cell)) : (row as string[]));
+  }
+  return scan;
+}
+
 /** A cell's outline: letter runs become "a", digit runs "9", punctuation kept ("TXN100379" → "a9", "02/11/2023" → "9/9/9"). */
 function cellShape(cell: string): string {
   return cell.trim().replace(/\p{L}+/gu, "a").replace(/\d+/g, "9").replace(/\s+/g, " ");
@@ -135,6 +204,30 @@ function shapeLikeBelow(grid: readonly string[][], index: number): number {
     if (seen > 0 && same * 2 > seen) alike++;
   }
   return filled === 0 ? 0 : alike / filled;
+}
+
+/**
+ * Share of a row's labels standing over a column that is filled in at least half of the next value rows
+ * (up to SHAPE_LOOKAHEAD rows of mostly numbers). 1 when there are no value rows to judge by.
+ */
+function coverageBelow(grid: readonly string[][], index: number): number {
+  const below: (readonly string[])[] = [];
+  for (let next = index + 1; next < grid.length && below.length < SHAPE_LOOKAHEAD; next++) {
+    const candidate = grid[next] ?? [];
+    if (!isEmptyRow(candidate) && profileOf(candidate).numeric > 0) below.push(candidate);
+  }
+  if (below.length < 2) return 1;
+  const row = grid[index] ?? [];
+  let labels = 0;
+  let covered = 0;
+  for (let column = 0; column < Math.min(row.length, MAX_SCAN_COLUMNS); column++) {
+    if ((row[column] ?? "").trim() === "") continue;
+    labels++;
+    let filled = 0;
+    for (const other of below) if ((other[column] ?? "").trim() !== "") filled++;
+    if (filled * 2 >= below.length) covered++;
+  }
+  return labels === 0 ? 0 : covered / labels;
 }
 
 function mergeHeaders(grid: readonly string[][], start: number, count: number, columns: number): string[] {
@@ -227,16 +320,28 @@ function bodyIsNumeric(rows: readonly string[][]): boolean {
  * and is only cut when that run holds a blank row or a "Notes"/"Source" line,
  * so a lone odd last record is kept.
  */
+/** How many cells the first records usually fill (the median): a sheet's width can be set by stray cells far to the right. */
+function typicalFilled(rows: readonly string[][], width: number): number {
+  const counts: number[] = [];
+  for (let index = 0; index < rows.length && counts.length < BODY_SAMPLE_ROWS; index++) {
+    if (!isEmptyRow(rows[index])) counts.push(filledCount(rows[index]));
+  }
+  if (counts.length === 0) return width;
+  counts.sort((a, b) => a - b);
+  return Math.min(width, counts[counts.length >> 1]!);
+}
+
 function footerStart(rows: readonly string[][], width: number): number {
   for (let index = Math.max(0, rows.length - FOOTER_SCAN_ROWS); index < rows.length; index++) {
     const row = rows[index];
     if (index > 0 && filledCount(row) === 1 && FOOTER_HEADING.test((row[0] ?? "").trim())) return index;
   }
   const numeric = bodyIsNumeric(rows);
+  const typical = typicalFilled(rows, width);
   let last = rows.length;
   while (last > 0) {
     const row = rows[last - 1];
-    const record = !isEmptyRow(row) && filledCount(row) * 2 >= width && (!numeric || hasNumberBeyondFirst(row));
+    const record = !isEmptyRow(row) && filledCount(row) * 2 >= typical && (!numeric || hasNumberBeyondFirst(row));
     if (record) break;
     last--;
   }
@@ -281,6 +386,22 @@ function applyDataEnd(
     if (blank !== -1) stop = blank;
   } else if (end === "auto") {
     stop = footerStart(rows, width);
+    // Notes after a table are a small block at its end. Unless the block opens with "Notes", "Source" or
+    // the like, a "footer" holding most of the filled rows is a misreading of the table's shape, and
+    // cutting it would silently empty the table: keep everything.
+    let filledBefore = 0;
+    let filledAfter = 0;
+    let opening = "";
+    for (let index = 0; index < rows.length; index++) {
+      if (isEmptyRow(rows[index])) continue;
+      if (index < stop) filledBefore++;
+      else {
+        if (filledAfter === 0) opening = (rows[index].find((cell) => cell.trim() !== "") ?? "").trim();
+        filledAfter++;
+      }
+    }
+    const marked = FOOTER_MARKER.test(opening) || FOOTER_HEADING.test(opening);
+    if (!marked && filledAfter > filledBefore) stop = rows.length;
     // A summary block is a handful of rows. When most of the table starts with "Total ..."
     // (every row of a "Total Nacional" file does), those are data, not a footer.
     const totals = totalRowsStart(rows, stop);
@@ -364,17 +485,134 @@ export function rowLooksLikeData(grid: readonly string[][], index: number): bool
 
 /** True when any non-empty row above `bestIndex` is a full-width record or looks like the rows below it. */
 function skippedRowsAreRecords(grid: readonly string[][], bestIndex: number, width: number): boolean {
-  if (width < 3) return false;
+  return firstRecordAbove(grid, bestIndex, width) !== -1;
+}
+
+/** The first non-empty row above `bestIndex` that is a full-width record or looks like the rows below it, or -1. */
+function firstRecordAbove(grid: readonly string[][], bestIndex: number, width: number): number {
+  if (width < 3) return -1;
   for (let row = 0; row < bestIndex; row++) {
     const cells = grid[row] ?? [];
     const filled = filledCount(cells);
     if (filled === 0) continue;
     // One label repeated across the row is a merged title, however wide.
     if (new Set(cells.filter((cell) => cell.trim() !== "").map((cell) => cell.trim())).size === 1) continue;
-    if (populatedExtent(cells) >= width && filled >= width) return true;
-    if (filled >= 3 && rowLooksLikeData(grid, row)) return true;
+    // A text row repeating a label into the next cell is a merged super-header ("Estimates | Estimates"), not a record.
+    if (profileOf(cells).numeric === 0 && repeatsNeighbour(cells)) continue;
+    if (populatedExtent(cells) >= width && filled >= width) return row;
+    if (filled >= 3 && rowLooksLikeData(grid, row)) return row;
+  }
+  return -1;
+}
+
+/** A row of values: two or more filled cells, at least half of them numbers. */
+function isValueRow(row: readonly string[]): boolean {
+  const profile = profileOf(row);
+  return profile.populated >= 2 && profile.numeric * 2 >= profile.populated;
+}
+
+/** An upper header level spans the columns under it: blanks inside its reach, or the same label in neighbouring cells. */
+function spansColumns(row: readonly string[]): boolean {
+  const extent = populatedExtent(row);
+  for (let i = 0; i < extent; i++) {
+    const cell = (row[i] ?? "").trim();
+    if (cell === "") return true;
+    if (i > 0 && cell === (row[i - 1] ?? "").trim()) return true;
   }
   return false;
+}
+
+/** Most of an upper row's labels stand over a named column of the header row below. */
+function labelsOverColumns(upper: readonly string[], header: readonly string[]): boolean {
+  let labels = 0;
+  let over = 0;
+  for (let i = 0; i < Math.min(upper.length, MAX_SCAN_COLUMNS); i++) {
+    if ((upper[i] ?? "").trim() === "") continue;
+    labels++;
+    if ((header[i] ?? "").trim() !== "") over++;
+  }
+  return labels > 0 && over * 2 > labels;
+}
+
+/** The same label in two neighbouring cells, as a merged cell reads once expanded. */
+function repeatsNeighbour(row: readonly string[]): boolean {
+  for (let i = 1; i < row.length; i++) {
+    const cell = (row[i] ?? "").trim();
+    if (cell !== "" && cell === (row[i - 1] ?? "").trim()) return true;
+  }
+  return false;
+}
+
+/** One label repeated in every filled cell: a merged title spread across the row. */
+function isMergedTitle(row: readonly string[]): boolean {
+  return new Set(row.filter((cell) => cell.trim() !== "").map((cell) => cell.trim())).size === 1;
+}
+
+const MIN_METADATA_ROWS = 4;
+
+/**
+ * The layout of published time series (central banks, statistics offices): a header row, then a block of
+ * "Label | value per column" rows (Description, Frequency, Units, Source, Series ID…), then dated records.
+ * The header is the block's first wide row; the rest of the block sits between it and the data. Found only
+ * when every label in the block is a word without digits, there are at least four of them, and the records'
+ * first column has one digit-bearing shape (dates, periods), so ordinary records are never mistaken for it.
+ */
+function metadataBlock(scan: readonly string[][], width: number): { header: number; data: number } | null {
+  let data = -1;
+  for (let row = 0; row < Math.min(scan.length, MAX_SCAN_ROWS); row++) {
+    if (!isValueRow(scan[row] ?? [])) continue;
+    let following = 0;
+    let fine = true;
+    for (let next = row + 1; next < scan.length && following < 2; next++) {
+      if (isEmptyRow(scan[next] ?? [])) continue;
+      following++;
+      if (!isValueRow(scan[next] ?? [])) fine = false;
+    }
+    if (fine && following === 2) {
+      data = row;
+      break;
+    }
+  }
+  if (data < MIN_METADATA_ROWS) return null;
+  const firstShapes = new Map<string, number>();
+  let sampled = 0;
+  for (let row = data; row < scan.length && sampled < SHAPE_LOOKAHEAD; row++) {
+    const first = (scan[row]?.[0] ?? "").trim();
+    if (first === "") continue;
+    sampled++;
+    const shape = cellShape(first);
+    firstShapes.set(shape, (firstShapes.get(shape) ?? 0) + 1);
+  }
+  const [dataShape, count] = [...firstShapes.entries()].sort((a, b) => b[1] - a[1])[0] ?? ["", 0];
+  if (sampled < 3 || count * 5 < sampled * 4 || !hasDigitShape(dataShape)) return null;
+
+  let header = -1;
+  let blanks = 0;
+  for (let row = data - 1; row >= 0; row--) {
+    const cells = scan[row] ?? [];
+    if (isEmptyRow(cells)) {
+      if (++blanks > 2) break;
+      continue;
+    }
+    blanks = 0;
+    if (isMergedTitle(cells) && filledCount(cells) > 1) break;
+    const first = (cells[0] ?? "").trim();
+    const wide = populatedExtent(cells) * 5 >= width * 3 && !isValueRow(cells);
+    const labelOnly = first !== "" && filledCount(cells) === 1;
+    if (!wide && !labelOnly) break;
+    if (wide) header = row;
+  }
+  if (header === -1) return null;
+  // The labels of the rows under the header (the header's own first cell names the date column, or is blank).
+  const metadata: string[] = [];
+  for (let row = header + 1; row < data; row++) {
+    const cells = scan[row] ?? [];
+    if (!isEmptyRow(cells)) metadata.push((cells[0] ?? "").trim());
+  }
+  if (metadata.length < MIN_METADATA_ROWS - 1) return null;
+  if (metadata.some((label) => label === "" || label.length > 40 || /\d/.test(label))) return null;
+  if (new Set(metadata.map((label) => label.toLowerCase())).size !== metadata.length) return null;
+  return { header, data };
 }
 
 /** Applies a user-chosen layout; no guessing. Column count comes from the widest row seen. */
@@ -476,15 +714,22 @@ export function detectTable(grid: readonly string[][], layout?: HeaderLayout): D
     footerRows: 0,
     title: null,
   };
-  const scanRows = Math.min(grid.length, MAX_SCAN_ROWS);
+  // The first MAX_SCAN_ROWS filled rows: a chart or a gap above the table (a report sheet) leaves
+  // empty rows that would otherwise use up the scan before the header is reached.
+  let scanRows = 0;
+  for (let filled = 0; scanRows < Math.min(grid.length, MAX_SCAN_DEPTH) && filled < MAX_SCAN_ROWS; scanRows++) {
+    if (!isEmptyRow(grid[scanRows] ?? [])) filled++;
+  }
   if (scanRows === 0) return empty;
+  // What the scoring reads: the scanned rows plus enough below them to look ahead, years in a header row as labels.
+  const scan = scoringGrid(grid, scanRows + SHAPE_LOOKAHEAD + DATA_LOOKAHEAD + 20);
 
   let width = 0;
   const profiles: RowProfile[] = [];
   const extents: number[] = [];
   for (let row = 0; row < scanRows; row++) {
-    const profile = profileOf(grid[row] ?? []);
-    const extent = populatedExtent(grid[row] ?? []);
+    const profile = profileOf(scan[row] ?? []);
+    const extent = populatedExtent(scan[row] ?? []);
     profiles.push(profile);
     extents.push(extent);
     width = Math.max(width, extent);
@@ -510,18 +755,34 @@ export function detectTable(grid: readonly string[][], layout?: HeaderLayout): D
     };
   };
 
+  const meta = metadataBlock(scan, width);
+  if (meta !== null) {
+    return finish(meta.header, 1, meta.data - meta.header - 1, mergeHeaders(grid, meta.header, 1, width));
+  }
+
+  /** The next filled row is a row of values: the header sits right above the data. */
+  const nextIsValues = (row: number): boolean => {
+    for (let next = row + 1; next < scan.length; next++) {
+      if (!isEmptyRow(scan[next] ?? [])) return isValueRow(scan[next] ?? []);
+    }
+    return false;
+  };
+
   let bestIndex = -1;
   let bestScore = 0;
   let bestRank = -Infinity;
+  const candidates: { row: number; score: number; rank: number }[] = [];
   for (let row = 0; row < scanRows; row++) {
     const profile = profiles[row];
     if (profile.populated < 2) continue;
     // One label repeated in every filled cell is a merged title spread across
     // the row (Excel "Q1 payments" over A1:D1), never a set of column names.
-    if (new Set((grid[row] ?? []).filter((cell) => cell.trim() !== "").map((cell) => cell.trim())).size === 1) continue;
+    if (isMergedTitle(scan[row] ?? [])) continue;
+    // A row of column numbers (0, 1, 2, …) is lookup scaffolding above the real header, never the header.
+    if (sequenceKind(grid[row] ?? []) === "count") continue;
     const textRatio = profile.text / profile.populated;
     const widthRatio = width > 0 ? profile.populated / width : 0;
-    const below = numericDataBelow(grid, row);
+    const below = numericDataBelow(scan, row);
     const selfNumbers = profile.numeric / profile.populated;
     const score = textRatio * 2 + widthRatio * 2 + below * 3 - selfNumbers * 3;
     if (score < MIN_SCORE) continue;
@@ -530,8 +791,14 @@ export function detectTable(grid: readonly string[][], layout?: HeaderLayout): D
     // scores as well as the real header, but its cells share the shape of the
     // cells below. Only ranks candidates; whether there is a header at all
     // still rests on the score alone.
-    const rank = score - shapeLikeBelow(grid, row) * 3;
-    if (rank > bestRank) {
+    // A header names columns that hold data: a row whose labels mostly stand over columns left empty
+    // below (a menu of links above the table) counts against itself.
+    const coverage = coverageBelow(scan, row);
+    const rank = score - shapeLikeBelow(scan, row) * 3 - (coverage < 0.6 ? (1 - coverage) * 3 : 0);
+    // On a tie, the row right above the figures wins over label rows higher up ("Sourcekey | RWTC" over "Date | Price").
+    const tie = Math.abs(rank - bestRank) < 1e-9 && nextIsValues(row) && !nextIsValues(bestIndex);
+    candidates.push({ row, score, rank });
+    if (rank > bestRank + 1e-9 || tie) {
       bestRank = rank;
       bestScore = score;
       bestIndex = row;
@@ -543,7 +810,7 @@ export function detectTable(grid: readonly string[][], layout?: HeaderLayout): D
     if (firstNonEmpty === -1) return empty;
     // No row reads as a header and the first record is as numeric as the ones
     // below it: a header-less table. Keep every record and name the columns.
-    if (isHeaderlessNumeric(grid, firstNonEmpty)) {
+    if (isHeaderlessNumeric(scan, firstNonEmpty)) {
       return finish(
         firstNonEmpty,
         0,
@@ -556,24 +823,47 @@ export function detectTable(grid: readonly string[][], layout?: HeaderLayout): D
 
   // A title is a short note above the table. Rows above the best header that are full records (as wide
   // as the table, or shaped like the rows below) mean the file has no header: every row is data.
-  if (skippedRowsAreRecords(grid, bestIndex, width)) {
-    return finish(0, 0, 0, Array.from({ length: width }, (_, index) => `Column ${index + 1}`));
+  const record = firstRecordAbove(scan, bestIndex, width);
+  if (record !== -1) {
+    // Records above the best header: either the file has no header, or the sheet stacks tables and the
+    // best header belongs to a later one. A header candidate above those records starts the first table.
+    let earlier: { row: number; score: number; rank: number } | null = null;
+    for (const candidate of candidates) {
+      if (candidate.row < record && (earlier === null || candidate.rank > earlier.rank)) earlier = candidate;
+    }
+    if (earlier === null) {
+      return finish(0, 0, 0, Array.from({ length: width }, (_, index) => `Column ${index + 1}`));
+    }
+    bestIndex = earlier.row;
+    bestScore = earlier.score;
   }
 
   let headerRows = 1;
   let headerStart = bestIndex;
   let skipAfter = 0;
-  const dataFollows = numericDataBelow(grid, bestIndex) > 0.3;
+  const dataFollows = numericDataBelow(scan, bestIndex) > 0.3;
   if (dataFollows) {
     // Extend upward into merged super-headers (at most two rows). Such rows
-    // are text-only and reach into the right half of the table, e.g. "Sales"
-    // spanning two columns. A "Label | value" line that stops after a column or
-    // two is table metadata, not a header level.
-    while (headerStart > 0 && bestIndex - headerStart < 2) {
-      const profile = profiles[headerStart - 1];
+    // are text-only, reach into the right half of the table and span columns,
+    // e.g. "Sales" over two columns (blank beside it, or repeated by a merge).
+    // A "Label | value" line that stops after a column or two is table metadata,
+    // a merged title is one label across the row, and a row of distinct labels
+    // in every cell ("Sourcekey | RWTC") names nothing below it: none is a level.
+    let levelsAbove = 0;
+    while (headerStart > 0 && levelsAbove < 2) {
+      // One blank row may sit between a super-header and the row it spans.
+      const gap = isEmptyRow(scan[headerStart - 1] ?? []) && headerStart > 1 ? 1 : 0;
+      const index = headerStart - 1 - gap;
+      const profile = profiles[index];
+      const above = scan[index] ?? [];
       if (profile === undefined || profile.populated < 2 || profile.numeric > 0) break;
-      if (extents[headerStart - 1] * 5 < width * 3) break;
-      headerStart--;
+      if (extents[index] * 5 < width * 3) break;
+      if (isMergedTitle(above) || !spansColumns(above)) break;
+      if (sequenceKind(grid[index] ?? []) === "count") break;
+      // Its labels sit over named columns of the header; a menu of links beside the table does not.
+      if (!labelsOverColumns(above, scan[bestIndex] ?? [])) break;
+      headerStart = index;
+      levelsAbove++;
     }
     // Extend downward while rows stay text-only and hold no numeric cells,
     // which keeps a data row like `1,Ann,…` out of the header block. A line that
