@@ -303,7 +303,9 @@ function writeSummary(book: XlsxBuilder, names: Names, input: QualityWorkbookInp
   // Tiles: the score in its band colour, then the counts.
   p.blank();
   const overall = report.overall;
-  const band = bandOf(report, overall);
+  // The engine's band, which a serious column problem can hold below what the number alone says
+  // ("Fair because region_2 is 61% empty"); the number alone only when there is no band.
+  const band: Band = report.band === "good" || report.band === "fair" || report.band === "poor" ? report.band : bandOf(report, overall);
   const fixes = input.issues.filter((i) => i.severity === "fix").length;
   const reviews = input.issues.filter((i) => i.severity === "review").length;
   const tiles: { title: string; value: XCell; sub: string; fill: string; ink: string; fmt?: string; link?: string }[] = [

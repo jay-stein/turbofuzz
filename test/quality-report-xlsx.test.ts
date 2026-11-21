@@ -53,6 +53,14 @@ test("the workbook has every sheet, in order, and the summary states the whole-f
   assert.deepEqual(built.exceptions, { total: 0, written: 0 });
 });
 
+test("the score tile shows the engine's band, even when a column problem holds it below the number", async () => {
+  const capped = { ...INPUT, report: { ...REPORT, overall: 96.1, band: "fair", bandReason: "Fair because “region_2” is 61% empty" } };
+  const built = await qualityReportWorkbook(capped, []);
+  const summary = XLSX.utils.sheet_to_json<unknown[]>(XLSX.read(built.bytes, { type: "array" }).Sheets["Summary"]!, { header: 1, blankrows: false }).flat().map(String);
+  assert.ok(summary.includes("FAIR · out of 100"));
+  assert.ok(!summary.includes("GOOD · out of 100"));
+});
+
 test("exceptions are sampled per check, masked, and empty cells left to the Columns sheet", async () => {
   const bad = Array.from({ length: EXCEPTIONS_PER_CHECK + 20 }, (_, i) => (i % 2 === 0 ? "12" : "twelve"));
   const columns = [ColumnData.create("qty", [...bad, ...Array.from({ length: 4000 }, () => "7")]), ColumnData.create("who", Array.from({ length: bad.length + 4000 }, (_, i) => (i === 0 ? "" : "Kerin O'Keefe")))];

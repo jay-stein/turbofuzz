@@ -36,6 +36,8 @@ export interface HeroInput {
   bandReason?: string | null;
   /** Columns whose values the exceptions file masks unless the switch is on. */
   maskedColumns?: number;
+  /** The Excel report is being built (it can wait for the sensitive scan): its button shows so and is disabled. */
+  excelBusy?: boolean;
 }
 
 /** Rows of 9 cards fit at 1440px; beyond two rows the strip collapses behind a toggle. */
@@ -103,8 +105,14 @@ export function buildHero(
   buttons.append(primary);
   const excel = actions.excel;
   if (excel !== undefined) {
-    const excelButton = el("button", { class: "small qp-excel-button", type: "button", "data-qp": "excel-report" }, ["Excel report ↓"]);
-    excelButton.title = "A formatted workbook of the whole file: summary, columns, findings, checks, failing cells, relationships and sensitive columns";
+    const busy = input.excelBusy === true;
+    const excelButton = el("button", { class: "small qp-excel-button", type: "button", "data-qp": "excel-report", "aria-busy": busy ? "true" : "false" }, [
+      busy ? "Building Excel report…" : "Excel report ↓",
+    ]) as HTMLButtonElement;
+    excelButton.disabled = busy;
+    excelButton.title = busy
+      ? "Building the workbook: it waits for the sensitive-data scan and the repeated-rows count, then downloads"
+      : "A formatted workbook of the whole file: summary, columns, findings, checks, failing cells, relationships and sensitive columns";
     excelButton.addEventListener("click", () => excel(raw.checked));
     buttons.append(excelButton);
   }

@@ -20,10 +20,14 @@ export function excelLogo(): SVGElement {
   return svg;
 }
 
-/** The big call to action at the foot of a report: one click builds the workbook. `run` resolves with a note to show, or "". */
-export function excelBox(options: { title: string; sub: string; run: () => Promise<string>; extra?: HTMLElement }): HTMLElement {
+/**
+ * The big call to action at the foot of a report: one click builds the workbook. `run` resolves with a note to show, or "".
+ * `busy`: a build started elsewhere (or before the page redrew) is still running, so the box starts disabled.
+ * `note`: the last build's result, kept by a page that redraws.
+ */
+export function excelBox(options: { title: string; sub: string; run: () => Promise<string>; extra?: HTMLElement; busy?: boolean; note?: string }): HTMLElement {
   const { run } = options;
-  const note = el("span", { class: "cmp-excel-note", role: "status" });
+  const note = el("span", { class: "cmp-excel-note", role: "status" }, [options.note ?? ""]);
   const button = el("button", { type: "button", class: "cmp-excel", title: "Build the Excel report and save it" }, [
     excelLogo(),
     el("span", { class: "cmp-excel-text" }, [
@@ -32,6 +36,10 @@ export function excelBox(options: { title: string; sub: string; run: () => Promi
     ]),
     el("span", { class: "cmp-excel-go", "aria-hidden": "true" }, ["Download ↓"]),
   ]);
+  if (options.busy === true) {
+    button.disabled = true;
+    note.textContent = "Building the workbook…";
+  }
   button.addEventListener("click", () => {
     if (button.disabled) return;
     button.disabled = true;

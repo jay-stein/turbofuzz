@@ -187,6 +187,10 @@ export class QualityPage {
   private onlyIssues = false;
   private dimensionFilter: ScoreDimension | null = null;
   private settingsOpen = false;
+  /** The Excel report is being built; kept here because the page redraws while it waits (sensitive scan). */
+  private excelBusy = false;
+  /** What the last Excel build said ("Saved…", a cut-off note or an error), shown in the foot box. */
+  private excelNote = "";
   private lastInput: QualityPageInput | null = null;
   private scopeLabel = "";
   private tableScopeLabel = "";
@@ -258,6 +262,7 @@ export class QualityPage {
           reviewCount: reviewIssues.length,
           sensitiveCount: liveCards.length,
           maskedColumns: this.callbacks.maskedColumns?.().length ?? 0,
+          excelBusy: this.excelBusy,
           canFixTop: safe.length > 0,
           scopeLine:
             this.tableScopeLabel === ""
@@ -273,7 +278,7 @@ export class QualityPage {
           html: () => void this.callbacks.onExport("html"),
           ...(this.callbacks.onExcelReport === undefined
             ? {}
-            : { excel: (includeRaw: boolean) => void this.callbacks.onExcelReport?.(includeRaw) }),
+            : { excel: (includeRaw: boolean) => void this.runExcel(includeRaw).catch(() => undefined) }),
           weights: () => {
             this.tab = "checks";
             this.settingsOpen = !this.settingsOpen;
@@ -400,10 +405,33 @@ export class QualityPage {
     void stats;
   }
 
+  /**
+   * One Excel build at a time, from either button. The page redraws while the build waits
+   * (sensitive scan results stream in), so the busy state and the result live here, not in the buttons.
+   */
+  private async runExcel(includeRaw: boolean): Promise<string> {
+    const run = this.callbacks.onExcelReport;
+    if (run === undefined) return "";
+    if (this.excelBusy) return "The report is already being built.";
+    this.excelBusy = true;
+    this.excelNote = "";
+    this.render(this.lastInput);
+    try {
+      const note = await run(includeRaw);
+      this.excelNote = note === "" ? "Saved. Check your downloads." : note;
+      return note;
+    } catch (error) {
+      this.excelNote = error instanceof Error ? error.message : "Export failed.";
+      throw error;
+    } finally {
+      this.excelBusy = false;
+      this.render(this.lastInput);
+    }
+  }
+
   /** The big Excel call to action at the foot of the page, as on the comparison report. */
   private buildExcelFoot(): HTMLElement | null {
-    const run = this.callbacks.onExcelReport;
-    if (run === undefined) return null;
+    if (this.callbacks.onExcelReport === undefined) return null;
     const masked = this.callbacks.maskedColumns?.().length ?? 0;
     const raw = el("input", { type: "checkbox", class: "qp-raw-switch" }) as HTMLInputElement;
     const extra =
@@ -416,7 +444,9 @@ export class QualityPage {
     return excelBox({
       title: "Get the Excel data-quality report",
       sub: "The whole file in one formatted workbook: score and dimensions, every column profiled, findings, checks and rules, failing cells, relationships and sensitive columns. Ready to share.",
-      run: () => run(raw.checked),
+      run: () => this.runExcel(raw.checked),
+      busy: this.excelBusy,
+      ...(this.excelNote === "" ? {} : { note: this.excelNote }),
       ...(extra === undefined ? {} : { extra }),
     });
   }
