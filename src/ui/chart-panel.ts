@@ -610,14 +610,28 @@ export class ChartsPanel {
         "aria-selected": String(selected),
         tabindex: selected ? "0" : "-1",
         draggable: "true",
-        title: "Open this chart. Double-click (or F2) to rename, drag to reorder",
+        title: "Open this chart. Right-click to rename it (or double-click, or F2); drag to reorder",
         "data-index": String(index),
       }, [label]) as HTMLButtonElement;
       tab.addEventListener("click", () => {
         if (drafting) this.addPanel.close();
         if (entry !== this.active) this.activate(entry);
       });
-      if (entry.type === "card") tab.addEventListener("dblclick", () => this.renameTab(entry.card, label));
+      if (entry.type === "card") {
+        tab.addEventListener("dblclick", () => this.renameTab(entry.card, label));
+        // Right-click is where people look for Rename; the menu says what else the tab can do.
+        tab.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          if (entry !== this.active) this.activate(entry);
+          openMenu(tab, [
+            { label: "Rename chart", title: "Give this chart its own name", action: () => {
+              const current = this.tabStrip.querySelector<HTMLElement>(".charts-tab.active .charts-tab-label");
+              if (current !== null) this.renameTab(entry.card, current);
+            } },
+            { label: "Remove chart…", title: "Remove this chart (it asks first)", action: () => entry.card.confirmRemove() },
+          ], "context-menu", { x: event.clientX, y: event.clientY });
+        });
+      }
       tab.addEventListener("dragstart", (event) => {
         this.dragging = entry;
         event.dataTransfer?.setData("text/plain", String(index));
