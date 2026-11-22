@@ -169,7 +169,7 @@ import {
 import { safeFileName } from "./chart-utils.js";
 import type { QualityWorkbookInput, WorkbookColumn, WorkbookIssue, WorkbookRelation, WorkbookVariants } from "./quality-xlsx.js";
 import type { DQExportKind } from "./quality-panel.js";
-import { captureBaseline, type DQBaseline } from "../data/dq-baseline.js";
+import { advanceTrail, captureBaseline, trailLabel, type DQBaseline, type TrailEntry } from "../data/dq-baseline.js";
 import { buildAdvancedSection, groupIssues } from "./quality-layout.js";
 import {
   QualityPage,
@@ -896,6 +896,8 @@ export class App {
   private cleanPage: QualityPage | null = null;
   /** The quality of the data as loaded, before any step; kept while the same file is open. */
   private dqBaseline: DQBaseline | null = null;
+  /** The score after each step since the raw load. */
+  private scoreTrail: TrailEntry[] = [];
   private qualityPage: QualityPage | null = null;
   /** Engine output for the current data: one finding per possibly-sensitive column. */
   private sensitiveFindings: SensitiveFinding[] = [];
@@ -2917,6 +2919,7 @@ export class App {
     if (scoreBaselineReset) {
       // Rules, history and the raw-load "before" belong to one file; a different file starts clean.
       this.dqBaseline = null;
+      this.scoreTrail = [];
       this.rules = [];
       this.ruleResults = new Map();
       this.ruleKey = "";
@@ -6256,17 +6259,18 @@ export class App {
     });
     if (score.overall !== null) this.qaNudge.update({ key: `${this.datasetName}:${this.generation}`, score: score.overall, fix: issues.filter((i) => i.severity === "fix").length, review: issues.filter((i) => i.severity === "review").length });
     // Before any step the data is the raw load: keep its quality as the "before" (late counts refine it).
-    if (this.stepEntries().length === 0) {
-      this.dqBaseline = captureBaseline({
-        score,
-        metas: this.metas,
-        rowCount: this.rowCount,
-        rowsAffected: this.rowsAffected?.count ?? null,
-        duplicateRows: stats.duplicateRows,
-        groups: groupIssues(issues.filter((issue) => issue.severity !== "info")).map((entry) => entry.group.id),
-        issues: issues.filter((issue) => issue.severity !== "info").length,
-      });
-    }
+    const current = captureBaseline({
+      score,
+      metas: this.metas,
+      rowCount: this.rowCount,
+      rowsAffected: this.rowsAffected?.count ?? null,
+      duplicateRows: stats.duplicateRows,
+      groups: groupIssues(issues.filter((issue) => issue.severity !== "info")).map((entry) => entry.group.id),
+      issues: issues.filter((issue) => issue.severity !== "info").length,
+    });
+    const steps = this.stepEntries().map((entry) => entry.label);
+    if (steps.length === 0) this.dqBaseline = current;
+    this.scoreTrail = advanceTrail(this.scoreTrail, steps, score.overall);
     if (this.qualityPage === null && this.cleanPage === null) return; // Built on first open; the issues above still feed the table's nudge.
     const input = {
       score,
@@ -6282,6 +6286,8 @@ export class App {
       sensitiveScanned: this.sensitiveScanned,
       freshness: this.freshnessColumns(),
       baseline: this.dqBaseline,
+      current,
+      steps: this.scoreTrail.map((entry) => ({ label: trailLabel(entry), overall: entry.overall })),
     };
     this.qualityPage?.render(input);
     this.cleanPage?.render(input);

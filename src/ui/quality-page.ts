@@ -10,6 +10,7 @@ import {
 } from "../data/sensitivity.js";
 import type { DatasetStats } from "../data/stats.js";
 import type { DQBaseline } from "../data/dq-baseline.js";
+import { buildCompareSection, type ScoreStep } from "./quality-compare.js";
 import type { ColumnHealth, PageIssue } from "../data/dq-issues.js";
 import {
   buildCleanHero,
@@ -181,6 +182,10 @@ export interface QualityPageInput {
   now?: number;
   /** The data as loaded, before any step: the "before" of the Clean page and the report. */
   baseline?: DQBaseline | null;
+  /** The same measures for the data now: the report's "after". */
+  current?: DQBaseline | null;
+  /** The steps applied since the raw load, each with the score once it landed. */
+  steps?: readonly ScoreStep[];
 }
 
 /**
@@ -316,6 +321,15 @@ export class QualityPage {
           },
         },
       ),
+      ...(input.baseline === undefined || input.baseline === null || input.current === undefined || input.current === null
+        ? []
+        : [
+            buildCompareSection(input.baseline, input.current, input.steps ?? [], {
+              bandFair: this.callbacks.config?.bandFair ?? 75,
+              bandGood: this.callbacks.config?.bandGood ?? 90,
+              ...(this.callbacks.onOpenClean === undefined ? {} : { openClean: () => this.callbacks.onOpenClean?.() }),
+            }),
+          ]),
       buildTiles(
         {
           fix: fixIssues.length,

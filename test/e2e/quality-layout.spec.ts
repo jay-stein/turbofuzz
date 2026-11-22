@@ -114,6 +114,30 @@ test("Fix all safe previews first, applies as undoable steps, raises the score f
   await expect(page.locator(".issue-card").filter({ hasText: "spellings of" })).toHaveCount(1, { timeout: 15_000 });
 });
 
+test("the report sets the raw load against the cleaned data, step by step", async ({ page }) => {
+  await openClean(page);
+  await page.locator("[data-qp='fix-all-safe']").click();
+  await page.locator(".fix-preview-modal").getByRole("button", { name: /^Apply/ }).click();
+  await expect(page.locator(".qp-fixed")).toContainText("Fixed this session", { timeout: 15_000 });
+  await page.locator("[data-qp='open-report']").click();
+  const section = page.locator(".qc");
+  await expect(section).toContainText("Before and after cleaning");
+  await expect(section.locator(".qc-sub")).toContainText(/\d+ steps? applied since/);
+  const before = Number(await section.locator(".qc-before .qc-score-value").textContent());
+  const after = Number(await section.locator(".qc-after .qc-score-value").textContent());
+  expect(after).toBeGreaterThan(before);
+  await expect(section.locator(".qc-delta")).toHaveText(`+${(after - before).toFixed(1)}`);
+  await expect(section.locator(".qc-step").first()).toContainText("Raw load");
+  await expect(section.locator(".qc-step").last()).toContainText("After cleaning");
+  await expect(section.locator(".qc-table")).toContainText("status");
+  // Undo everything: before and after are the same again.
+  await page.locator(".nav-actions button", { hasText: /^Undo$/ }).click();
+  while ((await page.locator(".nav-actions button", { hasText: /^Undo$/ }).isEnabled())) {
+    await page.locator(".nav-actions button", { hasText: /^Undo$/ }).click();
+  }
+  await expect(section.locator(".qc-sub")).toContainText("No cleaning step yet", { timeout: 15_000 });
+});
+
 test("clicking Rows affected filters the table to exactly those rows", async ({ page }) => {
   await openQuality(page);
   const tile = page.locator(".tile-rows");

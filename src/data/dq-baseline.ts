@@ -61,6 +61,45 @@ export function captureBaseline(input: BaselineInputs): DQBaseline {
   };
 }
 
+/** Steps that landed together, and the score once they had. */
+export interface TrailEntry {
+  labels: string[];
+  overall: number | null;
+}
+
+/**
+ * Keeps the score after each step in line with the steps applied now. Steps that are new since
+ * the last call land as one entry with the current score; steps that were undone leave; with no
+ * new step the newest entry takes the current score, so late counts (rows affected, repeated
+ * rows) refine it instead of showing as a step of their own.
+ */
+export function advanceTrail(trail: readonly TrailEntry[], labels: readonly string[], overall: number | null): TrailEntry[] {
+  if (labels.length === 0) return [];
+  const left = new Map<string, number>();
+  for (const label of labels) left.set(label, (left.get(label) ?? 0) + 1);
+  const take = (label: string): boolean => {
+    const count = left.get(label) ?? 0;
+    if (count === 0) return false;
+    left.set(label, count - 1);
+    return true;
+  };
+  const kept: TrailEntry[] = [];
+  for (const entry of trail) {
+    const still = entry.labels.filter(take);
+    if (still.length > 0) kept.push({ labels: still, overall: entry.overall });
+  }
+  const fresh = labels.filter(take);
+  if (fresh.length > 0) kept.push({ labels: fresh, overall });
+  else if (kept.length > 0) kept[kept.length - 1] = { ...kept[kept.length - 1]!, overall };
+  return kept;
+}
+
+/** "city: Standardise", or "city: Standardise and 3 more" for steps that landed together. */
+export function trailLabel(entry: TrailEntry): string {
+  const [first = "", ...rest] = entry.labels;
+  return rest.length === 0 ? first : `${first} and ${rest.length} more`;
+}
+
 /** One column as loaded and now, matched by name (a renamed or dropped column has no partner). */
 export interface ColumnChange {
   name: string;
