@@ -4111,13 +4111,13 @@ button:disabled {
 .del-btn {
   font: inherit;
   line-height: 1;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   padding: 0;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--text-dim);
+  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--panel));
+  color: var(--danger);
   cursor: pointer;
   flex: none;
   display: inline-flex;
@@ -4126,14 +4126,15 @@ button:disabled {
 }
 
 .del-icon {
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
 }
 
 .del-btn:hover {
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
-  background: color-mix(in srgb, var(--danger) 7%, var(--panel));
+  color: #fff;
+  border-color: var(--danger);
+  background: var(--danger);
 }
 
 .del-btn.active {

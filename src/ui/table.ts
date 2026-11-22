@@ -53,8 +53,9 @@ const CACHE_LIMIT = 4000;
 /** How long the mouse rests on a column name before its inspector opens. */
 const HOVER_INSPECT_MS = 450;
 
-function crossIcon(): SVGElement {
-  return svgIcon('<path d="M8 8l8 8"/><path d="M16 8l-8 8"/>', "del-icon");
+/** A bin: reads as "delete" at a glance, where a small × could mean close or clear. */
+function binIcon(): SVGElement {
+  return svgIcon('<path d="M4 7h16"/><path d="M9 7V4.5h6V7"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v5.5"/><path d="M14 11v5.5"/>', "del-icon");
 }
 
 function filterIcon(): SVGElement {
@@ -697,7 +698,7 @@ export class ResultTable {
         { class: "del-btn", type: "button", title: `Delete column “${name}”…` },
         [],
       );
-      del.append(crossIcon());
+      del.append(binIcon());
       del.classList.toggle("active", this.pendingColumnDeletes.has(index));
       del.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -1522,7 +1523,7 @@ export class ResultTable {
       { class: "del-btn", type: "button", title: "Delete this row…" },
       [],
     );
-    del.append(crossIcon());
+    del.append(binIcon());
     del.classList.toggle("active", this.pendingRowDeletes.has(index));
     del.addEventListener("click", (event) => {
       event.stopPropagation();
