@@ -336,6 +336,7 @@ export class QualityPage {
           ),
           {
             applyAllSafe: () => void this.fix(safe),
+            fixGroup: (group) => void this.fix(group),
             ...(this.callbacks.onReviewIssue === undefined ? {} : { review: (issue: PageIssue) => void this.review(issue) }),
             safeCount: safe.length,
             ...(this.callbacks.onDismissIssue === undefined ? {} : { dismiss: (issue: PageIssue) => this.callbacks.onDismissIssue?.(issue) }),

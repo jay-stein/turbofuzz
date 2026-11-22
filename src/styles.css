@@ -19468,3 +19468,117 @@ select.chart-add-agg {
 .inspector-check-dates {
   margin-top: 2px;
 }
+
+/* Data Quality issues grouped by the kind of work: one card per group, opening to its issues. */
+.qp-expand-all {
+  align-self: flex-end;
+  margin-bottom: 6px;
+}
+
+.qp-group {
+  margin-bottom: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.qp-group-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+}
+
+.qp-group-head {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 10px;
+}
+
+.qp-group-head:hover {
+  background: var(--tab-hover-bg);
+}
+
+.qp-group-chevron::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--text-dim);
+  border-bottom: 2px solid var(--text-dim);
+  transform: rotate(-45deg);
+  transition: transform var(--dur, 120ms);
+}
+
+.qp-group.open .qp-group-chevron::before {
+  transform: rotate(45deg);
+}
+
+.qp-group-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.qp-group-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.qp-group-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  text-align: center;
+}
+
+.qp-group-about {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.qp-group-facts {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.qp-group-sev {
+  padding-left: 8px;
+  border-left: 4px solid var(--sev-info);
+}
+
+.qp-group-sev.sev-fix { border-left-color: var(--sev-fix); }
+.qp-group-sev.sev-review { border-left-color: var(--sev-review); }
+
+.qp-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+@media (max-width: 720px) {
+  .qp-group-facts { display: none; }
+}

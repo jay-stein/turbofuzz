@@ -264,6 +264,9 @@ test("an issue card shows the rows behind it and the first fixable card gets the
     onShowIssue: (issue) => shown.push(issue.id),
   });
   page.render({ score, rowCount: 100, stats: stats(), columnNames: ["status", "email"], issues });
+  // Grouped by the kind of work, each group closed until opened.
+  assert.equal(host.querySelectorAll(".issue-card").length, 0);
+  (host.querySelector(".qp-expand-all") as unknown as HTMLButtonElement).click();
   assert.equal(host.querySelectorAll(".issue-card").length, issues.length);
   assert.equal(host.querySelectorAll(".issue-card .btn-primary").length, 1, "one primary in the list");
   const first = host.querySelector(".issue-card") as unknown as HTMLElement;

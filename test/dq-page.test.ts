@@ -287,22 +287,33 @@ test("clean data shows a calm empty state with a link to every check", () => {
   assert.equal(primary.disabled, true);
 });
 
-test("issues collapse after five and the strip collapses after two rows of nine", () => {
+test("issues are grouped by the kind of work, each group a card that opens; the strip collapses after two rows of nine", () => {
   const metas = Array.from({ length: 30 }, (_, i) => metaOf(ColumnData.create(`c${i}`, rows(60, (r) => String(r)))));
-  const issues: PageIssue[] = Array.from({ length: 8 }, (_, i) => ({
-    id: `x${i}`, severity: i < 5 ? "fix" : i < 7 ? "review" : "info", kind: "other", column: i, columnName: `c${i}`,
-    title: `Issue ${i}`, evidence: "evidence", impact: null, points: i < 5 ? 1 : null, examples: [], dist: null,
-    fixes: [], fixLabel: null, batchSafe: false, rows: 1,
+  const kinds = ["variants", "variants", "placeholders", "empty", "empty", "empty", "duplicates", "other"] as const;
+  const issues: PageIssue[] = kinds.map((kind, i) => ({
+    id: `x${i}`, severity: kind === "other" ? "info" : kind === "empty" ? "review" : "fix", kind, column: i, columnName: `c${i}`,
+    title: `Issue ${i}`, evidence: "evidence", impact: null, points: kind === "variants" ? 1 : null, examples: [], dist: null,
+    fixes: [], fixLabel: null, batchSafe: false, rows: 10 - i,
   }));
   const { host, quality } = page();
   quality.render(input(metas, issues) as never);
-  assert.equal(host.querySelectorAll(".issue-card").length, 5);
-  assert.match(host.querySelector(".qp-more")?.textContent ?? "", /Show 3 more - 2 to review, 1 info/);
+  const groups = [...host.querySelectorAll(".qp-group")].map((node) => node.getAttribute("data-group"));
+  // The groups with something to fix first (by rows), then review, then info.
+  assert.deepEqual(groups, ["standardise", "junk", "duplicates", "empty", "review"]);
+  assert.equal(host.querySelectorAll(".issue-card").length, 0, "every group starts closed");
+  const empty = host.querySelector(".qp-group[data-group='empty']")!;
+  assert.match(empty.textContent ?? "", /Empty cells3/);
+  assert.match(empty.textContent ?? "", /3 to review/);
+  (empty.querySelector(".qp-group-head") as unknown as HTMLButtonElement).click();
+  assert.equal(host.querySelectorAll(".issue-card").length, 3);
+  assert.equal(empty.querySelector(".qp-group-head")?.getAttribute("aria-expanded"), "true");
+  (host.querySelector(".qp-expand-all") as unknown as HTMLButtonElement).click();
+  assert.equal(host.querySelectorAll(".issue-card").length, 8);
+  (host.querySelector(".qp-expand-all") as unknown as HTMLButtonElement).click();
+  assert.equal(host.querySelectorAll(".issue-card").length, 0);
   assert.equal(host.querySelectorAll(".qp-col").length, 18);
   (host.querySelector(".qp-strip-toggle") as unknown as HTMLButtonElement).click();
   assert.equal(host.querySelectorAll(".qp-col").length, 30);
-  (host.querySelector(".qp-more") as unknown as HTMLButtonElement).click();
-  assert.equal(host.querySelectorAll(".issue-card").length, 8);
 });
 
 test("the rows-affected tile reads N of TOTAL with a percentage and filters on click", () => {

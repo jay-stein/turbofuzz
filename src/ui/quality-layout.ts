@@ -1,5 +1,5 @@
 import { n, percentLabel, plural, pointsLabel } from "../data/dq-copy.js";
-import type { ColumnHealth, PageIssue } from "../data/dq-issues.js";
+import type { ColumnHealth, IssueKind, PageIssue } from "../data/dq-issues.js";
 import { clear, el } from "./dom.js";
 import { renderDistCompare } from "./dist-compare.js";
 
@@ -42,7 +42,44 @@ export interface HeroInput {
 
 /** Rows of 9 cards fit at 1440px; beyond two rows the strip collapses behind a toggle. */
 const STRIP_COLLAPSED = 18;
-const ISSUES_COLLAPSED = 5;
+
+/**
+ * The Issues tab groups issues by what kind of work they are, one card each that opens to its
+ * issues: standardising values, junk text, dates, empty cells, duplicates, unusual values, and
+ * the rest to review. Kinds not listed fall into the last group.
+ */
+export const ISSUE_GROUPS: readonly { id: string; title: string; about: string; kinds: readonly IssueKind[] }[] = [
+  { id: "standardise", title: "Standardise", about: "The same thing written different ways, symbols in numbers, garbled characters", kinds: ["variants", "offFormat", "numberSymbols", "mojibake"] },
+  { id: "junk", title: "Junk text", about: "Text where a value should be (N/A, -, ?) and values that do not read", kinds: ["placeholders", "unreadable"] },
+  { id: "dates", title: "Dates", about: "Mixed date formats, day and month swapped, dates in the wrong order", kinds: ["dateFormat", "dateConflict", "pairOrder"] },
+  { id: "empty", title: "Empty cells", about: "Missing values and columns with nothing in them", kinds: ["empty", "emptyColumn"] },
+  { id: "duplicates", title: "Duplicates", about: "Repeated rows and ids that should be unique", kinds: ["duplicates", "keyDuplicates"] },
+  { id: "unusual", title: "Unusual values", about: "Values outside the range the rest suggest", kinds: ["outOfRange"] },
+  { id: "review", title: "To review", about: "Checks that need a judgement call", kinds: ["review", "other"] },
+];
+
+type IssueGroup = (typeof ISSUE_GROUPS)[number];
+
+/** Groups opened this session: the page re-renders after every fix, and an open group stays open. */
+const openGroups = new Set<string>();
+
+/** Issues in their groups, the groups ordered by the most urgent issue in each, then by rows. */
+export function groupIssues(issues: readonly PageIssue[]): { group: IssueGroup; issues: PageIssue[] }[] {
+  const rank: Record<PageIssue["severity"], number> = { fix: 0, review: 1, info: 2 };
+  const last = ISSUE_GROUPS[ISSUE_GROUPS.length - 1]!;
+  const byGroup = new Map<string, PageIssue[]>();
+  for (const issue of issues) {
+    const group = ISSUE_GROUPS.find((entry) => entry.kinds.includes(issue.kind)) ?? last;
+    const list = byGroup.get(group.id) ?? [];
+    list.push(issue);
+    byGroup.set(group.id, list);
+  }
+  const worst = (list: readonly PageIssue[]): number => Math.min(...list.map((issue) => rank[issue.severity]));
+  const rows = (list: readonly PageIssue[]): number => list.reduce((sum, issue) => sum + issue.rows, 0);
+  return ISSUE_GROUPS.filter((group) => byGroup.has(group.id))
+    .map((group) => ({ group, issues: byGroup.get(group.id)! }))
+    .sort((a, b) => worst(a.issues) - worst(b.issues) || rows(b.issues) - rows(a.issues));
+}
 
 export function buildHero(
   input: HeroInput,
@@ -415,6 +452,8 @@ export function buildIssuesTab(
     restore?: (id: string) => void;
     /** Previews and applies every safe fix together; omitted when none is available. */
     applyAllSafe?: () => void;
+    /** The same for one group's safe fixes. */
+    fixGroup?: (issues: readonly PageIssue[]) => void;
     safeCount?: number;
     review?: (issue: PageIssue) => void;
   },
@@ -439,31 +478,21 @@ export function buildIssuesTab(
     empty.append(" ", link);
     root.append(empty);
   }
-  const shown = state.showAll ? issues : issues.slice(0, ISSUES_COLLAPSED);
-  // The first fixable card gets the page's one solid button.
-  const firstFixable = shown.find((issue) => issue.fixes.length > 0 && issue.fixLabel !== null)?.id;
-  for (const issue of shown) {
-    root.append(buildIssueCard(issue, { primary: issue.id === firstFixable }, actions));
+  // One card per kind of work; each opens to its issues. A lone group is open from the start.
+  const groups = groupIssues(issues);
+  if (groups.length > 1) {
+    const all = el("button", { class: "ghost small qp-expand-all", type: "button" }, [state.showAll ? "Collapse all" : "Expand all"]);
+    all.addEventListener("click", () => {
+      openGroups.clear();
+      actions.toggleAll();
+    });
+    root.append(all);
   }
-  if (issues.length > shown.length) {
-    const rest = issues.slice(shown.length);
-    const review = rest.filter((i) => i.severity === "review").length;
-    const info = rest.filter((i) => i.severity === "info").length;
-    const fix = rest.filter((i) => i.severity === "fix").length;
-    const parts = [
-      fix > 0 ? `${fix} to fix` : "",
-      review > 0 ? `${review} to review` : "",
-      info > 0 ? `${info} info` : "",
-    ].filter(Boolean);
-    const more = el("button", { class: "ghost outlined qp-more", type: "button" }, [
-      `Show ${rest.length} more - ${parts.join(", ")}`,
-    ]);
-    more.addEventListener("click", actions.toggleAll);
-    root.append(more);
-  } else if (state.showAll && issues.length > ISSUES_COLLAPSED) {
-    const less = el("button", { class: "ghost outlined qp-more", type: "button" }, ["Show fewer"]);
-    less.addEventListener("click", actions.toggleAll);
-    root.append(less);
+  // The first fixable issue on the page gets its one solid button.
+  const firstFixable = groups.flatMap((entry) => entry.issues).find((issue) => issue.fixes.length > 0 && issue.fixLabel !== null)?.id;
+  for (const { group, issues: list } of groups) {
+    const open = state.showAll || groups.length === 1 || openGroups.has(group.id);
+    root.append(buildIssueGroup(group, list, open, firstFixable, actions));
   }
   if (fixed.length > 0) {
     const group = el("section", { class: "qp-fixed", "aria-label": "Fixed this session" }, [
@@ -502,6 +531,66 @@ export function buildIssuesTab(
     root.append(group);
   }
   return root;
+}
+
+function buildIssueGroup(group: IssueGroup, issues: readonly PageIssue[], open: boolean, firstFixable: string | undefined, actions: Parameters<typeof buildIssuesTab>[4]): HTMLElement {
+  const count = (severity: PageIssue["severity"]): number => issues.filter((issue) => issue.severity === severity).length;
+  const parts = [
+    count("fix") > 0 ? `${count("fix")} to fix` : "",
+    count("review") > 0 ? `${count("review")} to review` : "",
+    count("info") > 0 ? `${count("info")} info` : "",
+  ].filter(Boolean);
+  const columns = new Set(issues.map((issue) => issue.column).filter((column) => column !== null)).size;
+  const points = issues.reduce((sum, issue) => sum + (issue.points ?? 0), 0);
+  const worst = count("fix") > 0 ? "fix" : count("review") > 0 ? "review" : "info";
+  const body = el("div", { class: "qp-group-body", id: `qp-group-${group.id}` });
+  const head = el(
+    "button",
+    { class: "qp-group-head", type: "button", "aria-expanded": String(open), "aria-controls": body.id },
+    [
+      el("span", { class: "qp-group-chevron", "aria-hidden": "true" }),
+      el("span", { class: "qp-group-text" }, [
+        el("span", { class: "qp-group-title" }, [group.title, el("span", { class: "qp-group-count" }, [String(issues.length)])]),
+        el("span", { class: "qp-group-about" }, [group.about]),
+      ]),
+      el("span", { class: "qp-group-facts" }, [
+        el("span", { class: `qp-group-sev sev-${worst}` }, [parts.join(" \u00b7 ")]),
+        columns > 0 ? el("span", {}, [`${n(columns)} ${plural(columns, "column", "columns")}`]) : "",
+        points >= 0.1 ? el("span", { class: "pts-pill" }, [pointsLabel(points)]) : "",
+      ]),
+    ],
+  );
+  const bar = el("div", { class: "qp-group-bar" }, [head]);
+  // Every safe fix in the group at once, previewed together like Apply all.
+  const safe = issues.filter((issue) => issue.batchSafe && issue.fixes.length > 0);
+  if (safe.length > 1 && actions.fixGroup !== undefined) {
+    const fixAll = el("button", { class: "ghost small qp-group-fix", type: "button" }, [`Fix ${n(safe.length)} safe\u2026`]);
+    fixAll.title = "Whitespace, case and standard formats only. One combined preview; each fix stays its own undoable step.";
+    fixAll.addEventListener("click", () => actions.fixGroup?.(safe));
+    bar.append(fixAll);
+  }
+  const section = el("section", { class: `qp-group${open ? " open" : ""}`, "data-group": group.id, "aria-label": group.title }, [bar, body]);
+  const fill = (): void => {
+    if (body.childElementCount > 0) return;
+    for (const issue of issues) body.append(buildIssueCard(issue, { primary: issue.id === firstFixable }, actions));
+  };
+  let shown = open;
+  body.hidden = !open;
+  if (open) fill();
+  head.addEventListener("click", () => {
+    const opening = !shown;
+    shown = opening;
+    if (opening) {
+      fill();
+      openGroups.add(group.id);
+    } else {
+      openGroups.delete(group.id);
+    }
+    body.hidden = !opening;
+    section.classList.toggle("open", opening);
+    head.setAttribute("aria-expanded", String(opening));
+  });
+  return section;
 }
 
 /** A single purple line on the Issues tab; the full list lives in the Sensitive tab. */

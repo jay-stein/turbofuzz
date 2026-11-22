@@ -24,6 +24,8 @@ async function openQuality(page: Page): Promise<void> {
   await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
   await page.getByRole("tab", { name: "Data Quality" }).click();
   await expect(page.locator(".qp-hero2")).toBeVisible();
+  // Issues come grouped by the kind of work, each group closed: open them all to see every card.
+  await page.locator(".qp-expand-all").click();
 }
 
 test("the triage layout: hero, four tiles, health strip worst-first, tabs and the issue list", async ({ page }) => {
