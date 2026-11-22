@@ -18,7 +18,12 @@ export interface ColumnInspectorInfo {
   /** Fixed decimals chosen for display, or null for automatic. */
   displayFormat?: number | null;
   displayGrouping?: boolean;
+  /** Opened by resting the pointer on the header: it closes when the pointer moves away, and a click pins it. */
+  hover?: boolean;
 }
+
+/** The open inspector, if any: so a new one closes it properly, and a click can pin a hover one. */
+let current: { anchor: HTMLElement; hover: boolean; close: () => void; pin: () => void } | null = null;
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -76,16 +81,41 @@ export function openColumnInspector(
   column: number,
   info: ColumnInspectorInfo = {},
 ): void {
+  const hover = info.hover === true;
+  if (current !== null) {
+    // A hover never replaces one the person opened by clicking; a click on a hovered header keeps it open.
+    if (hover && !current.hover) return;
+    if (!hover && current.hover && current.anchor === anchor) {
+      current.pin();
+      return;
+    }
+    current.close();
+  }
   for (const stale of document.querySelectorAll(".column-inspector")) stale.remove();
   const panel = el("div", {
-    class: "column-inspector",
+    class: hover ? "column-inspector hover" : "column-inspector",
     role: "dialog",
     "aria-label": `About column “${meta.name}”`,
   });
   let closed = false;
+  let leaveTimer = 0;
+  const away = (): void => {
+    window.clearTimeout(leaveTimer);
+    leaveTimer = window.setTimeout(close, 220);
+  };
+  const back = (): void => window.clearTimeout(leaveTimer);
+  const unhover = (): void => {
+    window.clearTimeout(leaveTimer);
+    for (const target of [panel, anchor]) {
+      target.removeEventListener("pointerleave", away);
+      target.removeEventListener("pointerenter", back);
+    }
+  };
   const close = (): void => {
     if (closed) return;
     closed = true;
+    unhover();
+    if (current?.close === close) current = null;
     panel.remove();
     document.removeEventListener("pointerdown", onPointerDown, true);
     document.removeEventListener("keydown", onKey);
@@ -280,6 +310,23 @@ export function openColumnInspector(
   document.addEventListener("pointerdown", onPointerDown, true);
   document.addEventListener("keydown", onKey);
   window.addEventListener("resize", close);
+  const entry = {
+    anchor,
+    hover,
+    close,
+    pin: (): void => {
+      entry.hover = false;
+      unhover();
+      panel.classList.remove("hover");
+    },
+  };
+  current = entry;
+  if (hover) {
+    for (const target of [panel, anchor]) {
+      target.addEventListener("pointerleave", away);
+      target.addEventListener("pointerenter", back);
+    }
+  }
   document.body.append(panel);
   anchor.classList.add("inspecting");
   const rect = anchor.getBoundingClientRect();

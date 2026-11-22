@@ -50,6 +50,8 @@ const FILE_ROW_WIDTH = 76;
 const ADD_COLUMN_WIDTH = 40;
 const OVERSCAN = 10;
 const CACHE_LIMIT = 4000;
+/** How long the mouse rests on a column name before its inspector opens. */
+const HOVER_INSPECT_MS = 450;
 
 function crossIcon(): SVGElement {
   return svgIcon('<path d="M8 8l8 8"/><path d="M16 8l-8 8"/>', "del-icon");
@@ -77,8 +79,8 @@ export type ColumnQaKind =
 
 export interface ResultTableOptions {
   onSort: (column: number, dir: 1 | -1 | 0) => void;
-  /** Clicking a column name opens the (read-only) inspector anchored to it. */
-  onColumnInspect: (column: number, anchor: HTMLElement) => void;
+  /** Clicking a column name opens the (read-only) inspector anchored to it; resting the pointer on it opens it as a hover. */
+  onColumnInspect: (column: number, anchor: HTMLElement, hover?: boolean) => void;
   onTypeChange: (column: number, type: ColumnType) => boolean | Promise<boolean>;
   /** The column's values that best fit what was typed in a filter (a few letters or a small typo). */
   requestValueSuggestions?: (column: number, query: string) => Promise<{ label: string; count: number }[]>;
@@ -652,7 +654,7 @@ export class ResultTable {
       ]);
       const label = el(
         "button",
-        { class: "th-label", type: "button", title: `Inspect “${name}”` },
+        { class: "th-label", type: "button", "aria-label": `Inspect “${name}”` },
         [name],
       );
       if (index === this.sortColumn) {
@@ -660,6 +662,16 @@ export class ResultTable {
       }
       label.setAttribute("aria-haspopup", "dialog");
       label.addEventListener("click", () => this.options.onColumnInspect(index, label));
+      // Resting a mouse on the name shows the same panel; a pass across the headers or a drag does not.
+      let hoverTimer = 0;
+      label.addEventListener("pointerenter", (event) => {
+        if (event.pointerType !== "mouse" || event.buttons !== 0) return;
+        hoverTimer = window.setTimeout(() => {
+          if (label.isConnected && label.matches(":hover")) this.options.onColumnInspect(index, label, true);
+        }, HOVER_INSPECT_MS);
+      });
+      label.addEventListener("pointerleave", () => window.clearTimeout(hoverTimer));
+      label.addEventListener("pointerdown", () => window.clearTimeout(hoverTimer));
       label.addEventListener("keydown", (event) => {
         if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return;
         event.preventDefault();

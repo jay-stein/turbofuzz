@@ -3081,7 +3081,7 @@ export class App {
     });
     this.table = new ResultTable(this.tableHost, {
       onSort: (column, dir) => this.changeSort(column, dir),
-      onColumnInspect: (column, anchor) => this.openColumnInspector(column, anchor),
+      onColumnInspect: (column, anchor, hover) => this.openColumnInspector(column, anchor, hover),
       onTypeChange: (column, type) => this.changeType(column, type),
       quickFilterFor: (column) => {
         const filter = this.filters.get(column);
@@ -7941,10 +7941,11 @@ export class App {
   }
 
   /** Header click: what is in one column (read only; the actions are on the right-click menu). */
-  private openColumnInspector(column: number, anchor: HTMLElement): void {
+  private openColumnInspector(column: number, anchor: HTMLElement, hover = false): void {
     const meta = this.metas[column];
     if (meta === undefined) return;
     openColumnInspector(anchor, meta, column, {
+      hover,
       rowCount: this.rowCount,
       displayFormat: this.displayFormats.get(column) ?? null,
       displayGrouping: this.groupedNow(column),
