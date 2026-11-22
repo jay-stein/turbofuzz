@@ -51,6 +51,7 @@ import { formulasFromExamples } from "../data/formula-examples.js";
 import { missingnessGrid } from "../data/missingness.js";
 import { categoryCodes, computeSeries, groupPlaces } from "../data/chart-series.js";
 import { computeRelLine } from "../data/rel-line.js";
+import { auditDates } from "../data/date-audit.js";
 import {
   computeBoxStats,
   computeCorrelation,
@@ -109,7 +110,7 @@ import {
   type IngestProgress,
   type IngestResult,
 } from "./ingest.js";
-import type { CleanColumnsRequest, ClearExcludedRowsRequest, ColumnDetail, ColumnMeta, FileImportMeta, DropRowsRequest, FinalizeStatsRequest, CompareLoadRequest, CompareRunRequest, CompareRowsRequest, CompareDiffsRequest, CompareFindRequest, CompareSetupRequest, CompareSideInfo, GetRowsRequest, GetRowIdsRequest, FindRowRequest, GetOrderRequest, PreviewFormulaRequest, RowLimit, GetStatsRequest, GetChartBinsRequest, GetRelLineRequest, GetGroupedBinsRequest, GetMissingnessRequest, GetChartSeriesRequest, GetBoxStatsRequest, GetSliceBreakdownRequest, GetCrosstabRequest, GetCorrelationRequest, GetAggregateRequest, GetPivotRequest, GetCoMissingnessRequest, GetGroupAnomaliesRequest, GetOutlierAnalysisRequest, GetDependenciesRequest, GetRelationshipsRequest, GetTimeSeriesRequest, GetColumnNetworkRequest, GetTextProfileRequest, GetColumnSampleRequest, GetValueSuggestionsRequest, ScanSensitiveRequest, GetRowsAffectedRequest, GetExceptionsRequest, QualityReportXlsxRequest, GetDistributionChangesRequest, GetSimilarClustersRequest, GetGridCountsRequest, GetAnimationRequest, GetErrorBarsRequest, GetRegionValuesRequest, SuggestRegionJoinRequest, LoadRequest, PreviewCleanRequest, KnnEvaluateRequest, KnnPlanRequest, PreviewSample, PreviewTransformRequest, RenameHeadersRequest, ResolveNullsAllRequest, SetFilterRequest, SetFiltersRequest, SetNullPolicyRequest, SetNumberLocaleRequest, SetTypeRequest, CheckKeyDuplicatesRequest, CheckPairRequest, EvaluateRulesRequest, SortRequest, SpecialKind, TransformRequest, TransformPreviewNote, WorkerRequest, WorkerResponse } from "./protocol.js";
+import type { CleanColumnsRequest, ClearExcludedRowsRequest, ColumnDetail, ColumnMeta, FileImportMeta, DropRowsRequest, FinalizeStatsRequest, CompareLoadRequest, CompareRunRequest, CompareRowsRequest, CompareDiffsRequest, CompareFindRequest, CompareSetupRequest, CompareSideInfo, GetRowsRequest, GetRowIdsRequest, FindRowRequest, GetOrderRequest, PreviewFormulaRequest, RowLimit, GetStatsRequest, GetChartBinsRequest, GetRelLineRequest, GetGroupedBinsRequest, GetMissingnessRequest, GetChartSeriesRequest, GetBoxStatsRequest, GetSliceBreakdownRequest, GetCrosstabRequest, GetCorrelationRequest, GetAggregateRequest, GetPivotRequest, GetCoMissingnessRequest, GetGroupAnomaliesRequest, GetOutlierAnalysisRequest, GetDependenciesRequest, GetRelationshipsRequest, GetTimeSeriesRequest, GetColumnNetworkRequest, GetTextProfileRequest, GetColumnSampleRequest, GetDateAuditRequest, GetValueSuggestionsRequest, ScanSensitiveRequest, GetRowsAffectedRequest, GetExceptionsRequest, QualityReportXlsxRequest, GetDistributionChangesRequest, GetSimilarClustersRequest, GetGridCountsRequest, GetAnimationRequest, GetErrorBarsRequest, GetRegionValuesRequest, SuggestRegionJoinRequest, LoadRequest, PreviewCleanRequest, KnnEvaluateRequest, KnnPlanRequest, PreviewSample, PreviewTransformRequest, RenameHeadersRequest, ResolveNullsAllRequest, SetFilterRequest, SetFiltersRequest, SetNullPolicyRequest, SetNumberLocaleRequest, SetTypeRequest, CheckKeyDuplicatesRequest, CheckPairRequest, EvaluateRulesRequest, SortRequest, SpecialKind, TransformRequest, TransformPreviewNote, WorkerRequest, WorkerResponse } from "./protocol.js";
 
 const scope = self as unknown as {
   onmessage: ((event: MessageEvent<WorkerRequest>) => void) | null;
@@ -535,6 +536,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getColumnSample":
       handleGetColumnSample(message);
+      break;
+    case "getDateAudit":
+      handleGetDateAudit(message);
       break;
     case "getValueSuggestions":
       handleGetValueSuggestions(message);
@@ -2738,6 +2742,15 @@ function handleGetColumnSample(message: GetColumnSampleRequest): void {
     if (!column.nullMask.get(row) && value.trim() !== "") values.push(value);
   }
   post({ type: "columnSample", requestId: message.requestId, values });
+}
+
+/** A date column's text as in the file (before any cleaning) beside the date each became. */
+function handleGetDateAudit(message: GetDateAuditRequest): void {
+  const column = state().dataset.columns[message.column];
+  if (column === undefined) throw new Error("Unknown column");
+  const source = cleanSource.get(message.column) ?? column;
+  const result = auditDates(source.raw, column.numbers(), (row) => source.nullMask.get(row), Math.max(1, Math.min(2000, message.limit)));
+  post({ type: "dateAudit", requestId: message.requestId, columnType: column.type, dateOrder: column.dateOrder, cleaned: source !== column, ...result });
 }
 
 function handleGetTextProfile(message: GetTextProfileRequest): void {

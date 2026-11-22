@@ -18,6 +18,8 @@ export interface ColumnInspectorInfo {
   /** Fixed decimals chosen for display, or null for automatic. */
   displayFormat?: number | null;
   displayGrouping?: boolean;
+  /** A date column: opens its file text beside what it was read as (date-audit-dialog.ts). */
+  checkDates?: () => void;
   /** Opened by resting the pointer on the header: it closes when the pointer moves away, and a click pins it. */
   hover?: boolean;
 }
@@ -254,6 +256,20 @@ export function openColumnInspector(
       ]),
     );
     panel.append(format);
+  }
+
+  // Dates: how the file's text was read, to check rather than trust the parse.
+  const checkDates = info.checkDates;
+  if (checkDates !== undefined) {
+    const read = section("Read from the file");
+    const open = el("button", { class: "small inspector-check-dates", type: "button" }, ["Check how it was read"]) as HTMLButtonElement;
+    open.title = "The text in the file beside the date each value became, the forms found, and any that did not read or could be read two ways";
+    open.addEventListener("click", () => {
+      close();
+      checkDates();
+    });
+    read.append(open);
+    panel.append(read);
   }
 
   // What looks wrong: a read-only list.

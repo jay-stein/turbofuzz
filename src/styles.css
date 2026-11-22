@@ -19338,3 +19338,133 @@ select.chart-add-agg {
   font-size: var(--fs-sm);
   font-weight: 600;
 }
+
+/* How a date column was read: the file's text beside the date it became. */
+.date-audit-modal {
+  width: min(900px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+}
+
+.date-audit-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--sp-4, 16px) var(--sp-3, 12px);
+}
+
+.date-audit-wait {
+  color: var(--text-dim);
+}
+
+.date-audit-facts {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+
+.date-audit-facts .warn {
+  color: var(--qa-warn-text);
+}
+
+.date-audit-title {
+  margin: 14px 0 6px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.date-audit-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.date-audit-tabs button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.date-audit-rows {
+  max-height: 42vh;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.date-audit-shapes,
+.date-audit-table,
+.cast-already-table {
+  border-collapse: collapse;
+  font-size: var(--fs-xs);
+}
+
+.date-audit-table {
+  width: 100%;
+}
+
+.date-audit-shapes th,
+.date-audit-shapes td,
+.date-audit-table th,
+.date-audit-table td,
+.cast-already-table th,
+.cast-already-table td {
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.date-audit-table th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.date-audit-shapes th,
+.date-audit-table th,
+.cast-already-table th {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.date-audit-shapes .num,
+.date-audit-table .num {
+  text-align: right;
+}
+
+.date-audit-body .mono,
+.cast-already .mono {
+  font-family: var(--mono);
+}
+
+.date-audit-table tr.flag-unreadable td {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.date-audit-table tr.flag-ambiguous td {
+  background: var(--qa-warn-soft);
+}
+
+.date-audit-flag {
+  color: var(--text-dim);
+}
+
+.cast-already {
+  margin: 4px 0 8px;
+}
+
+.cast-already-note,
+.cast-already-wait {
+  margin: 6px 0;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+.inspector-check-dates {
+  margin-top: 2px;
+}

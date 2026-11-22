@@ -34,6 +34,7 @@ import type {
   SliceBreakdownMessage,
   ChartBinsMessage,
   GetRelLineRequest,
+  DateAuditMessage,
   RelLineMessage,
   ChartSeriesMessage,
   CorrelationMessage,
@@ -597,6 +598,10 @@ export class SearchWorkerClient {
   }
 
   /** A spread of the column's non-empty values (up to limit). */
+  getDateAudit(column: number, limit = 500): Promise<DateAuditMessage> {
+    return this.request<DateAuditMessage>({ type: "getDateAudit", column, limit });
+  }
+
   getColumnSample(column: number, limit = 1000): Promise<ColumnSampleMessage> {
     return this.request<ColumnSampleMessage>({ type: "getColumnSample", column, limit });
   }

@@ -51,6 +51,7 @@ import type { VariantSummary } from "../data/variants.js";
 import type { DatasetStats } from "../data/stats.js";
 import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
 import type { DateOrder } from "../parse/dates.js";
+import type { DateAuditResult } from "../data/date-audit.js";
 import type { Delimiter } from "../parse/delimiter.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import type { ColumnStats, TypeDowngrade } from "../parse/infer.js";
@@ -957,6 +958,23 @@ export interface ColumnNetworkMessage extends ColumnNetworkResult {
 }
 
 /** A spread of a column's non-empty values, e.g. to show which date formats fit. */
+/** How a date column was read: the file's text beside the date it became. */
+export type GetDateAuditRequest = {
+  type: "getDateAudit";
+  requestId: number;
+  column: number;
+  limit: number;
+};
+
+export interface DateAuditMessage extends DateAuditResult {
+  type: "dateAudit";
+  requestId: number;
+  columnType: ColumnType;
+  dateOrder: DateOrder;
+  /** The column has been cleaned or converted since loading: the text is the file's, the dates are now. */
+  cleaned: boolean;
+}
+
 export type GetColumnSampleRequest = {
   type: "getColumnSample";
   requestId: number;
@@ -1692,6 +1710,7 @@ export type WorkerRequest =
   | GetColumnNetworkRequest
   | GetTextProfileRequest
   | GetColumnSampleRequest
+  | GetDateAuditRequest
   | GetValueSuggestionsRequest
   | ScanSensitiveRequest
   | GetRowsAffectedRequest
@@ -1988,6 +2007,7 @@ export type WorkerResponse =
   | ColumnNetworkMessage
   | TextProfileMessage
   | ColumnSampleMessage
+  | DateAuditMessage
   | ValueSuggestionsMessage
   | SensitiveColumnMessage
   | RowsAffectedMessage

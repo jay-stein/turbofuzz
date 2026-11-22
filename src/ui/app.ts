@@ -62,6 +62,7 @@ import type { ViewDef } from "../data/aggregate.js";
 import { describeCleanOp, describeCleanOpDetail, type CleanOp } from "../data/clean-ops.js";
 import type { CastOptions, CastTarget } from "../data/cast-ops.js";
 import { openCastDialog } from "./cast-dialog.js";
+import { openDateAudit } from "./date-audit-dialog.js";
 import { openBatchCastDialog } from "./batch-cast-dialog.js";
 import { formatBound, openRangePrompt } from "./range-prompt.js";
 import { pandasRecipeScript, type RecipeInput, viewToPandas } from "../data/recipe.js";
@@ -87,7 +88,7 @@ import {
 } from "../data/transform-ops.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { WorkBook } from "xlsx";
-import { TYPE_LABELS, isNumericLikeType, type ColumnType } from "../types.js";
+import { TYPE_LABELS, isNumericLikeType, isTemporalType, type ColumnType } from "../types.js";
 import type { AggregateMessage, CleanUpdate, ColumnMeta, PivotMessage, CorrelationMessage, ExportScope, CompareSideInfo, LoadedMessage, ProgressMessage, ResultsMessage, SpecialKind, TransformedMessage, RowLimit } from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openDedupeMenu } from "./dedupe-menu.js";
@@ -7950,6 +7951,7 @@ export class App {
       displayGrouping: this.groupedNow(column),
       sensitiveWhy: this.sensitiveNotes.has(column) ? [this.sensitiveNotes.get(column) ?? ""] : [],
     });
+      ...(isTemporalType(meta.type) ? { checkDates: () => openDateAudit(meta.name, () => this.client.getDateAudit(column)) } : {}),
   }
 
   /** Freshness rule (plan §6): scores Timeliness against “now”. */
