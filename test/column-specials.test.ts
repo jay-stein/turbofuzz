@@ -63,3 +63,30 @@ test("value anomalies are scoped to the column that has the fence", () => {
   engine.setColumnSpecial(1, "valueAnomalies", false);
   assert.equal(engine.evaluate(new Map()).length, 40);
 });
+
+test("empty cells and junk text read as missing are shown apart, per column and across the table", () => {
+  const dataset = buildDataset(
+    "t",
+    ["a", "b"],
+    [
+      ["", "x"],
+      ["NA", "x"],
+      ["1", "TBD"],
+      ["1", ""],
+      ["2", "y"],
+    ],
+  );
+  const engine = new QueryEngine(dataset);
+  engine.setColumnSpecial(0, "blanks", true);
+  assert.deepEqual([...engine.evaluate(new Map())], [0]);
+  engine.setColumnSpecial(0, "blanks", false);
+  engine.setColumnSpecial(0, "junkText", true);
+  assert.deepEqual([...engine.evaluate(new Map())], [1]);
+  engine.setColumnSpecial(0, "junkText", false);
+
+  engine.setSpecial("junkText", true);
+  assert.deepEqual([...engine.evaluate(new Map())], [1, 2]);
+  engine.setSpecial("junkText", false);
+  engine.setSpecial("blanks", true);
+  assert.deepEqual([...engine.evaluate(new Map())], [0, 3]);
+});

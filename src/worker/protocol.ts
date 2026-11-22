@@ -235,6 +235,8 @@ export interface DatasetStatsMessage {
 export type SpecialKind =
   | "duplicates"
   | "nulls"
+  | "blanks"
+  | "junkText"
   | "valueAnomalies"
   | "lengthAnomalies"
   | "groupAnomalies"

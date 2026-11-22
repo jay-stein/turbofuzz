@@ -22,6 +22,7 @@ import { bufferLayoutSource, checkLayoutBeforeLoad, type LayoutCheckSource } fro
 import { LoadCard } from "./load-card.js";
 import { QaNudge } from "./qa-nudge.js";
 import { buildClearFiltersButton } from "./clear-filters.js";
+import { missingViews } from "./missing-views.js";
 import { openProtectDialog, type ProtectMode } from "./protect-dialog.js";
 import { openFixPreview } from "./fix-preview-dialog.js";
 import { fixReportText, planFixes, runFixPlan, type PlannedFix } from "./fix-apply.js";
@@ -6738,19 +6739,7 @@ export class App {
     const columnsWithNulls = this.metas
       .map((meta, index) => ({ meta, index, count: meta.stats.nulls }))
       .filter((entry) => entry.count > 0);
-    if (columnsWithNulls.length > 0) {
-      views.push({
-        kind: "nulls",
-        label:
-          placeholderTotal > 0
-            ? `View empty cells and junk text · ${placeholderTotal.toLocaleString()}`
-            : `View empty cells · ${columnsWithNulls.length.toLocaleString()} ${columnsWithNulls.length === 1 ? "col" : "cols"}`,
-        title:
-          placeholderTotal > 0
-            ? "Show rows with missing cells, including junk text like “NA”"
-            : "Show rows with at least one empty cell",
-      });
-    }
+    views.push(...missingViews(this.metas)); // Empty cells and junk text are shown apart.
     // Placeholders first: blanking them is the one-click fix, and filling comes after.
     if (placeholderTotal > 0) {
       const ranked = [...tokenTotals.entries()].sort((a, b) => b[1] - a[1]).map(([label]) => label);
@@ -6793,7 +6782,7 @@ export class App {
         });
       }
     }
-    const count = views.length;
+    const count = views.filter((view) => view.kind !== "blanks").length; // Empty cells and junk text are one issue, shown as two views.
     if (count > 0) {
       const button = el(
         "button",
@@ -6846,7 +6835,7 @@ export class App {
   private syncHealthChips(): void {
     const button = this.healthHost.querySelector<HTMLElement>(".health-issues");
     if (button === null) return;
-    const on = [...this.specials].some((kind) => kind === "duplicates" || kind === "nulls" || kind === "valueAnomalies");
+    const on = [...this.specials].some((kind) => ["duplicates", "nulls", "blanks", "junkText", "valueAnomalies"].includes(kind));
     button.classList.toggle("active", on);
   }
 

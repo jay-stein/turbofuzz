@@ -1,3 +1,4 @@
+import { junkTextCount } from "./missing-views.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
 import { FilterPanel } from "./filters.js";
@@ -70,6 +71,8 @@ export interface HighlightRule {
 
 export type ColumnQaKind =
   | "nulls"
+  | "blanks"
+  | "junkText"
   | "valueAnomalies"
   | "lengthAnomalies"
   | "groupAnomalies"
@@ -886,10 +889,8 @@ export class ResultTable {
         kind: "nulls",
         count: column.stats.nulls,
         noun: { one: "empty cell", many: "empty cells" },
-        action: placeholders ? "View empty cells and junk text" : "View empty cells",
-        hint: placeholders
-          ? "show the rows where this column is empty or holds junk text such as NA or TBD"
-          : "show rows where this column is empty",
+        action: "View empty cells",
+        hint: "show rows where this column is empty",
       });
     }
     if (column.anomalyCounts.values > 0) {
@@ -948,6 +949,15 @@ export class ResultTable {
       });
     }
     for (const issue of issues) {
+      if (issue.kind === "nulls" && placeholders) {
+        // Empty cells and junk text are one "missing" issue, but their rows are shown apart.
+        const junk = junkTextCount(column);
+        for (const chip of [
+          this.qaChip(column, index, "blanks", Math.max(0, issue.count - junk), issue.noun, "View empty cells", "show the rows where this column is truly empty"),
+          this.qaChip(column, index, "junkText", junk, { one: "junk text cell", many: "junk text cells" }, "View junk text", "show the rows where this column holds junk text such as NA or TBD"),
+        ]) if (chip !== null) row.append(chip);
+        continue;
+      }
       const chip = this.qaChip(column, index, issue.kind, issue.count, issue.noun, issue.action, issue.hint);
       if (chip !== null) row.append(chip);
     }

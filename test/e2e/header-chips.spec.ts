@@ -47,5 +47,8 @@ test("a column with junk text shows one chip, and its menu offers to blank them"
   expect(box!.x + box!.width).toBeLessThanOrEqual(strip!.x + strip!.width + 1);
   await chip.click();
   await expect(page.getByRole("menuitem", { name: /Blank \d+ junk text cells/ })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: /^View empty cells and junk text/ })).toBeVisible();
+  // Truly empty cells and junk text are shown apart.
+  await expect(page.getByRole("menuitem", { name: /^View empty cells · 7/ })).toBeVisible();
+  await page.getByRole("menuitem", { name: /^View junk text · 12/ }).click();
+  await expect(page.locator(".count")).toContainText("12 of 60 rows");
 });

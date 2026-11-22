@@ -35,6 +35,8 @@ const MAX_FACET_DELTA = 64;
 export type SpecialFilter =
   | "duplicates"
   | "nulls"
+  | "blanks"
+  | "junkText"
   | "valueAnomalies"
   | "lengthAnomalies"
   | "groupAnomalies"
@@ -47,6 +49,8 @@ export type SpecialFilter =
 /** Specials that can be scoped to a single column (duplicates cannot). */
 export type ColumnSpecialKind =
   | "nulls"
+  | "blanks"
+  | "junkText"
   | "valueAnomalies"
   | "lengthAnomalies"
   | "groupAnomalies"
@@ -86,6 +90,8 @@ export class QueryEngine {
   >();
   private readonly all: BitSet;
   private readonly specialOverrides = new Map<SpecialFilter, BitSet>();
+  /** Empty-cell and junk-text rows, worked out on first use; an edit builds a new engine, so they never go stale. */
+  private readonly missingSplit = new Map<string, BitSet>();
 
   constructor(private readonly dataset: Dataset) {
     this.all = new BitSet(dataset.rowCount);
@@ -150,6 +156,9 @@ export class QueryEngine {
     switch (kind) {
       case "nulls":
         return this.dataset.columns[column]?.nullMask ?? null;
+      case "blanks":
+      case "junkText":
+        return this.missingBits(kind, [column]);
       case "valueAnomalies":
         return this.dataset.valueColumnBits[column] ?? null;
       case "lengthAnomalies":
@@ -187,6 +196,9 @@ export class QueryEngine {
         return this.dataset.duplicateBits;
       case "nulls":
         return this.dataset.nullRowBits;
+      case "blanks":
+      case "junkText":
+        return this.missingBits(kind, this.dataset.columns.map((_, column) => column));
       case "valueAnomalies":
         return this.dataset.valueAnomalyBits;
       case "lengthAnomalies":
@@ -210,7 +222,30 @@ export class QueryEngine {
     }
   }
 
+  /**
+   * Rows where any of these columns is missing as a truly empty cell ("blanks") or as
+   * junk text read as missing, such as "NA" or "TBD" ("junkText").
+   */
+  private missingBits(kind: "blanks" | "junkText", columns: readonly number[]): BitSet {
+    const key = `${kind}:${columns.length === 1 ? columns[0] : "all"}`;
+    const cached = this.missingSplit.get(key);
+    if (cached !== undefined) return cached;
+    const bits = new BitSet(this.dataset.rowCount);
+    const junk = kind === "junkText";
+    for (const index of columns) {
+      const column = this.dataset.columns[index];
+      if (column === undefined || column.stats.nulls === 0) continue;
+      const { nullMask, raw } = column;
+      for (let row = 0; row < raw.length; row++) {
+        if (nullMask.get(row) && ((raw[row] ?? "").trim() !== "") === junk) bits.set(row);
+      }
+    }
+    this.missingSplit.set(key, bits);
+    return bits;
+  }
+
   invalidate(): void {
+    this.missingSplit.clear();
     this.cache.clear();
     this.prefixStacks.clear();
     this.valuesState.clear();

@@ -14,7 +14,7 @@ test("narrowing the rows shows one Clear all filters button that brings every ro
   const clear = page.getByRole("button", { name: "Clear all filters" });
   await expect(clear).toBeHidden();
   await page.locator(".health-issues").click();
-  await page.locator(".context-item", { hasText: /^View empty cells and junk text/ }).click();
+  await page.locator(".context-item", { hasText: /^View junk text/ }).click();
   await expect(page.locator(".count")).toContainText("5 of 40 rows");
   await expect(clear).toBeVisible();
   await clear.click();
