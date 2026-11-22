@@ -46,7 +46,7 @@ function columnFactsTitle(column: ColumnMeta): string {
 const DEFAULT_COL_WIDTH = 180;
 const MIN_COL_WIDTH = 56;
 const MAX_COL_WIDTH = 720;
-const INDEX_WIDTH = 64;
+const INDEX_WIDTH = 78;
 /** The optional File row column: the row's number in the loaded data, whatever the order. */
 const FILE_ROW_WIDTH = 76;
 /** The + after the last header, where a new column would go. */
@@ -87,6 +87,9 @@ export interface ResultTableOptions {
   onSort: (column: number, dir: 1 | -1 | 0) => void;
   /** The chevron above File row: back to the file's own order. */
   onFileOrder?: () => void;
+  /** The chevron in the table's top-left corner opens or hides the Filters pane; `filtersOpen` says which it is. */
+  onToggleFilters?: () => void;
+  filtersOpen?: () => boolean;
   /** Clicking a column name opens the (read-only) inspector anchored to it; resting the pointer on it opens it as a hover. */
   onColumnInspect: (column: number, anchor: HTMLElement, hover?: boolean) => void;
   onTypeChange: (column: number, type: ColumnType) => boolean | Promise<boolean>;
@@ -194,6 +197,7 @@ export class ResultTable {
   private sortDir: 1 | -1 = 1;
   /** The order around the sort: reversed flips what the chevrons show; file order lights the File row chevron. */
   private orderState = { reversed: false, inFileOrder: true };
+  private filtersToggle: HTMLButtonElement | null = null;
   private highlights: HighlightRule[] = [];
   /** Per-column fixed decimal display formats (display only, not the data). */
   private formats = new Map<number, number>();
@@ -384,6 +388,18 @@ export class ResultTable {
     this.sortColumn = column;
     this.sortDir = dir;
     this.renderHeader();
+  }
+
+  /** Redraws the corner Filters chevron after the pane opens or closes: it points the way the pane will go. */
+  syncFiltersToggle(): void {
+    const toggle = this.filtersToggle;
+    if (toggle === null) return;
+    const open = this.options.filtersOpen?.() ?? true;
+    toggle.classList.toggle("closed", !open);
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.title = open ? "Hide the Filters pane, giving its width to the table" : "Show the Filters pane";
+    toggle.setAttribute("aria-label", open ? "Hide filters" : "Show filters");
+    toggle.replaceChildren(svgIcon(open ? '<path d="M13 6l-6 6 6 6"/><path d="M19 6l-6 6 6 6"/>' : '<path d="M5 6l6 6-6 6"/><path d="M11 6l6 6-6 6"/>', "filters-toggle-icon"), el("span", {}, ["Filters"]));
   }
 
   /** Whether the rows are reversed and whether they are in the file's own order (no sort, reverse or shuffle). */
@@ -643,7 +659,14 @@ export class ResultTable {
       class: "th row-index-head",
       title: "Where the row sits in the table as it is now: sorting and filtering renumber it",
     });
-    indexHead.append(el("span", { class: "th-index gutter-label" }, ["Row"]));
+    if (this.options.onToggleFilters !== undefined) {
+      const toggle = el("button", { class: "filters-toggle", type: "button" }) as HTMLButtonElement;
+      toggle.addEventListener("click", () => this.options.onToggleFilters?.());
+      this.filtersToggle = toggle;
+      this.syncFiltersToggle();
+      indexHead.append(toggle);
+    }
+    indexHead.append(el("span", { class: "th-index gutter-label" }, ["Row #"]));
     this.header.append(indexHead);
     if (this.showFileRow) {
       const fileHead = el("div", { class: "th file-row-head", style: `left: ${this.indexWidth()}px`, title: "The row's number in the loaded file: it stays with the row through sorting, filtering and shuffling" });

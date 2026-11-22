@@ -19061,3 +19061,54 @@ mark.cmp-ch {
 .table-nav-empty.hidden {
   display: none;
 }
+
+/* The Filters pane's open/hide chevron, in the table's top-left corner above Row #. */
+.table-header > .th.row-index-head {
+  justify-content: space-between;
+  padding-top: 6px;
+}
+
+.filters-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  align-self: stretch;
+  justify-content: center;
+  padding: 2px 6px 2px 3px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filters-toggle-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.4;
+  color: var(--accent);
+}
+
+.filters-toggle:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Closed, it is the way back to the filters, so it stands out more. */
+.filters-toggle.closed {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+}
+
+.filters-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* On the Table the corner chevron does this job, so the toolbar's "» Filters" steps aside. */
+.workspace:has(.sidebar.collapsed:not(.hidden)):has(.table-host:not(.hidden)):not(.overview-mode) .filters-show {
+  display: none;
+}

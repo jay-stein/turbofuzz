@@ -103,21 +103,25 @@ test("the toolbar folds its issues into one Issues menu: the rows first, then th
   await expect(page.locator(".context-menu")).toBeVisible();
 });
 
-test("a collapsed Filters pane gives its width to the grid, and the toolbar brings it back", async ({ page }) => {
+test("a collapsed Filters pane gives its width to the grid, and the table's corner chevron brings it back", async ({ page }) => {
   await openListings(page);
   const sidebar = page.locator("aside.sidebar");
-  const show = page.locator(".filters-show");
-  // A narrow window opens with the pane collapsed: the toolbar button is how it comes back.
-  if (await show.isVisible()) await show.click();
+  const corner = page.locator(".filters-toggle");
+  // A narrow window opens with the pane collapsed: the corner chevron is how it comes back.
+  if (!(await sidebar.isVisible())) await corner.click();
   await expect(sidebar).toBeVisible();
-  await expect(show).toBeHidden();
+  await expect(corner).toHaveAttribute("aria-expanded", "true");
   await page.locator(".sidebar-toggle").click();
   await expect(sidebar).toBeHidden();
-  await expect(show).toBeFocused();
+  await expect(corner).toBeFocused();
+  await expect(corner).toHaveAttribute("aria-label", "Show filters");
+  // On the Table the corner chevron replaces the toolbar's "» Filters".
+  await expect(page.locator(".filters-show")).toBeHidden();
   expect((await page.locator(".table-scroller").boundingBox())!.x).toBeLessThan(2);
-  await show.click();
+  await corner.click();
   await expect(sidebar).toBeVisible();
-  await expect(show).toBeHidden();
+  await corner.click();
+  await expect(sidebar).toBeHidden();
 });
 
 test("the cursor cell marks its row number and column header, and a hovered row is tinted", async ({ page }) => {

@@ -1500,7 +1500,7 @@ export class App {
     this.sidebarToggle.addEventListener("click", () => {
       this.setSidebarCollapsed(!this.sidebarCollapsed);
       // The pane's own toggle goes with it; the toolbar's Filters button takes over.
-      if (this.sidebarCollapsed) this.filtersShowButton.focus();
+      if (this.sidebarCollapsed) (document.querySelector<HTMLElement>(".table-host:not(.hidden) .filters-toggle") ?? this.filtersShowButton).focus();
     });
     // With the Filters pane collapsed, it is gone altogether and this toolbar button brings it back.
     this.filtersShowButton = el(
@@ -3084,6 +3084,8 @@ export class App {
     this.table = new ResultTable(this.tableHost, {
       onSort: (column, dir) => this.changeSort(column, dir),
       onFileOrder: () => this.changeSort(-1, 0),
+      onToggleFilters: () => this.setSidebarCollapsed(!this.sidebarCollapsed),
+      filtersOpen: () => !this.sidebarCollapsed,
       onColumnInspect: (column, anchor, hover) => this.openColumnInspector(column, anchor, hover),
       onTypeChange: (column, type) => this.changeType(column, type),
       quickFilterFor: (column) => {
@@ -6873,6 +6875,7 @@ export class App {
     this.sidebarEl.classList.toggle("collapsed", collapsed);
     this.sidebarToggle.textContent = collapsed ? "»" : "«";
     this.sidebarToggle.title = collapsed ? "Show filters" : "Collapse filters";
+    this.table?.syncFiltersToggle();
     if (!remember) return;
     // Set by hand on the Pivot View, it stays that way on leaving.
     this.filtersBeforePivot = null;
