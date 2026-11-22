@@ -1065,3 +1065,5 @@ export async function applyPalette(card: ChartCard, value: string): Promise<void
   card.syncPalette();
   card.render();
 }
+  // Choosing a colour map is choosing colours for the bars: measure bars take it up from here on.
+  card.config.colourBars = true;

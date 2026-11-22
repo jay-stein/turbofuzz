@@ -441,6 +441,8 @@ export interface ChartCardConfig {
   colorCustom?: boolean;
   multiColor: boolean;
   /** Colour map name (PALETTES) or CUSTOM_PALETTE with paletteCustom stops. */
+  /** Measure bar charts: each bar coloured from the colour map. Off until a colour map is chosen for the chart. */
+  colourBars?: boolean;
   palette?: string;
   /** Comma/space separated hex stops used when palette is "custom". */
   paletteCustom?: string;

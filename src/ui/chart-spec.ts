@@ -63,6 +63,7 @@ export interface ChartSpec {
     multiColor: boolean;
     palette: string;
     paletteCustom: string;
+    colourBars?: boolean;
     paletteReversed: boolean;
     colorMin: number | null;
     colorMax: number | null;
@@ -211,6 +212,7 @@ export function chartSpecFromConfig(
       palette: config.palette ?? "",
       paletteCustom: config.paletteCustom ?? "",
       paletteReversed: config.paletteReversed === true,
+      ...(config.colourBars === undefined ? {} : { colourBars: config.colourBars }),
       colorMin: config.colorMin ?? null,
       colorMax: config.colorMax ?? null,
       colorCenter: config.colorCenter ?? null,
@@ -328,6 +330,7 @@ export function chartSpecToConfig(
   config.paletteCustom = spec.presentation.paletteCustom;
   config.paletteReversed = spec.presentation.paletteReversed;
   config.colorMin = spec.presentation.colorMin;
+  if (spec.presentation.colourBars !== undefined) config.colourBars = spec.presentation.colourBars;
   config.colorMax = spec.presentation.colorMax;
   config.colorCenter = spec.presentation.colorCenter;
   config.topN = spec.presentation.topN;

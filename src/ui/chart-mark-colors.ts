@@ -242,7 +242,8 @@ export function openSeriesColours(card: ChartCard, series: string): void {
  */
 export function colourMapRow(card: ChartCard, maps: readonly string[]): HTMLElement {
   const row = el("div", { class: "chart-map-row", role: "group", "aria-label": "Colours for all bars" }, [el("span", { class: "chart-map-row-label" }, ["All bars"])]);
-  const current = card.config.multiColor ? (card.config.palette ?? "") : null;
+  const measure = card.config.kind === "barplot";
+  const current = (measure ? card.config.colourBars === true : card.config.multiColor) ? (card.config.palette ?? "") : null;
   const strip = (colors: readonly string[]): HTMLElement => {
     const swatch = el("span", { class: "chart-map-strip", "aria-hidden": "true" });
     swatch.style.background = colors.length === 1 ? colors[0]! : `linear-gradient(90deg, ${colors.map((c, i) => `${c} ${(i / colors.length) * 100}% ${((i + 1) / colors.length) * 100}%`).join(", ")})`;
@@ -263,6 +264,7 @@ export function colourMapRow(card: ChartCard, maps: readonly string[]): HTMLElem
   };
   choice("One colour", "Every bar in the chart's own colour", [card.primaryColor()], current === null, () => {
     card.config.multiColor = false;
+    card.config.colourBars = false;
     if (card.multiInput !== undefined) card.multiInput.checked = false;
     card.render();
   });
@@ -270,6 +272,7 @@ export function colourMapRow(card: ChartCard, maps: readonly string[]): HTMLElem
     choice(name, `Give every bar its own colour from ${name}`, samplePalette(name, 6, []), current === name, async () => {
       await card.applyPalette(name);
       card.config.multiColor = true;
+      card.config.colourBars = true;
       if (card.multiInput !== undefined) card.multiInput.checked = true;
       card.render();
     });
@@ -278,12 +281,12 @@ export function colourMapRow(card: ChartCard, maps: readonly string[]): HTMLElem
 }
 
 /**
- * A bar's own colour before any single-bar override. With "Colour each bar" off, the chart's colour. On, a
- * set of distinct colours gives each bar the next one, and a ramp shades each bar by its value (bigger is
+ * A measure bar's own colour before any single-bar override: the chart's colour until a colour map is chosen
+ * for the chart (from a clicked bar or Format). Then a set of distinct colours gives each bar the next one, and a ramp shades each bar by its value (bigger is
  * further along the ramp), so the colour says something.
  */
 export function barFill(card: ChartCard, position: number, value: number, top: number): string {
-  if (!card.config.multiColor) return card.primaryColor();
+  if (card.config.colourBars !== true) return card.primaryColor();
   const name = card.config.palette ?? DEFAULT_PALETTE;
   if (!isRampPalette(name)) return card.paletteColor(position);
   const share = top > 0 && Number.isFinite(value) ? Math.min(1, Math.max(0, Math.abs(value) / top)) : 0;

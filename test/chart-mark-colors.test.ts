@@ -302,7 +302,7 @@ test("mark colours survive the ChartSpec round trip; unreadable ones are left ou
   card.dispose();
 });
 
-test("clicking a bar on the Chart page offers Colour…, and a swatch recolours that bar only", async () => {
+test("clicking a bar on the Chart page shows its colours at once, and a swatch recolours that bar only", async () => {
   setupDom();
   const card = await draw(
     { kind: "bar", source: "v1" },
@@ -322,7 +322,7 @@ test("clicking a bar on the Chart page offers Colour…, and a swatch recolours 
   const colour = buttons().find((button) => button.textContent === "Colour…");
   assert.ok(colour !== undefined);
   assert.equal(buttons().some((button) => button.textContent === "Filter to this"), false, "nothing to filter by on a view");
-  colour.click();
+  // The swatches are open as soon as the bar is clicked; Colour… folds them away and back.
   const swatches = bar.querySelectorAll<HTMLButtonElement>(".chart-mark-colors .chart-swatch");
   assert.ok(swatches.length >= 2);
   swatches[1]!.click();
