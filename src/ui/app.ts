@@ -94,7 +94,7 @@ import type { AggregateMessage, CleanUpdate, ColumnMeta, PivotMessage, Correlati
 import { clear, el, svgIcon } from "./dom.js";
 import { openDedupeMenu } from "./dedupe-menu.js";
 import { openMenu, type MenuItem } from "./menu.js";
-import { fillMenuItems, type FillMenuContext } from "./fill-menu.js";
+import { cleanFillOptions, fillMenuItems, runFill, type FillMenuContext } from "./fill-menu.js";
 import { listKey } from "./list-nav.js";
 import { buildColumnCard } from "./summary-band.js";
 import { Overview, STATS_ICON, delimiterLabel } from "./overview.js";
@@ -5473,6 +5473,11 @@ export class App {
     return {
       mode,
       onOpenClean: () => this.openCleanPage(),
+      fillChoices: (column) => {
+        const meta = this.metas[column];
+        return meta === undefined ? [] : cleanFillOptions(meta);
+      },
+      onFill: (column, choice) => runFill(this.fillContext(), column, choice),
       onOpenReport: (tab) => {
         this.setView("quality");
         if (tab !== undefined) this.qualityPage?.openTab(tab);

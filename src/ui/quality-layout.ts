@@ -539,6 +539,9 @@ export function buildIssueCard(
     dismiss?: (issue: PageIssue) => void;
     /** Open the one-by-one review for an issue that has choices to make. */
     review?: (issue: PageIssue) => void;
+    /** The ways to fill an empty-cells issue's column, and filling it one of them. */
+    fillChoices?: (issue: PageIssue) => { id: string; label: string; note?: string }[];
+    fill?: (issue: PageIssue, choice: string) => void;
   },
 ): HTMLElement {
   const card = el("article", { class: `issue-card sev-${issue.severity}`, "data-issue": issue.id });
@@ -558,6 +561,8 @@ export function buildIssueCard(
   if (issue.impact !== null) {
     main.append(el("p", { class: "issue-impact" }, [el("strong", {}, ["Impact: "]), issue.impact]));
   }
+  const choices = issue.kind === "empty" && actions.fill !== undefined ? (actions.fillChoices?.(issue) ?? []) : [];
+  if (choices.length > 0) main.append(buildFillRow(issue, choices, (choice) => actions.fill?.(issue, choice)));
   const buttons = el("div", { class: "issue-actions" });
   if (issue.fixes.length > 0 && issue.fixLabel !== null) {
     const fix = el("button", { class: options.primary ? "primary btn-primary" : "ghost outlined", type: "button" }, [
@@ -608,6 +613,26 @@ export function buildIssueCard(
   return card;
 }
 
+/**
+ * How to fill one column's empty cells: the methods that suit its type, a Fill button that
+ * previews before anything changes, and a line on what the chosen method does.
+ */
+function buildFillRow(issue: PageIssue, choices: readonly { id: string; label: string; note?: string }[], fill: (choice: string) => void): HTMLElement {
+  const id = `fill-${issue.id.replace(/[^a-z0-9_-]/gi, "-")}`;
+  const select = el("select", { id, class: "issue-fill-select", "data-qp": "fill-method" }) as HTMLSelectElement;
+  for (const choice of choices) select.append(el("option", { value: choice.id }, [choice.label]));
+  const note = el("span", { class: "issue-fill-note" });
+  const sync = (): void => {
+    note.textContent = choices.find((choice) => choice.id === select.value)?.note ?? "";
+  };
+  select.addEventListener("change", sync);
+  sync();
+  const go = el("button", { class: "ghost outlined", type: "button", "data-qp": "fill" }, ["Fill…"]);
+  go.title = "Preview the fill first; it lands in the Recipe as a step you can undo, and filled cells are marked in the Table";
+  go.addEventListener("click", () => fill(select.value));
+  return el("div", { class: "issue-fill" }, [el("label", { for: id, class: "issue-fill-label" }, ["Fill empty cells with"]), select, go, note]);
+}
+
 export function buildIssuesTab(
   issues: readonly PageIssue[],
   fixed: readonly FixedEntry[],
@@ -634,6 +659,8 @@ export function buildIssuesTab(
     review?: (issue: PageIssue) => void;
     /** Exact points a group adds when all of it is fixed, and the dimension it lifts most. */
     groupGain?: (issues: readonly PageIssue[]) => { points: number; dimension: string | null };
+    fillChoices?: (issue: PageIssue) => { id: string; label: string; note?: string }[];
+    fill?: (issue: PageIssue, choice: string) => void;
   },
 ): HTMLElement {
   const root = el("div", { class: "qp-issues" });

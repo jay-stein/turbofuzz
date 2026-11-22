@@ -71,6 +71,10 @@ export interface QualityPageCallbacks {
   onOpenClean?(): void;
   /** Go to the Data Quality Report, optionally on one tab (from the Clean page). */
   onOpenReport?(tab?: QualityTab): void;
+  /** The ways to fill one column's empty cells (Fill the gaps). */
+  fillChoices?(column: number): { id: string; label: string; note?: string }[];
+  /** Fill one column's empty cells the chosen way (previewed, undoable). */
+  onFill?(column: number, choice: string): void;
   /** Filter the table to the failing rows of a check. */
   onFilter(check: ScoreCheck): void;
   /** Convert a downgraded text column to its richer type. */
@@ -557,6 +561,14 @@ export class QualityPage {
                 },
               }),
           groupGain: (list) => this.groupGain(score, list),
+          ...(this.callbacks.onFill === undefined
+            ? {}
+            : {
+                fillChoices: (issue: PageIssue) => (issue.column === null ? [] : (this.callbacks.fillChoices?.(issue.column) ?? [])),
+                fill: (issue: PageIssue, choice: string) => {
+                  if (issue.column !== null) this.callbacks.onFill?.(issue.column, choice);
+                },
+              }),
           toggleAll: () => {
             this.showAllIssues = !this.showAllIssues;
             this.render(this.lastInput);

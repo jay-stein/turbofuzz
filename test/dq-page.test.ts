@@ -396,3 +396,45 @@ test("the Clean page sets the score against the raw load and counts the kinds of
   assert.match(host.querySelector(".cl-next")?.textContent ?? "", /Biggest win next/);
   assert.ok(host.querySelector(".cl-bar")?.getAttribute("aria-label")?.startsWith("Score "));
 });
+
+test("Fill the gaps offers the fills that suit each column, says what the chosen one does, and fills on request", () => {
+  const metas = messy();
+  const score = computeDQScore(metas, stats(400), 400);
+  const issues = buildIssues({ score, metas, rowCount: 400, review: [], sensitiveColumns: new Set() });
+  const filled: [number, string][] = [];
+  const { host, quality } = page({
+    mode: "clean",
+    fillChoices: () => [
+      { id: "median", label: "Median", note: "The median fills every gap." },
+      { id: "knn", label: "Estimate from similar rows (KNN)…", note: "Estimated from the most similar rows." },
+    ],
+    onFill: (column, choice) => filled.push([column, choice]),
+  });
+  const empty: PageIssue = { id: "empty.1", severity: "review", kind: "empty", column: 1, columnName: "spend", title: "“spend” has 10 empty cells", evidence: "10 of 400", impact: null, points: null, examples: [], dist: null, fixes: [], fixLabel: "Review empties", batchSafe: false, rows: 10 };
+  quality.render(input(metas, [...issues, empty]) as never);
+  (host.querySelector(".qp-group[data-group='empty'] .qp-group-head") as unknown as HTMLButtonElement).click();
+  const card = host.querySelector("[data-issue='empty.1']")!;
+  const select = card.querySelector("[data-qp='fill-method']") as unknown as HTMLSelectElement;
+  assert.deepEqual([...select.querySelectorAll("option")].map((option) => option.textContent), ["Median", "Estimate from similar rows (KNN)…"]);
+  assert.equal(card.querySelector(".issue-fill-note")?.textContent, "The median fills every gap.");
+  assert.equal(card.querySelector(`label[for='${select.id}']`)?.textContent, "Fill empty cells with");
+  select.value = "knn";
+  select.dispatchEvent(new (globalThis as unknown as { window: Window }).window.Event("change") as unknown as Event);
+  assert.equal(card.querySelector(".issue-fill-note")?.textContent, "Estimated from the most similar rows.");
+  (card.querySelector("[data-qp='fill']") as unknown as HTMLButtonElement).click();
+  assert.deepEqual(filled, [[1, "knn"]]);
+});
+
+test("fill choices follow the column type: free text gets no typical value or estimate, identifiers get none", async () => {
+  const { cleanFillOptions } = await import("../src/ui/fill-menu.js");
+  const ids = (meta: ColumnMeta): string[] => cleanFillOptions(meta).map((option) => option.id);
+  const numeric = metaOf(ColumnData.create("spend", rows(50, (i) => (i % 5 === 0 ? "" : String(i * 3)))));
+  assert.deepEqual(ids(numeric), ["median", "mean", "zero", "forward", "backward", "knn", "more"]);
+  const category = metaOf(ColumnData.create("region", rows(60, (i) => (i % 6 === 0 ? "" : ["North", "South"][i % 2]!))));
+  assert.equal(category.type, "category");
+  assert.deepEqual(ids(category), ["mode", "unknown", "forward", "backward", "knn", "more"]);
+  const text = { ...category, type: "string" as const };
+  assert.deepEqual(ids(text), ["unknown", "forward", "backward", "more"]);
+  assert.match(cleanFillOptions(text)[0]!.note, /Free text/);
+  assert.deepEqual(ids({ ...category, type: "identifier" as const }), []);
+});

@@ -19716,3 +19716,9 @@ select.chart-add-agg {
 @media (max-width: 640px) {
   .qc-dim, .qc-scale { grid-template-columns: 84px minmax(0, 1fr) 92px; }
 }
+
+/* Fill the gaps: how to fill one column's empty cells, on its card. */
+.issue-fill { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 8px; }
+.issue-fill-label { font-size: var(--fs-sm); color: var(--text-dim); }
+.issue-fill-select { height: var(--control-h); max-width: 100%; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); color: var(--text); font: inherit; font-size: var(--fs-md); }
+.issue-fill-note { flex-basis: 100%; font-size: var(--fs-sm); color: var(--text-dim); }

@@ -372,3 +372,26 @@ test("spellings can be reviewed one by one: the suggested option is ticked, anot
   await page.locator(".qp-fixed-row").first().getByRole("button", { name: "Undo" }).click();
   await expect(page.locator(".qp-fixed-row")).toHaveCount(0);
 });
+
+test("Fill the gaps fills one column the chosen way, as a step that undoes", async ({ page }) => {
+  const lines = ["city,rooms,price"];
+  for (let i = 0; i < 120; i++) lines.push(`${["Perth", "Hobart", "Darwin"][i % 3]},${1 + (i % 5)},${i % 4 === 0 ? "" : 100 + i}`);
+  await openCsv(page, "homes.csv", lines.join(String.fromCharCode(10)));
+  await page.getByRole("tab", { name: "Clean" }).click();
+  const group = page.locator(".qp-group[data-group='empty']");
+  await expect(group).toContainText("Fill the gaps");
+  if ((await group.getAttribute("class"))?.includes("open") !== true) await group.locator(".qp-group-head").click();
+  const card = group.locator(".issue-card", { hasText: "price" });
+  const select = card.getByLabel("Fill empty cells with");
+  await expect(select.locator("option")).toHaveText(["Median", "Mean", "0", "Row above", "Row below", "Estimate from similar rows (KNN)…", "Within a group, or a value you type…"]);
+  await select.selectOption("median");
+  await expect(card.locator(".issue-fill-note")).toContainText("median");
+  await card.locator("[data-qp='fill']").click();
+  await page.getByRole("button", { name: "Fill empty cells" }).click();
+  const recipe = page.locator(".nav-actions button", { hasText: /^Recipe/ });
+  await expect(recipe).toHaveText("Recipe (1)", { timeout: 15_000 });
+  await expect(page.locator(".issue-card", { hasText: "price" })).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.locator(".cl-legend")).toContainText(/Gained by cleaning \+\d+\.\d/);
+  await page.locator(".nav-actions button", { hasText: /^Undo$/ }).click();
+  await expect(recipe).toHaveText("Recipe");
+});

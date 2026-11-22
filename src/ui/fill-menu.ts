@@ -15,6 +15,10 @@ export interface FillChoice {
   strategy: ImputeStrategy | null;
   /** Offered on the Clean page. Free text gets no typical value or estimate: that would invent data. */
   clean: boolean;
+  /** What fills the gap, for the step's name: "Fill “spend” with the median". */
+  phrase: string;
+  /** One line on what the method does, shown under the choice. */
+  note: string;
 }
 
 const KNN_TYPES = new Set(["integer", "number", "string", "category", "boolean"]);
@@ -22,14 +26,22 @@ const KNN_TYPES = new Set(["integer", "number", "string", "category", "boolean"]
 /** The fills that suit one column's type, most usual first. Identifiers get none. */
 export function fillChoices(meta: ColumnMeta): FillChoice[] {
   if (meta.type === "identifier") return [];
-  const above: FillChoice = { id: "forward", short: "Row above", menu: null, strategy: { kind: "forward" }, clean: true };
-  const below: FillChoice = { id: "backward", short: "Row below", menu: null, strategy: { kind: "backward" }, clean: true };
-  const knn: FillChoice = { id: "knn", short: "Estimate from similar rows (KNN)…", menu: null, strategy: null, clean: true };
+  const above: FillChoice = { id: "forward", short: "Row above", menu: null, strategy: { kind: "forward" }, clean: true, phrase: "the row above", note: "Each gap copies the value in the row above: sort first if the order matters." };
+  const below: FillChoice = { id: "backward", short: "Row below", menu: null, strategy: { kind: "backward" }, clean: true, phrase: "the row below", note: "Each gap copies the value in the row below." };
+  const knn: FillChoice = {
+    id: "knn",
+    short: "Estimate from similar rows (KNN)…",
+    menu: null,
+    strategy: null,
+    clean: true,
+    phrase: "an estimate from similar rows",
+    note: "Estimated from the most similar rows: you pick the columns to compare and see how well it does before anything changes.",
+  };
   if (isNumericLikeType(meta.type)) {
     return [
-      { id: "median", short: "Median", menu: "Fill with median", strategy: { kind: "median" }, clean: true },
-      { id: "mean", short: "Mean", menu: "Fill with mean", strategy: { kind: "mean" }, clean: true },
-      { id: "zero", short: "0", menu: "Fill with 0", strategy: { kind: "constant", value: "0" }, clean: true },
+      { id: "median", short: "Median", menu: "Fill with median", strategy: { kind: "median" }, clean: true, phrase: "the median", note: "The column's median fills every gap; outliers do not pull it." },
+      { id: "mean", short: "Mean", menu: "Fill with mean", strategy: { kind: "mean" }, clean: true, phrase: "the mean", note: "The column's average fills every gap." },
+      { id: "zero", short: "0", menu: "Fill with 0", strategy: { kind: "constant", value: "0" }, clean: true, phrase: "0", note: "Every gap becomes 0: right when an empty cell means none." },
       above,
       below,
       ...(KNN_TYPES.has(meta.type) ? [knn] : []),
@@ -51,12 +63,31 @@ export function fillChoices(meta: ColumnMeta): FillChoice[] {
       menu: shortTop === undefined ? "Fill with the most common value" : `Fill with the most common (“${shortTop}”)`,
       strategy: { kind: "mode" },
       clean: !free,
+      phrase: "the most common value",
+      note: "The most common value fills every gap, so that value grows in pivots and charts.",
     },
-    { id: "unknown", short: "Unknown", menu: "Fill with “Unknown”", strategy: { kind: "constant", value: "Unknown" }, clean: true },
+    {
+      id: "unknown",
+      short: "Unknown",
+      menu: "Fill with “Unknown”",
+      strategy: { kind: "constant", value: "Unknown" },
+      clean: true,
+      phrase: "“Unknown”",
+      note: free ? "Free text: only fills that set or copy a value are offered, since a typical value or an estimate would invent data." : "A fixed “Unknown” keeps the gaps visible as their own group in pivots.",
+    },
     above,
     below,
     { ...knn, clean: !free },
   ];
+}
+
+/** The fill that opens the full Fill missing step: within groups, or a value you type. */
+export const MORE_FILLS = { id: "more", label: "Within a group, or a value you type…", note: "Opens Fill missing: for example the median for each region, or a value of your own." } as const;
+
+/** The Clean page's fill choices for one column; empty for an identifier. */
+export function cleanFillOptions(meta: ColumnMeta): { id: string; label: string; note: string }[] {
+  const choices = fillChoices(meta).filter((choice) => choice.clean);
+  return choices.length === 0 ? [] : [...choices.map((choice) => ({ id: choice.id, label: choice.short, note: choice.note })), { ...MORE_FILLS }];
 }
 
 export interface FillMenuContext {
@@ -65,6 +96,20 @@ export interface FillMenuContext {
   /** The full Fill missing transform, on one column. */
   openImpute(column: number | undefined): void;
   openKnn(column: number): void;
+}
+
+/** Runs one Clean-page fill on one column: a previewed impute step, the KNN dialog, or the full Fill missing step. */
+export function runFill(ctx: FillMenuContext, column: number, id: string): void {
+  const meta = ctx.metas[column];
+  if (meta === undefined) return;
+  if (id === MORE_FILLS.id) {
+    ctx.openImpute(column);
+    return;
+  }
+  const choice = fillChoices(meta).find((entry) => entry.id === id);
+  if (choice === undefined) return;
+  if (choice.strategy === null) ctx.openKnn(column);
+  else ctx.confirmFill([column], choice.strategy, `Fill “${meta.name}” with ${choice.phrase}`);
 }
 
 /**
