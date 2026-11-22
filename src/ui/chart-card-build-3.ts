@@ -75,6 +75,7 @@ export function buildPart7(card: ChartCard, field: (label: string, input: HTMLEl
     const settingsBody = el("div", { class: "chart-settings-body" }, [
       settingsClose,
       card.colorWrap,
+      card.facetWrap,
       card.sizeWrap,
       card.modeWrap,
       card.densityStyleWrap,

@@ -399,6 +399,7 @@ export class SearchWorkerClient {
     yColumn: number;
     colorColumn?: number;
     sizeColumn?: number;
+    facetColumn?: number;
     mode: SeriesMode;
     limit?: number;
     clip?: boolean;

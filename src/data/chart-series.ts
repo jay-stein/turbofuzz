@@ -13,6 +13,8 @@ export interface SeriesOptions {
   sampleMax?: number;
   /** false keeps the full data range (maps); default clips to p1–p99. */
   clip?: boolean;
+  /** Each row's panel (category code) when the points are split into small multiples. */
+  facetCodes?: Uint16Array | null;
 }
 
 export interface SeriesPoints {
@@ -22,6 +24,8 @@ export interface SeriesPoints {
   colorValues: Float64Array | null;
   colorCodes: Uint16Array | null;
   size: Float64Array | null;
+  /** Each shown point's panel when split into small multiples (0xffff: no value). */
+  facetCodes?: Uint16Array | null;
   shown: number;
   total: number;
   outside: number;
@@ -283,6 +287,8 @@ export function computeSeries(
   const pColor = colorValues !== null ? new Float64Array(cap) : null;
   const pCodes = colorCodes !== null ? new Uint16Array(cap) : null;
   const pSize = size !== null ? new Float64Array(cap) : null;
+  const facetCodes = options.facetCodes ?? null;
+  const pFacet = facetCodes !== null ? new Uint16Array(cap) : null;
   let shown = 0;
   let outside = 0;
   let seen = 0;
@@ -303,6 +309,7 @@ export function computeSeries(
     if (pColor !== null) pColor[shown] = colorValues?.[id] ?? Number.NaN;
     if (pCodes !== null) pCodes[shown] = colorCodes?.[id] ?? 0xffff;
     if (pSize !== null) pSize[shown] = size?.[id] ?? Number.NaN;
+    if (pFacet !== null) pFacet[shown] = facetCodes?.[id] ?? 0xffff;
     shown++;
   }
 
@@ -313,6 +320,7 @@ export function computeSeries(
     colorValues: pColor === null ? null : pColor.subarray(0, shown),
     colorCodes: pCodes === null ? null : pCodes.subarray(0, shown),
     size: pSize === null ? null : pSize.subarray(0, shown),
+    ...(pFacet === null ? {} : { facetCodes: pFacet.subarray(0, shown) }),
     shown,
     total,
     outside,

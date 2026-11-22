@@ -441,6 +441,8 @@ export type GetChartSeriesRequest = {
   /** -1 (or omitted) draws every point in the chart colour. */
   colorColumn?: number;
   sizeColumn?: number;
+  /** A category column to split the points into panels (small multiples); -1 or omitted for one plot. */
+  facetColumn?: number;
   mode: SeriesMode;
   /** Map cards: one dot per distinct place, valued by the row count or this aggregate of the size column. */
   places?: { agg: "count" | "sum" | "mean" | "min" | "max"; colorAgg?: "sum" | "mean" | "min" | "max"; labelColumn?: number };
@@ -465,6 +467,8 @@ export interface ChartSeriesMessage {
   colorLabels: string[] | null;
   /** One dot per place: what each is called, from the label column asked for. */
   placeLabels?: string[];
+  /** The panel names when the points are split by a column; `result.facetCodes` indexes them. */
+  facetLabels?: string[];
   /** Worker compute time for this payload. */
   ms: number;
   /** Pearson r of the two plotted columns over the filtered pairs (NaN if undefined). */

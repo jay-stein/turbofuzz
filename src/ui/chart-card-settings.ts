@@ -100,6 +100,8 @@ export function dock(card: ChartCard, head: HTMLElement, quickRow: HTMLElement, 
   // Rolled-up values, map layers and dot sizing join the rest of the settings.
   const valueSection = card.valueWrap.parentElement;
   if (valueSection !== null) valueSection.after(el("div", { class: "chart-side-section" }, [quickRow]));
+  // Small multiples sit with X and Y: splitting the plot is a choice about the data, not its look.
+  card.yWrap.after(card.facetWrap);
   const colours = card.sidebar.querySelector(".chart-side-settings");
   card.sidebar.insertBefore(el("div", { class: "chart-side-section chart-side-map" }, [card.bubbleSettings, card.dotSettings]), colours);
   card.sidebar.insertBefore(el("div", { class: "chart-side-section chart-side-ref" }, [card.refSection]), colours);
@@ -693,6 +695,12 @@ export function syncOptions(card: ChartCard): void {
   }
 
   card.colorSelect.replaceChildren(card.option("-1", "None"));
+  card.facetSelect.replaceChildren(card.option("-1", "None (one plot)"));
+  card.columns.forEach((meta, index) => {
+    if (isGroupable(meta)) card.facetSelect.append(card.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`));
+  });
+  const facet = card.config.facetColumn ?? -1;
+  card.facetSelect.value = [...card.facetSelect.options].some((o) => o.value === String(facet)) ? String(facet) : "-1";
   card.sizeSelect.replaceChildren(card.option("-1", "None"));
   card.columns.forEach((meta, index) => {
     card.colorSelect.append(card.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`));
@@ -831,6 +839,8 @@ export function renderControls(card: ChartCard): void {
   card.regions?.setLanding(card.regionsOn());
   card.syncRegionAxes();
   card.colorWrap.classList.toggle("hidden", (!seriesKind && !mapKind) || card.regionsOn());
+  // Panels split a scatter's dots; a density grid or a map has no small multiples (yet).
+  card.facetWrap.classList.toggle("hidden", card.config.kind !== "scatter" || card.config.mode === "density");
   card.sizeTagLabel.textContent =
     mapKind && card.config.mapMode === "heat" ? "Measure" : "Size";
   card.sizeWrap.classList.toggle(
@@ -1060,10 +1070,10 @@ export async function applyPalette(card: ChartCard, value: string): Promise<void
   } else {
     card.config.palette = value;
   }
+  // Choosing a colour map is choosing colours for the bars: measure bars take it up from here on.
+  card.config.colourBars = true;
   card.hexInput.value = card.primaryColor();
   card.syncSwatches();
   card.syncPalette();
   card.render();
 }
-  // Choosing a colour map is choosing colours for the bars: measure bars take it up from here on.
-  card.config.colourBars = true;

@@ -1252,6 +1252,8 @@ export function deleteMarks(card: ChartCard, actions: readonly HitAction[]): boo
 export function dataPointAt(card: ChartCard, clientX: number, clientY: number): { x: number; y: number } | null {
   const kind = card.config.kind;
   if (kind !== "scatter" && kind !== "density" && kind !== "bubble") return null;
+  // Split into panels, a pointer position is in one small plot, not the whole frame: no trims there.
+  if (kind === "scatter" && card.facetLabels !== null && (card.config.facetColumn ?? -1) >= 0) return null;
   const result = kind === "bubble" ? card.bubbleResult : card.seriesResult;
   const frame = card.lastFrame;
   if (result === null || frame === null || !(frame.plotW > 0) || !(frame.plotH > 0)) return null;

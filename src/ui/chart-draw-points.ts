@@ -17,6 +17,7 @@ import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
 import type { BubbleLayer, Frame } from "./chart-card-types.js";
 import { refAxisRange } from "./chart-ref-lines.js";
+import { panelGrid } from "./chart-extra.js";
 import { BORDER_DARKER, BORDER_ALPHA, addMarkerPath, leastSquares, cropDensityGrid } from "./chart-card-types.js";
 
 export function refreshCrosstab(card: ChartCard): void {
@@ -364,6 +365,8 @@ export function drawScatterLike(card: ChartCard, ctx: CanvasRenderingContext2D, 
   }
   if (result.mode === "density")
     card.drawDensity(ctx, frame, result, xMeta, yMeta, card.plotView);
+  else if (card.config.kind === "scatter" && result.facetCodes !== undefined && result.facetCodes !== null && card.facetLabels !== null)
+    drawPanels(card, ctx, frame, card.plotView === null ? withRefLines(card, result) : { ...result, ...card.plotView }, result.facetCodes, card.facetLabels, xMeta, yMeta);
   else
     card.drawPoints(
       ctx,
@@ -372,6 +375,69 @@ export function drawScatterLike(card: ChartCard, ctx: CanvasRenderingContext2D, 
       xMeta,
       yMeta,
     );
+}
+
+/** At most this many panels; more values than that are named in the note instead. */
+const PANEL_LIMIT = 24;
+
+/**
+ * Small multiples: one scatter per value of the panel column, in a near-square grid, every panel on the same
+ * axes so they compare at a glance. Each has its name, its own fit line and r; the note covers them all.
+ */
+function drawPanels(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesPoints, codes: Uint16Array, labels: readonly string[], xMeta: ColumnMeta, yMeta: ColumnMeta): void {
+  const counts = new Map<number, number>();
+  for (let i = 0; i < result.shown; i++) if (codes[i] !== 0xffff) counts.set(codes[i]!, (counts.get(codes[i]!) ?? 0) + 1);
+  const panels = [...counts.keys()].sort((a, b) => a - b).slice(0, PANEL_LIMIT);
+  if (panels.length === 0) {
+    card.drawPoints(ctx, frame, result, xMeta, yMeta);
+    return;
+  }
+  const ui = frame.ui;
+  // The grid uses the whole chart's tick margins for its outer edge; each panel keeps room for its own.
+  const tickW = 34 * ui;
+  const tickH = 22 * ui;
+  const titleH = 22 * ui;
+  const area = { x: frame.left - tickW, y: frame.top - titleH, w: frame.plotW + tickW, h: frame.plotH + titleH + tickH };
+  const grid = panelGrid(panels.length, area.w, area.h, 10 * ui);
+  const panelName = card.meta(card.config.facetColumn ?? -1)?.name ?? "panel";
+  panels.forEach((code, index) => {
+    const cell = grid.cells[index]!;
+    const sub: Frame = {
+      ...frame,
+      left: area.x + cell.x + tickW,
+      top: area.y + cell.y + titleH,
+      plotW: Math.max(10, cell.w - tickW - 6 * ui),
+      plotH: Math.max(10, cell.h - titleH - tickH),
+    };
+    const keep: number[] = [];
+    for (let i = 0; i < result.shown; i++) if (codes[i] === code) keep.push(i);
+    const pick = (values: Float64Array | null): Float64Array | null => (values === null ? null : Float64Array.from(keep, (i) => values[i]!));
+    const colorCodes = result.colorCodes;
+    const part: SeriesPoints = { ...result, x: pick(result.x)!, y: pick(result.y)!, colorValues: pick(result.colorValues), colorCodes: colorCodes === null ? null : Uint16Array.from(keep, (i) => colorCodes[i]!), size: pick(result.size), facetCodes: null, shown: keep.length };
+    const label = labels[code] ?? "";
+    drawPoints(card, ctx, sub, part, xMeta, yMeta, { title: `${panelName} ${label === "" ? "(empty)" : label} · ${keep.length.toLocaleString()} ${keep.length === 1 ? "row" : "rows"}` });
+  });
+  const notes = [`${result.shown.toLocaleString()} points in ${panels.length} panels by ${panelName}, on shared axes`];
+  if (counts.size > panels.length) notes.push(`first ${panels.length} of ${counts.size} values shown`);
+  if (result.sampled) notes.push(`sampled from ${result.total.toLocaleString()}`);
+  if (result.outside > 0) notes.push(`${result.outside.toLocaleString()} outside p1–p99`);
+  if (card.seriesMs > 0) notes.push(`${Math.round(card.seriesMs)} ms`);
+  card.noteEl.textContent = notes.join(" · ");
+  // A Shift+drag box would land in one panel's coordinates and filter the wrong values: no brushing here.
+  card.brushSpace = null;
+}
+
+/** Pearson r of the first n pairs (NaN when undefined). */
+function pearson(x: ArrayLike<number>, y: ArrayLike<number>, n: number): number {
+  let sx = 0, sy = 0;
+  for (let i = 0; i < n; i++) { sx += x[i]!; sy += y[i]!; }
+  const mx = sx / n, my = sy / n;
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = x[i]! - mx, dy = y[i]! - my;
+    sxy += dx * dy; sxx += dx * dx; syy += dy * dy;
+  }
+  return n < 2 || sxx === 0 || syy === 0 ? Number.NaN : sxy / Math.sqrt(sxx * syy);
 }
 
 /** Points keep their data range unless a reference line lies beyond it; then the axes widen to show the line. */
@@ -524,8 +590,16 @@ export function colorNote(card: ChartCard, result: SeriesPoints): string | null 
   return null;
 }
 
-export function drawPoints(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesPoints, xMeta: ColumnMeta, yMeta: ColumnMeta): void {
+export function drawPoints(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesPoints, xMeta: ColumnMeta, yMeta: ColumnMeta, panel: { title: string } | null = null): void {
+  if (panel !== null) {
+    // One small multiple: its name above it, its own fit and r, and none of the whole chart's notes.
+    card.font(ctx, frame.ui, 11, "700");
+    ctx.fillStyle = frame.text;
+    ctx.textAlign = "left";
+    ctx.fillText(panel.title, frame.left, frame.top - 8 * frame.ui);
+  }
   if (result.shown === 0) {
+    if (panel !== null) return;
     const message = "No matching X/Y value pairs in the current rows.";
     card.noteEl.textContent = message;
     card.drawPlotMessage(ctx, frame, message);
@@ -621,6 +695,10 @@ export function drawPoints(card: ChartCard, ctx: CanvasRenderingContext2D, frame
   }
   ctx.restore();
 
+  if (panel !== null) {
+    card.drawCorrelationNote(ctx, frame, fit, pearson(result.x, result.y, result.shown));
+    return;
+  }
   card.drawCorrelationNote(ctx, frame, fit);
   if (buckets?.domain !== undefined) {
     card.drawColorBar(ctx, frame, buckets.colors, buckets.domain);
@@ -978,18 +1056,20 @@ function labelContour(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Fra
   }
 }
 
-export function drawCorrelationNote(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, fit: { slope: number; intercept: number; r2: number } | null = null): void {
-  if (!Number.isFinite(card.seriesCorrelation)) return;
+export function drawCorrelationNote(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, fit: { slope: number; intercept: number; r2: number } | null = null, r: number = card.seriesCorrelation): void {
+  if (!Number.isFinite(r)) return;
   card.font(ctx, frame.ui, 11, "600");
   ctx.fillStyle = frame.dim;
   ctx.textAlign = "right";
   // R² and the equation are the line's: they appear only with it, and each can be switched off on its own.
-  const r2 = fit !== null && (card.config.fitR2 ?? true) ? `  ·  R² = ${(card.seriesCorrelation ** 2).toFixed(2)}` : "";
-  let text = `r = ${card.seriesCorrelation.toFixed(2)}${r2}`;
+  const r2 = fit !== null && (card.config.fitR2 ?? true) ? `  ·  R² = ${(r ** 2).toFixed(2)}` : "";
+  let text = `r = ${r.toFixed(2)}${r2}`;
   if (fit !== null && (card.config.fitEquation ?? true)) {
     const named = `${text}  ·  ${fitEquation(fit.slope, fit.intercept, card.meta(card.config.y)?.name ?? "y", card.meta(card.config.x)?.name ?? "x")}`;
     // Long column names fall back to y and x rather than run across the plot's title.
-    text = ctx.measureText(named).width <= frame.plotW * 0.92 ? named : `${text}  ·  ${fitEquation(fit.slope, fit.intercept, "y", "x")}`;
+    const short = `${text}  ·  ${fitEquation(fit.slope, fit.intercept, "y", "x")}`;
+    const room = frame.plotW * 0.92;
+    text = ctx.measureText(named).width <= room ? named : ctx.measureText(short).width <= room ? short : text;
   }
   ctx.fillText(text, frame.left + frame.plotW - 6 * frame.ui, frame.top - 8 * frame.ui);
   ctx.textAlign = "left";

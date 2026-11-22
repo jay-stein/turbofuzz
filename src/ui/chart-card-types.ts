@@ -247,6 +247,7 @@ export interface SeriesRequestInput {
   yColumn: number;
   colorColumn: number;
   sizeColumn: number;
+  facetColumn?: number;
   mode: SeriesMode;
   /** Map cards: one dot per distinct place, valued by the row count or this aggregate of the size column. */
   places?: { agg: "count" | "sum" | "mean" | "min" | "max" };
@@ -440,9 +441,9 @@ export interface ChartCardConfig {
   /** True when the user picked a specific colour; palette changes leave it. */
   colorCustom?: boolean;
   multiColor: boolean;
-  /** Colour map name (PALETTES) or CUSTOM_PALETTE with paletteCustom stops. */
   /** Measure bar charts: each bar coloured from the colour map. Off until a colour map is chosen for the chart. */
   colourBars?: boolean;
+  /** Colour map name (PALETTES) or CUSTOM_PALETTE with paletteCustom stops. */
   palette?: string;
   /** Comma/space separated hex stops used when palette is "custom". */
   paletteCustom?: string;
@@ -570,6 +571,8 @@ export interface ChartCardConfig {
   fitR2?: boolean;
   /** The line's equation in the column names (on unless switched off). */
   fitEquation?: boolean;
+  /** A scatter split into small multiples, one panel per value of this column (-1 or absent: one plot). */
+  facetColumn?: number;
   /** Card width in the grid: normal cell or the whole row. */
   span?: "auto" | "full";
   /** The column frames step through, a date or a number column (-1 = off). */

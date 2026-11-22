@@ -151,3 +151,16 @@ test("categoryCodes maps every row to its category value", () => {
   const codes = categoryCodes(bits, 4);
   assert.deepEqual([...codes], [0, 1, 0, 0xffff]);
 });
+
+test("points carry each row's panel when split into small multiples", () => {
+  const x = Float64Array.from([1, 2, 3, 4]);
+  const y = Float64Array.from([10, 20, 30, 40]);
+  const ids = Uint32Array.from([0, 1, 2, 3]);
+  const facetCodes = Uint16Array.from([0, 1, 0, 1]);
+  const result = computeSeries(x, y, ids, null, null, null, { mode: "points", limit: 100, gridCols: 16, gridRows: 16, clip: false, facetCodes });
+  assert.equal(result.mode, "points");
+  if (result.mode !== "points") return;
+  assert.deepEqual([...(result.facetCodes ?? [])], [0, 1, 0, 1]);
+  const plain = computeSeries(x, y, ids, null, null, null, { mode: "points", limit: 100, gridCols: 16, gridRows: 16, clip: false });
+  assert.equal(plain.mode === "points" ? plain.facetCodes : null, undefined, "no panels asked, none sent");
+});

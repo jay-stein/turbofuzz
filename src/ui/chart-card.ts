@@ -122,6 +122,8 @@ export class ChartCard {
   /** Top-terms payload: token frequencies plus shape detection. */
   textResult: TextProfileMessage | null = null;
   seriesLabels: string[] | null = null;
+  /** Panel names when a scatter is split into small multiples. */
+  facetLabels: string[] | null = null;
   seriesMs = 0;
   seriesCorrelation = Number.NaN;
   boxResult: BoxStatsResult | null = null;
@@ -321,6 +323,8 @@ export class ChartCard {
   xSelect!: HTMLSelectElement;
   ySelect!: HTMLSelectElement;
   colorSelect!: HTMLSelectElement;
+  facetSelect!: HTMLSelectElement;
+  facetWrap!: HTMLElement;
   sizeSelect!: HTMLSelectElement;
   modeSelect!: HTMLSelectElement;
   densityStyleSelect!: HTMLSelectElement;
@@ -2375,8 +2379,8 @@ export class ChartCard {
     return paintContourLines(this, ctx, frame, result, smooth, smoothMax, labelled);
   }
 
-  drawCorrelationNote(ctx: CanvasRenderingContext2D, frame: Frame, fit: { slope: number; intercept: number; r2: number } | null = null): void {
-    return drawCorrelationNote(this, ctx, frame, fit);
+  drawCorrelationNote(ctx: CanvasRenderingContext2D, frame: Frame, fit: { slope: number; intercept: number; r2: number } | null = null, r: number = this.seriesCorrelation): void {
+    return drawCorrelationNote(this, ctx, frame, fit, r);
   }
 
   drawBox(ctx: CanvasRenderingContext2D, frame: Frame): void {

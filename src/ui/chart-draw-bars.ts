@@ -77,6 +77,7 @@ export function refreshSeries(card: ChartCard): void {
       yColumn: card.config.y,
       colorColumn: card.config.colorColumn,
       sizeColumn: card.config.sizeColumn,
+      ...(card.config.kind === "scatter" && (card.config.facetColumn ?? -1) >= 0 ? { facetColumn: card.config.facetColumn } : {}),
       mode,
       limit: POINT_LIMIT,
       clip: !map,
@@ -86,6 +87,7 @@ export function refreshSeries(card: ChartCard): void {
       if (generation !== card.generation || card.disposed) return;
       card.seriesResult = message.result;
       card.seriesLabels = message.colorLabels;
+      card.facetLabels = message.facetLabels ?? null;
       card.placeLabels = message.placeLabels ?? null;
       card.seriesMs = message.ms;
       card.seriesCorrelation = message.correlation;

@@ -32,6 +32,8 @@ export interface ChartSpec {
     correlation: string[];
     /** More value columns drawn beside `value`, each its own series. */
     extraValues?: string[];
+    /** A scatter split into small multiples by this column. */
+    panels?: string;
   };
   aggregation: {
     measure: string | null;
@@ -61,9 +63,9 @@ export interface ChartSpec {
     color: string;
     colorCustom: boolean;
     multiColor: boolean;
+    colourBars?: boolean;
     palette: string;
     paletteCustom: string;
-    colourBars?: boolean;
     paletteReversed: boolean;
     colorMin: number | null;
     colorMax: number | null;
@@ -171,6 +173,7 @@ export function chartSpecFromConfig(
       group: nameOf(config.groupColumn, columns),
       color: nameOf(config.colorColumn, columns),
       size: nameOf(config.sizeColumn, columns),
+      ...((config.facetColumn ?? -1) >= 0 && nameOf(config.facetColumn ?? -1, columns) !== null ? { panels: nameOf(config.facetColumn ?? -1, columns) as string } : {}),
       filter: filterMeta?.name ?? null,
       animationTime: nameOf(config.animationTimeColumn, columns),
       correlation: config.correlationColumns
@@ -209,10 +212,10 @@ export function chartSpecFromConfig(
       color: config.color,
       colorCustom: config.colorCustom === true,
       multiColor: config.multiColor,
+      ...(config.colourBars === undefined ? {} : { colourBars: config.colourBars }),
       palette: config.palette ?? "",
       paletteCustom: config.paletteCustom ?? "",
       paletteReversed: config.paletteReversed === true,
-      ...(config.colourBars === undefined ? {} : { colourBars: config.colourBars }),
       colorMin: config.colorMin ?? null,
       colorMax: config.colorMax ?? null,
       colorCenter: config.colorCenter ?? null,
@@ -296,6 +299,7 @@ export function chartSpecToConfig(
   config.groupColumn = field(spec.fields.group);
   config.colorColumn = field(spec.fields.color);
   config.sizeColumn = field(spec.fields.size);
+  if (spec.fields.panels !== undefined) config.facetColumn = field(spec.fields.panels);
   config.animationTimeColumn = field(spec.fields.animationTime);
   config.filterColumn = field(spec.fields.filter);
   config.correlationColumns = spec.fields.correlation.map(field).filter((index) => index >= 0);
@@ -326,11 +330,11 @@ export function chartSpecToConfig(
   config.color = spec.presentation.color;
   if (spec.presentation.colorCustom) config.colorCustom = true;
   config.multiColor = spec.presentation.multiColor;
+  if (spec.presentation.colourBars !== undefined) config.colourBars = spec.presentation.colourBars;
   config.palette = spec.presentation.palette;
   config.paletteCustom = spec.presentation.paletteCustom;
   config.paletteReversed = spec.presentation.paletteReversed;
   config.colorMin = spec.presentation.colorMin;
-  if (spec.presentation.colourBars !== undefined) config.colourBars = spec.presentation.colourBars;
   config.colorMax = spec.presentation.colorMax;
   config.colorCenter = spec.presentation.colorCenter;
   config.topN = spec.presentation.topN;

@@ -1864,6 +1864,16 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
     size = dataset.columns[sizeIndex].numbers();
   }
 
+  // Small multiples: each row's panel, from a column with few enough values to give each its own plot.
+  let facetCodes: Uint16Array | null = null;
+  let facetLabels: string[] | undefined;
+  const facetColumn = message.facetColumn === undefined || message.facetColumn < 0 ? undefined : dataset.columns[message.facetColumn];
+  if (facetColumn !== undefined && message.mode !== "density" && isGroupableColumn(facetColumn.type, facetColumn.stats.distinct)) {
+    const categories = facetColumn.categories();
+    facetCodes = categoryCodes(categories.bits, dataset.rowCount);
+    facetLabels = categories.labels;
+  }
+
   const started = performance.now();
   const ids = chartScopedIds(message.respectFilters, message.chartFilter, message.chartExclude);
   const xNumbers = xColumn.numbers();
@@ -1891,6 +1901,7 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
         gridCols: 128,
         gridRows: 72,
         clip: message.clip,
+        facetCodes,
       },
     );
   const correlation = computeCorrelation([xNumbers, yNumbers], ids).values[1] ?? Number.NaN;
@@ -1902,6 +1913,7 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
     transfer.push(result.x.buffer, result.y.buffer);
     if (result.colorValues !== null) transfer.push(result.colorValues.buffer);
     if (result.colorCodes !== null) transfer.push(result.colorCodes.buffer);
+    if (result.facetCodes) transfer.push(result.facetCodes.buffer);
     if (result.size !== null) transfer.push(result.size.buffer);
     if (result.counts) transfer.push(result.counts.buffer);
   }
@@ -1916,6 +1928,7 @@ function handleGetChartSeries(message: GetChartSeriesRequest): void {
       colorColumn: colorIndex,
       sizeColumn: sizeIndex,
       colorLabels,
+      ...(facetLabels === undefined || result.mode !== "points" || result.facetCodes === undefined ? {} : { facetLabels }),
       ms: performance.now() - started,
       correlation,
       result,

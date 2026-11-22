@@ -375,6 +375,17 @@ export function buildPart2(card: ChartCard) {
     });
     card.colorWrap = card.tagged("Colour", card.colorSelect).wrap;
 
+    // Small multiples: one scatter per value of a category, on shared axes.
+    card.facetSelect = card.buildSelect("chart-picker chart-picker-small", "Split into panels by");
+    card.facetSelect.title = "One small scatter per value of this column, all on the same axes, so the panels compare at a glance";
+    card.facetSelect.addEventListener("change", () => {
+      card.config.facetColumn = Number(card.facetSelect.value);
+      card.generation++;
+      card.refreshSeries();
+      card.render();
+    });
+    card.facetWrap = card.tagged("Panels", card.facetSelect).wrap;
+
     card.sizeSelect = card.buildSelect("chart-picker chart-picker-small", "Size column");
     card.sizeSelect.addEventListener("change", () => {
       card.config.sizeColumn = Number(card.sizeSelect.value);
