@@ -521,7 +521,7 @@ function writeFindings(book: XlsxBuilder, name: string, input: QualityWorkbookIn
   const { report, issues } = input;
   const p = page(book, name, "EF4444", [5, 10, 14, 22, 42, 10, 9, 52, 40, 26], { freeze: { rows: 4, cols: 0 } });
   const count = (s: WorkbookIssue["severity"]): number => issues.filter((i) => i.severity === s).length;
-  p.band("Findings", `${issues.length} findings · ${count("fix")} to fix, ${count("review")} to review, ${count("info")} for information · the same list as the Quality page's Issues tab`, "7F1D1D");
+  p.band("Findings", `${issues.length} findings · ${count("fix")} to fix, ${count("review")} to review, ${count("info")} for information · the same list as the Clean page`, "7F1D1D");
   p.blank();
   const head = p.header(["#", "Severity", "Dimension", "Column", "Finding", "Rows", "% of rows", "Evidence", "What it means", "Fix in the app"], "991B1B", 24);
   const first = head + 1;

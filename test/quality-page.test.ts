@@ -259,6 +259,7 @@ test("an issue card shows the rows behind it and the first fixable card gets the
   const host = window.document.createElement("div");
   const shown: string[] = [];
   const page = new QualityPage(host as unknown as HTMLElement, {
+    mode: "clean",
     onFilter: () => {},
     onExport: () => Promise.resolve(true),
     onShowIssue: (issue) => shown.push(issue.id),
@@ -484,6 +485,7 @@ test("Apply all safe fixes runs once per press: a second press while it runs doe
   const calls: string[][] = [];
   let finish: () => void = () => undefined;
   const page = new QualityPage(host as unknown as HTMLElement, {
+    mode: "clean",
     onFilter: () => {},
     onExport: () => Promise.resolve(true),
     onFixIssues: (picked) => {
@@ -494,8 +496,8 @@ test("Apply all safe fixes runs once per press: a second press while it runs doe
     },
   });
   page.render({ score, rowCount: 100, stats: stats(), columnNames: ["status", "state"], issues });
-  const button = host.querySelector(".qp-apply-all") as unknown as HTMLButtonElement;
-  assert.match(button.textContent ?? "", /Apply all 2 safe fixes/);
+  const button = host.querySelector("[data-qp='fix-all-safe']") as unknown as HTMLButtonElement;
+  assert.match(button.textContent ?? "", /Fix all safe \(2\)/);
   button.click();
   button.click();
   assert.equal(calls.length, 1);

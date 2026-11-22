@@ -15,9 +15,10 @@ test("columns that are empty in every row cost points, are flagged to drop, and 
   await expect(step).toBeVisible({ timeout: 15_000 });
   await expect(step).toContainText("“note (n/a)” and “gone (n/a)”");
 
-  // Data Quality no longer says 100: both columns are flagged, with the fix to drop them.
-  await page.getByRole("tab", { name: "Data Quality" }).click();
-  await expect(page.locator(".qp-hero2")).not.toContainText("100.0");
+  // Clean no longer says 100: both columns are flagged under Junk data, with the fix to drop them.
+  await page.getByRole("tab", { name: "Clean" }).click();
+  await expect(page.locator("[data-qp='clean-score']")).not.toHaveText("100.0");
+  await page.locator(".qp-group[data-group='junk'] .qp-group-head").click();
   await expect(page.getByText("“note (n/a)” is empty in every row").first()).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("“gone (n/a)” is empty in every row").first()).toBeVisible();
 
@@ -32,18 +33,18 @@ test("columns that are empty in every row cost points, are flagged to drop, and 
   await expect(page.locator(".workspace")).toContainText("5 columns", { timeout: 15_000 });
 });
 
-test("Fix automatically on the Data Quality page drops every empty column in one step, and Undo brings them back", async ({ page }) => {
+test("Fix all safe on the Clean page drops every empty column in one step, and Undo brings them back", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await page.locator('input[type="file"]').setInputFiles({ name: "gaps.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
   await page.locator(".nav-row").waitFor();
-  await page.getByRole("tab", { name: "Data Quality" }).click();
+  await page.getByRole("tab", { name: "Clean" }).click();
   await expect(page.getByText("“note (n/a)” is empty in every row").first()).toBeVisible({ timeout: 15_000 });
-  await page.locator(".qp-hero-actions .primary").click();
+  await page.locator("[data-qp='fix-all-safe']").click();
   await page.locator(".fix-preview-modal").getByRole("button", { name: /^Apply/ }).click();
   await expect(page.getByText(/No issues found across/)).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".nav-actions button", { hasText: /^Recipe \(1\)/ })).toBeVisible();
   await page.locator(".nav-actions button", { hasText: /^Undo$/ }).click();
   await expect(page.getByText(/No issues found across/)).toHaveCount(0, { timeout: 15_000 });
-  await expect(page.locator(".qp-hero2")).toContainText("2 issues need fixing");
+  await expect(page.locator(".cl-sub")).toContainText("2 issues to fix");
 });

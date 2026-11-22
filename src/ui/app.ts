@@ -89,11 +89,12 @@ import {
 } from "../data/transform-ops.js";
 import type { NumberLocale } from "../parse/numbers.js";
 import type { WorkBook } from "xlsx";
-import { TYPE_LABELS, isNumericLikeType, isTemporalType, type ColumnType } from "../types.js";
+import { TYPE_LABELS, isTemporalType, type ColumnType } from "../types.js";
 import type { AggregateMessage, CleanUpdate, ColumnMeta, PivotMessage, CorrelationMessage, ExportScope, CompareSideInfo, LoadedMessage, ProgressMessage, ResultsMessage, SpecialKind, TransformedMessage, RowLimit } from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openDedupeMenu } from "./dedupe-menu.js";
 import { openMenu, type MenuItem } from "./menu.js";
+import { fillMenuItems, type FillMenuContext } from "./fill-menu.js";
 import { listKey } from "./list-nav.js";
 import { buildColumnCard } from "./summary-band.js";
 import { Overview, STATS_ICON, delimiterLabel } from "./overview.js";
@@ -168,8 +169,11 @@ import {
 import { safeFileName } from "./chart-utils.js";
 import type { QualityWorkbookInput, WorkbookColumn, WorkbookIssue, WorkbookRelation, WorkbookVariants } from "./quality-xlsx.js";
 import type { DQExportKind } from "./quality-panel.js";
+import { captureBaseline, type DQBaseline } from "../data/dq-baseline.js";
+import { buildAdvancedSection, groupIssues } from "./quality-layout.js";
 import {
   QualityPage,
+  type QualityPageCallbacks,
   type FreshnessColumn,
   type FixOutcome,
   type SensitiveCard,
@@ -727,7 +731,7 @@ export class App {
   private pendingFlashName: string | null = null;
   private pasteView!: HTMLElement;
   private readonly loadCard = new LoadCard(() => this.cancelLoad());
-  private readonly qaNudge = new QaNudge(() => this.openQuality());
+  private readonly qaNudge = new QaNudge(() => this.openCleanPage());
   private pasteCancel!: HTMLButtonElement;
   private workspace!: HTMLElement;
   private textarea!: HTMLTextAreaElement;
@@ -888,6 +892,10 @@ export class App {
   private mapHost!: HTMLElement;
   private mapPage: MapPageHandle | null = null;
   private qualityHost!: HTMLElement;
+  private cleanHost!: HTMLElement;
+  private cleanPage: QualityPage | null = null;
+  /** The quality of the data as loaded, before any step; kept while the same file is open. */
+  private dqBaseline: DQBaseline | null = null;
   private qualityPage: QualityPage | null = null;
   /** Engine output for the current data: one finding per possibly-sensitive column. */
   private sensitiveFindings: SensitiveFinding[] = [];
@@ -1676,10 +1684,12 @@ export class App {
     this.timeSeriesHost = el("div", { class: "timeseries-host hidden" });
     this.mapHost = el("div", { class: "map-host hidden" });
     this.qualityHost = el("div", { class: "quality-host hidden" });
+    this.cleanHost = el("div", { class: "quality-host clean-host hidden" });
     this.columnsStrip = el("div", { class: "column-strip hidden" });
     results.append(
       resultsBar,
       this.columnsStrip,
+      this.cleanHost,
       this.qualityHost,
       this.qaNudge.element,
       this.tableHost,
@@ -1730,7 +1740,7 @@ export class App {
         this.rerenderOverview();
       },
       onOpenTriage: () => this.openTriage(),
-      onOpenQuality: () => this.setView("quality"),
+      onOpenQuality: () => this.setView("clean"),
       issueSummary: () => this.issueSummary(),
     });
     const body = el("div", { class: "workspace-body" }, [sidebar, results]);
@@ -1802,8 +1812,8 @@ export class App {
       ) {
         return;
       }
-      // Number keys follow the tabs, 1 to 9.
-      const numbered = /^[1-9]$/.test(event.key) ? this.tabs?.visibleViews()[Number(event.key) - 1] : undefined;
+      // Number keys follow the tabs, 1 to 9 and then 0 for the tenth.
+      const numbered = /^[0-9]$/.test(event.key) ? this.tabs?.visibleViews()[(Number(event.key) + 9) % 10] : undefined;
       if (numbered !== undefined) this.setView(numbered);
       else if (
         (event.key === "t" || event.key === "T") &&
@@ -2905,7 +2915,8 @@ export class App {
     this.resetViews();
     const scoreBaselineReset = this.datasetName !== loaded.name;
     if (scoreBaselineReset) {
-      // Rules and history belong to one file; a different file starts clean.
+      // Rules, history and the raw-load "before" belong to one file; a different file starts clean.
+      this.dqBaseline = null;
       this.rules = [];
       this.ruleResults = new Map();
       this.ruleKey = "";
@@ -4708,6 +4719,7 @@ export class App {
     if (view === "map") this.ensureMap();
     else this.mapPage?.hide();
     if (view === "quality") this.ensureQuality();
+    if (view === "clean") this.ensureClean();
     if (view !== "overview") this.lastLens = view;
     const chart = view === "chart";
     this.chartActive = chart;
@@ -4715,6 +4727,7 @@ export class App {
     this.workspace.classList.toggle("overview-mode", view === "overview");
     this.overviewHost.classList.toggle("hidden", view !== "overview");
     this.qualityHost.classList.toggle("hidden", view !== "quality");
+    this.cleanHost.classList.toggle("hidden", view !== "clean");
     this.tableHost.classList.toggle("hidden", view !== "table");
     this.chartHost.classList.toggle("hidden", view !== "chart");
     this.viewsHost.classList.toggle("hidden", view !== "views");
@@ -5388,6 +5401,12 @@ export class App {
     this.setView("quality");
   }
 
+  /** The Clean page: the issues to fix, grouped by the kind of work. */
+  private openCleanPage(): void {
+    if (this.dqScore === null) return;
+    this.setView("clean");
+  }
+
   /** One check's “show failing rows” action, shared by the page. */
   private handleQualityFilter(check: ScoreCheck): void {
     if (check.column === null) {
@@ -5428,10 +5447,31 @@ export class App {
     this.table?.flashColumn(check.column);
   }
 
-  /** Builds the DQ page lazily; first open renders the current score. */
+  /** Builds the Data Quality Report lazily; first open renders the current score. */
   private ensureQuality(): void {
     if (this.qualityPage !== null) return;
-    this.qualityPage = new QualityPage(this.qualityHost, {
+    this.qualityPage = new QualityPage(this.qualityHost, this.qualityCallbacks("report"));
+    this.renderQualityPage();
+    void this.refreshSensitiveColumns();
+  }
+
+  /** Builds the Clean page lazily. */
+  private ensureClean(): void {
+    if (this.cleanPage !== null) return;
+    this.cleanPage = new QualityPage(this.cleanHost, this.qualityCallbacks("clean"));
+    this.renderQualityPage();
+    void this.refreshSensitiveColumns();
+  }
+
+  /** What the Clean page and the report share: the same issues, fixes and exports. */
+  private qualityCallbacks(mode: "clean" | "report"): QualityPageCallbacks {
+    return {
+      mode,
+      onOpenClean: () => this.openCleanPage(),
+      onOpenReport: (tab) => {
+        this.setView("quality");
+        if (tab !== undefined) this.qualityPage?.openTab(tab);
+      },
       onExport: (kind) => this.exportQuality(kind),
       config: this.dqConfig,
       onConfigChange: (config) => {
@@ -5475,9 +5515,7 @@ export class App {
       },
       onOpenColumn: (column, anchor) => this.openColumnInspector(column, anchor),
       onShowAffectedRows: () => this.showAffectedRows(),
-    });
-    this.renderQualityPage();
-    void this.refreshSensitiveColumns();
+    };
   }
 
   private freshnessColumns(): FreshnessColumn[] {
@@ -6201,6 +6239,7 @@ export class App {
     if (score === null || stats === null) {
       this.qaNudge.update(null);
       this.qualityPage?.render(null);
+      this.cleanPage?.render(null);
       return;
     }
     const sensitiveColumns = new Set(
@@ -6216,8 +6255,20 @@ export class App {
       sensitiveColumns,
     });
     if (score.overall !== null) this.qaNudge.update({ key: `${this.datasetName}:${this.generation}`, score: score.overall, fix: issues.filter((i) => i.severity === "fix").length, review: issues.filter((i) => i.severity === "review").length });
-    if (this.qualityPage === null) return; // Built on first open; the issues above still feed the table's nudge.
-    this.qualityPage.render({
+    // Before any step the data is the raw load: keep its quality as the "before" (late counts refine it).
+    if (this.stepEntries().length === 0) {
+      this.dqBaseline = captureBaseline({
+        score,
+        metas: this.metas,
+        rowCount: this.rowCount,
+        rowsAffected: this.rowsAffected?.count ?? null,
+        duplicateRows: stats.duplicateRows,
+        groups: groupIssues(issues.filter((issue) => issue.severity !== "info")).map((entry) => entry.group.id),
+        issues: issues.filter((issue) => issue.severity !== "info").length,
+      });
+    }
+    if (this.qualityPage === null && this.cleanPage === null) return; // Built on first open; the issues above still feed the table's nudge.
+    const input = {
       score,
       rowCount: this.rowCount,
       visibleRowCount: this.resultCount,
@@ -6230,9 +6281,12 @@ export class App {
       sensitive: this.sensitiveCards(),
       sensitiveScanned: this.sensitiveScanned,
       freshness: this.freshnessColumns(),
-    });
+      baseline: this.dqBaseline,
+    };
+    this.qualityPage?.render(input);
+    this.cleanPage?.render(input);
     void this.refreshRowsAffected();
-    if (this.view !== "quality") return;
+    if (this.view !== "clean") return;
     const key = [
       this.datasetName,
       this.rowCount,
@@ -6338,43 +6392,7 @@ export class App {
   }
 
   private appendAdvancedQualitySection(): void {
-    const section = el("section", { class: "qp-advanced" });
-    section.append(
-      el("h2", { class: "overview-heading" }, ["Advanced signals"]),
-      el("p", { class: "qp-advanced-hint" }, [
-        "Missing-together patterns, drift between row halves, near-duplicate values and text profiles. Relationships and functional dependencies live in the Outliers lens.",
-      ]),
-    );
-    if (this.advancedLoading) {
-      section.append(el("div", { class: "qp-advanced-empty" }, ["Checking advanced signals…"]));
-    } else if (this.advancedFindings.length === 0) {
-      section.append(
-        el("div", { class: "qp-advanced-empty" }, ["✓ No additional signals found."]),
-      );
-    } else {
-      for (const finding of this.advancedFindings.slice(0, 12)) {
-        const row = el("div", { class: `advanced-finding severity-${finding.severity}` });
-        const body = el("div", { class: "advanced-finding-body" });
-        body.append(
-          el("span", { class: "advanced-finding-title" }, [finding.title]),
-          el("span", { class: "advanced-finding-evidence" }, [
-            finding.evidence.map((entry) => `${entry.metric}: ${entry.value}`).join(" · "),
-          ]),
-        );
-        row.append(body);
-        if (finding.action !== undefined) {
-          const action = el(
-            "button",
-            { class: "ghost small", type: "button" },
-            [finding.fixLabel ?? "Show rows"],
-          ) as HTMLButtonElement;
-          action.addEventListener("click", () => this.runFinding(finding));
-          row.append(action);
-        }
-        section.append(row);
-      }
-    }
-    this.qualityPage?.setAdvanced(section);
+    this.cleanPage?.setAdvanced(buildAdvancedSection(this.advancedLoading, this.advancedFindings, (finding) => this.runFinding(finding)));
   }
 
   /** How the header row was found, in words, for the provenance block. */
@@ -7152,7 +7170,7 @@ export class App {
     this.relationshipsPanel?.setVisibleRowCount(count);
     this.timeSeries?.setData(this.metas, count);
     this.mapPage?.setData(this.metas, count);
-    if (this.qualityPage !== null && this.lastLoaded !== null) this.renderQualityPage();
+    if ((this.qualityPage !== null || this.cleanPage !== null) && this.lastLoaded !== null) this.renderQualityPage();
     this.prepareNote.stop();
     const timeText = formatWait(queryMs);
     const total = this.rowCount;
@@ -7660,111 +7678,18 @@ export class App {
     );
   }
 
-  /**
-   * One-click fills for the "empty cells" chip. Each column gets the choices
-   * that suit its type (median/mean for numbers, most common value or
-   * "Unknown" for text, carry-forward for dates); everything is a recorded
-   * `impute` step, so it shows in the Recipe and can be undone. Clean stays
-   * available as the last entry for null markers and finer control.
-   */
+  /** One-click fills for the "empty cells" chip (see fill-menu.ts). */
   private fillMenuItems(candidates: number[]): MenuItem[] {
-    const items: MenuItem[] = [];
-    const ranked = candidates
-      .map((index) => ({ index, meta: this.metas[index] as ColumnMeta }))
-      .filter((entry) => entry.meta !== undefined && entry.meta.stats.nulls > 0)
-      .sort((a, b) => b.meta.stats.nulls - a.meta.stats.nulls);
-    const numeric: number[] = [];
-    const textual: number[] = [];
-    const header = (name: string, count: number): MenuItem => ({
-      label: `${name} · ${count.toLocaleString()} empty`,
-      disabled: true,
-      action: () => undefined,
-    });
-    const fill = (index: number, strategy: ImputeStrategy, label: string): MenuItem => ({
-      label,
-      title: `${label} — recorded in the Recipe and can be undone`,
-      action: () => this.confirmFill([index], strategy, label),
-    });
-    for (const entry of ranked) {
-      const { index, meta } = entry;
-      if (meta.type === "identifier") continue;
-      if (isNumericLikeType(meta.type)) numeric.push(index);
-      else if (meta.type === "string" || meta.type === "category" || meta.type === "boolean") {
-        textual.push(index);
-      }
-    }
-    for (const entry of ranked.slice(0, 6)) {
-      const { index, meta } = entry;
-      items.push(header(meta.name, meta.stats.nulls));
-      if (meta.type === "identifier") {
-        items.push({
-          label: "Identifiers shouldn’t be filled — see Fill missing…",
-          action: () => this.openTransform({ type: "impute", column: index }),
-        });
-      } else if (isNumericLikeType(meta.type)) {
-        items.push(
-          fill(index, { kind: "median" }, "Fill with median"),
-          fill(index, { kind: "mean" }, "Fill with mean"),
-          fill(index, { kind: "constant", value: "0" }, "Fill with 0"),
-        );
-      } else if (meta.type === "date" || meta.type === "datetime") {
-        items.push(
-          fill(index, { kind: "forward" }, "Fill with the previous value"),
-          fill(index, { kind: "backward" }, "Fill with the next value"),
-        );
-      } else {
-        const top = meta.stats.topValues[0]?.label;
-        items.push(
-          fill(
-            index,
-            { kind: "mode" },
-            top === undefined
-              ? "Fill with the most common value"
-              : `Fill with the most common (“${top.length > 20 ? `${top.slice(0, 19)}…` : top}”)`,
-          ),
-          fill(index, { kind: "constant", value: "Unknown" }, "Fill with “Unknown”"),
-        );
-      }
-    }
-    if (ranked.length > 6) {
-      items.push({
-        label: `${(ranked.length - 6).toLocaleString()} more columns — choose in Fill missing…`,
-        action: () => this.openTransform({ type: "impute", column: ranked[6]?.index }),
-      });
-    }
-    if (numeric.length > 1) {
-      items.push({
-        label: `Fill all ${numeric.length} numeric columns with median`,
-        action: () =>
-          this.confirmFill(numeric, { kind: "median" }, `Fill ${numeric.length} numeric columns with median`),
-      });
-    }
-    if (textual.length > 1) {
-      items.push({
-        label: `Fill all ${textual.length} text columns with the most common value`,
-        action: () =>
-          this.confirmFill(
-            textual,
-            { kind: "mode" },
-            `Fill ${textual.length} text columns with the most common value`,
-          ),
-      });
-    }
-    const first = ranked[0];
-    const knnTarget = ranked.find((entry) => entry.meta.type !== "identifier" && entry.meta.type !== "date" && entry.meta.type !== "datetime");
-    if (knnTarget !== undefined) {
-      items.push({
-        label: `Fill from similar rows (k nearest neighbours)${ranked.length > 1 ? "…" : ` — “${knnTarget.meta.name}”…`}`,
-        title: "Fill empty cells from the most similar rows, on columns you choose, with a test of how well it does",
-        action: () => void this.openKnnFill(knnTarget.index),
-      });
-    }
-    items.push({
-      label: "More fill methods…",
-      title: "Most common value, previous/next, a constant, KNN, or fill by group",
-      action: () => this.openTransform({ type: "impute", column: first?.index }),
-    });
-    return items;
+    return fillMenuItems(this.fillContext(), candidates);
+  }
+
+  private fillContext(): FillMenuContext {
+    return {
+      metas: this.metas,
+      confirmFill: (columns, strategy, label) => this.confirmFill(columns, strategy, label),
+      openImpute: (column) => this.openTransform({ type: "impute", column }),
+      openKnn: (column) => void this.openKnnFill(column),
+    };
   }
 
   /**

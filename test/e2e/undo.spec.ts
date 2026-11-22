@@ -15,8 +15,8 @@ test("Undo reverses the latest Recipe step from the toolbar and with Ctrl+Z", as
   const recipe = page.locator(".nav-actions button", { hasText: /^Recipe/ });
   await expect(undo).toBeDisabled();
 
-  await page.getByRole("tab", { name: "Data Quality" }).click();
-  await page.locator(".qp-hero-actions .primary").click();
+  await page.getByRole("tab", { name: "Clean" }).click();
+  await page.locator("[data-qp='fix-all-safe']").click();
   await page.locator(".fix-preview-modal").getByRole("button", { name: /^Apply/ }).click();
   await expect(recipe).toHaveText(/Recipe \(\d+\)/);
   await expect(undo).toBeEnabled();
@@ -37,8 +37,9 @@ test("a Data Quality decision (Not a problem) appears in the Recipe and can be p
   const recipe = page.locator(".nav-actions button", { hasText: /^Recipe/ });
   await expect(recipe).toBeDisabled();
 
-  await page.getByRole("tab", { name: "Data Quality" }).click();
-  await page.getByRole("tab", { name: /^Issues/ }).click();
+  await page.getByRole("tab", { name: "Clean" }).click();
+  await expect(page.locator(".cl-hero")).toBeVisible();
+  if ((await page.locator(".qp-expand-all").count()) > 0) await page.locator(".qp-expand-all").click();
   await page.locator('[data-qp="dismiss"]').first().click();
   await expect(recipe).toHaveText(/Recipe \(1\)/);
   await recipe.click();

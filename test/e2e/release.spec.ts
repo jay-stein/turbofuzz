@@ -409,11 +409,13 @@ test("the Data Quality page lists probable hidden missing values as a review iss
     buffer: Buffer.from(lines.join(String.fromCharCode(10))),
   });
   await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("tab", { name: "Data Quality" }).click();
+  await page.getByRole("tab", { name: "Clean" }).click();
+  await expect(page.locator(".cl-hero")).toBeVisible();
+  if ((await page.locator(".qp-expand-all").count()) > 0) await page.locator(".qp-expand-all").click();
   const card = page.locator(".issue-card").filter({ hasText: "Insulin" });
   await expect(card).toContainText("may mean missing");
   await expect(card).toContainText("may be a placeholder code");
-  await expect(page.locator(".tile-review")).toContainText("Worth reviewing");
+  await expect(page.locator(".cl-sub")).toContainText("to review");
   await expect(card.getByRole("button", { name: "Treat as missing" })).toBeVisible();
 
   expect(pageErrors).toEqual([]);

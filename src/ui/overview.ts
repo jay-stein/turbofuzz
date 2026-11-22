@@ -40,7 +40,7 @@ export interface OverviewCallbacks {
   onOpenTriage?(): void;
   /** The Quality page's issue counts, so the Overview and the Quality page always agree. */
   issueSummary?(): { fix: number; review: number } | null;
-  /** Open the Quality page on its Issues tab. */
+  /** Open the Clean page, where the issues are listed. */
   onOpenQuality?(): void;
   /** Ask how to read dates that fit both orders; the answer is saved in Settings and the file is read again with it. */
   onChooseDateOrder?(anchor: HTMLElement): void;
@@ -780,7 +780,7 @@ export class Overview {
           {
             class: "ghost small triage-open",
             type: "button",
-            title: "Open the Data Quality page — the same list, with previews and undo",
+            title: "Open the Clean page — the same list, with previews and undo",
           },
           [
             `${unified.fix} ${plural(unified.fix, "issue needs", "issues need")} fixing · ${unified.review} worth reviewing — Review all`,

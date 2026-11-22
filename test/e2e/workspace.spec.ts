@@ -24,8 +24,8 @@ test("a workspace file brings a cleaned, transformed, pivoted and charted table 
   const recipe = page.locator(".nav-actions button", { hasText: /^Recipe/ });
 
   // Clean: fix the spelling variants (steps before a transform).
-  await page.getByRole("tab", { name: "Data Quality" }).click();
-  await page.locator(".qp-hero-actions .primary").click();
+  await page.getByRole("tab", { name: "Clean" }).click();
+  await page.locator("[data-qp='fix-all-safe']").click();
   await page.locator(".fix-preview-modal").getByRole("button", { name: /^Apply/ }).click();
   await expect(recipe).toHaveText(/Recipe \(\d+\)/);
 

@@ -13,7 +13,7 @@ test("Show rows on an out-of-range value filters to those rows, and 'Not a probl
   await page.locator('input[type="file"]').setInputFiles({ name: "people.csv", mimeType: "text/csv", buffer: Buffer.from(csv()) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await page.locator(".view-tabs button", { hasText: "Data Quality" }).first().click();
+  await page.getByRole("tab", { name: "Clean" }).click();
   const issue = page.locator(".issue-card", { hasText: "birth year" }).first();
   await expect(issue).toContainText("outside 1900");
   await issue.getByRole("button", { name: "Show rows" }).click();
@@ -22,8 +22,8 @@ test("Show rows on an out-of-range value filters to those rows, and 'Not a probl
   await expect(page.getByText(/birth year · outside/)).toBeVisible();
   await expect(page.getByText("Augustus", { exact: true })).toBeVisible();
   await expect(page.getByText("Person 7", { exact: true })).toHaveCount(0);
-  // Back on Data Quality: it is a Roman emperor, so it is fine.
-  await page.locator(".view-tabs button", { hasText: "Data Quality" }).first().click();
+  // Back on Clean: it is a Roman emperor, so it is fine.
+  await page.getByRole("tab", { name: "Clean" }).click();
   await issue.getByRole("button", { name: "Not a problem" }).click();
   await expect(page.locator(".issue-card", { hasText: "birth year" })).toHaveCount(0);
   await expect(page.locator(".qp-reviewed")).toContainText("birth year");

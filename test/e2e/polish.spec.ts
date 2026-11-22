@@ -51,7 +51,7 @@ test("no visible text is smaller than 11px", async ({ page }) => {
   await page.addScriptTag({ path: "test/polish/turbofuzz-test-data.js" });
   await page.evaluate(() => (window as any).TF_TEST.load("B"));
   await page.waitForTimeout(1200);
-  for (const tab of ["Overview", "Table", "Data Quality", "Pivot View"]) {
+  for (const tab of ["Overview", "Table", "Clean", "Data Quality", "Pivot View"]) {
     await page.locator(".view-tabs button", { hasText: tab }).click();
     await page.waitForTimeout(500);
     const min = await page.evaluate(() => {

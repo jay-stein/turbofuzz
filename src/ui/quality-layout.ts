@@ -1,10 +1,11 @@
 import { n, percentLabel, plural, pointsLabel } from "../data/dq-copy.js";
 import type { ColumnHealth, IssueKind, PageIssue } from "../data/dq-issues.js";
+import type { Finding } from "../data/findings.js";
 import { clear, el } from "./dom.js";
 import { renderDistCompare } from "./dist-compare.js";
 
-/** Tabs on the Quality page. Rules and History arrive with the rules and history milestone. */
-export type QualityTab = "issues" | "columns" | "sensitive" | "rules" | "history" | "checks";
+/** Tabs on the Data Quality Report. The issues themselves live on the Clean page. */
+export type QualityTab = "columns" | "sensitive" | "rules" | "history" | "checks";
 
 export interface FixedEntry {
   id: string;
@@ -44,15 +45,15 @@ export interface HeroInput {
 const STRIP_COLLAPSED = 18;
 
 /**
- * The Issues tab groups issues by what kind of work they are, one card each that opens to its
- * issues: standardising values, junk text, dates, empty cells, duplicates, unusual values, and
- * the rest to review. Kinds not listed fall into the last group.
+ * The Clean page groups issues by what kind of work they are, one card each that opens to its
+ * issues: standardising values, junk data, dates, filling the gaps, duplicates, unusual values,
+ * and the rest to review. Kinds not listed fall into the last group.
  */
 export const ISSUE_GROUPS: readonly { id: string; title: string; about: string; kinds: readonly IssueKind[] }[] = [
   { id: "standardise", title: "Standardise", about: "The same thing written different ways, symbols in numbers, garbled characters", kinds: ["variants", "offFormat", "numberSymbols", "mojibake"] },
-  { id: "junk", title: "Junk text", about: "Text where a value should be (N/A, -, ?) and values that do not read", kinds: ["placeholders", "unreadable"] },
+  { id: "junk", title: "Junk data", about: "Text where a value should be (N/A, -, ?), values that do not read, and columns with nothing in them", kinds: ["placeholders", "unreadable", "emptyColumn"] },
   { id: "dates", title: "Dates", about: "Mixed date formats, day and month swapped, dates in the wrong order", kinds: ["dateFormat", "dateConflict", "pairOrder"] },
-  { id: "empty", title: "Empty cells", about: "Missing values and columns with nothing in them", kinds: ["empty", "emptyColumn"] },
+  { id: "empty", title: "Fill the gaps", about: "Empty cells, filled the way you choose for each column", kinds: ["empty"] },
   { id: "duplicates", title: "Duplicates", about: "Repeated rows and ids that should be unique", kinds: ["duplicates", "keyDuplicates"] },
   { id: "unusual", title: "Unusual values", about: "Values outside the range the rest suggest", kinds: ["outOfRange"] },
   { id: "review", title: "To review", about: "Checks that need a judgement call", kinds: ["review", "other"] },
@@ -85,6 +86,8 @@ export function buildHero(
   input: HeroInput,
   actions: {
     fixTop: () => void;
+    /** On the report the main button goes to the Clean page instead of fixing in place. */
+    openClean?: () => void;
     copy: () => void;
     weights: () => void;
     exceptions?: (includeRaw: boolean) => void;
@@ -126,14 +129,27 @@ export function buildHero(
   body.append(el("p", { class: "qp-hero-scope" }, [input.scopeLine]));
 
   const buttons = el("div", { class: "qp-hero-actions" });
-  const primary = el("button", { class: "primary", type: "button" }, [
-    input.canFixTop ? "Fix top 3 issues…" : "Nothing to fix automatically",
+  const openClean = actions.openClean;
+  const toClean = input.fixCount + input.reviewCount;
+  const primary = el("button", { class: "primary", type: "button", ...(openClean === undefined ? {} : { "data-qp": "open-clean" }) }, [
+    openClean !== undefined
+      ? toClean > 0
+        ? `Clean ${n(toClean)} ${plural(toClean, "issue", "issues")}`
+        : "Open Clean"
+      : input.canFixTop
+        ? "Fix top 3 issues…"
+        : "Nothing to fix automatically",
   ]) as HTMLButtonElement;
-  primary.disabled = !input.canFixTop;
-  primary.title = input.canFixTop
-    ? "Preview the three biggest safe fixes, then apply them as separate undoable steps"
-    : "The remaining issues need a decision from you; open the Issues tab";
-  primary.addEventListener("click", actions.fixTop);
+  if (openClean !== undefined) {
+    primary.title = "Go to the Clean page: every issue grouped by the kind of work, with the points each fix adds";
+    primary.addEventListener("click", openClean);
+  } else {
+    primary.disabled = !input.canFixTop;
+    primary.title = input.canFixTop
+      ? "Preview the three biggest safe fixes, then apply them as separate undoable steps"
+      : "The remaining issues need a decision from you; open the Clean page";
+    primary.addEventListener("click", actions.fixTop);
+  }
   const copy = el("button", { class: "ghost small", type: "button" }, ["Copy report"]);
   copy.addEventListener("click", actions.copy);
   const weights = el("button", { class: "ghost small", type: "button" }, ["Score & weights"]);
@@ -181,6 +197,167 @@ export function buildHero(
   }
   hero.append(ring, body, buttons);
   return hero;
+}
+
+export interface CleanHeroInput {
+  overall: number | null;
+  band: "good" | "fair" | "poor" | null;
+  bandWord: string;
+  /** The score of the data as loaded, before any step; null when not known. */
+  raw: number | null;
+  /** The score if every scored issue still on the page were fixed. */
+  potential: number | null;
+  bandFair: number;
+  bandGood: number;
+  fixCount: number;
+  reviewCount: number;
+  safeCount: number;
+  /** Kinds of work found at load and how many are now clear; null without a load to compare with. */
+  progress: { done: number; total: number } | null;
+  /** The group whose fixes add the most points. */
+  next: { id: string; title: string; points: number; dimension: string | null; safe: number } | null;
+}
+
+/**
+ * The top of the Clean page: the score as a bar from the raw load, what cleaning has gained,
+ * what is still on the table, then progress and the biggest win next. Every number is the real
+ * score; the bar moves as soon as a fix lands, with no staged animation.
+ */
+export function buildCleanHero(
+  input: CleanHeroInput,
+  actions: { fixAllSafe: () => void; fixNext: () => void; openNext: () => void; openReport: () => void },
+): HTMLElement {
+  const root = el("section", { class: "cl-hero", "aria-label": "Cleaning progress" });
+  const now = input.overall;
+  const raw = input.raw;
+  const fmt = (value: number): string => value.toFixed(1);
+  const intro = el("div", { class: "cl-intro" }, [
+    el("h2", { class: "cl-title" }, ["Clean"]),
+    el("p", { class: "cl-sub" }, [
+      input.fixCount + input.reviewCount === 0
+        ? "Nothing left to fix or review."
+        : `${n(input.fixCount)} ${plural(input.fixCount, "issue", "issues")} to fix and ${n(input.reviewCount)} to review, grouped by the kind of work. Every fix is a step you can undo; your file is never changed.`,
+    ]),
+  ]);
+  const meter = el("div", { class: "cl-meter" });
+  const head = el("div", { class: "cl-score-row" }, [
+    el("span", { class: "cl-score", "data-qp": "clean-score" }, [now === null ? "n/a" : fmt(now)]),
+    el("span", { class: "cl-of" }, ["/ 100"]),
+    el("span", { class: `qp-band-chip band-${input.band ?? "na"}` }, [input.bandWord]),
+  ]);
+  const facts: (string | HTMLElement)[] = [];
+  if (raw !== null) facts.push("Raw load ", el("b", {}, [fmt(raw)]));
+  if (input.potential !== null && now !== null && input.potential - now >= 0.05) {
+    if (facts.length > 0) facts.push(" · ");
+    facts.push("up to ", el("b", { class: "cl-up" }, [fmt(input.potential)]), " if all cleaned");
+  }
+  if (facts.length > 0) head.append(el("span", { class: "cl-score-facts" }, facts));
+  meter.append(head);
+  if (now !== null) {
+    const base = raw === null ? now : Math.min(raw, now);
+    const gained = raw === null ? 0 : Math.max(0, now - raw);
+    const left = input.potential === null ? 0 : Math.max(0, input.potential - now);
+    const label = `Score ${fmt(now)}${raw === null ? "" : `, raw load ${fmt(raw)}`}${left >= 0.05 ? `, up to ${fmt(now + left)} if all cleaned` : ""}`;
+    const bar = el("div", { class: "cl-bar", role: "img", "aria-label": label });
+    const seg = (cls: string, width: number): HTMLElement => {
+      const part = el("span", { class: `cl-seg ${cls}` });
+      part.style.width = `${Math.max(0, Math.min(100, width))}%`;
+      return part;
+    };
+    bar.append(seg("cl-seg-base", base), seg("cl-seg-gain", gained), seg("cl-seg-left", left));
+    for (const [at, name] of [[input.bandFair, "Fair"], [input.bandGood, "Good"]] as const) {
+      const tick = el("span", { class: "cl-tick", title: `${name} at ${at}` });
+      tick.style.left = `${at}%`;
+      bar.append(tick);
+    }
+    meter.append(
+      bar,
+      el("div", { class: "cl-legend" }, [
+        el("span", {}, [el("i", { class: "cl-key cl-seg-base" }), raw === null ? "Now" : "As loaded"]),
+        ...(raw === null ? [] : [el("span", {}, [el("i", { class: "cl-key cl-seg-gain" }), "Gained by cleaning ", el("b", { class: "cl-up" }, [`+${fmt(gained)}`])])]),
+        el("span", {}, [el("i", { class: "cl-key cl-seg-left" }), "Still on the table"]),
+        el("span", { class: "cl-bands" }, [`Fair at ${input.bandFair} · Good at ${input.bandGood}`]),
+      ]),
+    );
+  }
+  root.append(intro, meter);
+
+  const row = el("div", { class: "cl-progress" });
+  if (input.progress !== null && input.progress.total > 0) {
+    const dots = el("span", { class: "cl-dots", "aria-hidden": "true" });
+    for (let index = 0; index < input.progress.total; index++) {
+      dots.append(el("i", { class: index < input.progress.done ? "done" : "" }));
+    }
+    row.append(dots, el("span", { class: "cl-progress-text" }, [`${n(input.progress.done)} of ${n(input.progress.total)} kinds of work cleaned`]));
+  }
+  row.append(el("span", { class: "cl-spacer" }));
+  const report = el("button", { class: "ghost small", type: "button", "data-qp": "open-report" }, ["Before and after report"]);
+  report.addEventListener("click", actions.openReport);
+  row.append(report);
+  if (input.safeCount > 0) {
+    const all = el("button", { class: "primary", type: "button", "data-qp": "fix-all-safe" }, [`Fix all safe (${n(input.safeCount)})…`]);
+    all.title = "Whitespace, case, placeholders and standard formats only. One combined preview; each fix stays its own undoable step.";
+    all.addEventListener("click", actions.fixAllSafe);
+    row.append(all);
+  }
+  root.append(row);
+
+  const next = input.next;
+  if (next !== null && next.points >= 0.1) {
+    const button = el("button", { class: next.safe > 0 ? "primary" : "ghost outlined", type: "button", "data-qp": "fix-next" }, [
+      next.safe > 0 ? `Fix ${n(next.safe)} safe…` : "Open",
+    ]);
+    button.addEventListener("click", next.safe > 0 ? actions.fixNext : actions.openNext);
+    root.append(
+      el("div", { class: "cl-next", "data-group": next.id }, [
+        el("span", { class: "cl-next-label" }, ["Biggest win next"]),
+        el("span", { class: "cl-next-title" }, [next.title]),
+        next.dimension === null ? "" : el("span", { class: "cl-next-dim" }, [`lifts ${next.dimension}`]),
+        el("span", { class: "cl-next-pts" }, [pointsLabel(next.points)]),
+        button,
+      ]),
+    );
+  }
+  return root;
+}
+
+/** Dataset-wide signals under the Clean page's groups: missing-together, drift, near duplicates, text profiles. */
+export function buildAdvancedSection(loading: boolean, findings: readonly Finding[], run: (finding: Finding) => void): HTMLElement {
+  const section = el("section", { class: "qp-advanced" });
+  section.append(
+    el("h2", { class: "overview-heading" }, ["Advanced signals"]),
+    el("p", { class: "qp-advanced-hint" }, [
+      "Missing-together patterns, drift between row halves, near-duplicate values and text profiles. Relationships and functional dependencies live in the Outliers lens.",
+    ]),
+  );
+  if (loading) {
+    section.append(el("div", { class: "qp-advanced-empty" }, ["Checking advanced signals…"]));
+    return section;
+  }
+  if (findings.length === 0) {
+    section.append(el("div", { class: "qp-advanced-empty" }, ["✓ No additional signals found."]));
+    return section;
+  }
+  for (const finding of findings.slice(0, 12)) {
+    const row = el("div", { class: `advanced-finding severity-${finding.severity}` }, [
+      el("div", { class: "advanced-finding-body" }, [
+        el("span", { class: "advanced-finding-title" }, [finding.title]),
+        el("span", { class: "advanced-finding-evidence" }, [finding.evidence.map((entry) => `${entry.metric}: ${entry.value}`).join(" · ")]),
+      ]),
+    ]);
+    if (finding.action !== undefined) {
+      const action = el("button", { class: "ghost small", type: "button" }, [finding.fixLabel ?? "Show rows"]);
+      action.addEventListener("click", () => run(finding));
+      row.append(action);
+    }
+    section.append(row);
+  }
+  return section;
+}
+
+/** Opens one group on the Clean page (it stays open across re-renders). */
+export function openIssueGroup(id: string): void {
+  openGroups.add(id);
 }
 
 export function buildTiles(
@@ -310,12 +487,11 @@ export function buildStrip(
 
 export function buildTabs(
   active: QualityTab,
-  counts: { issues: number; sensitive: number | null; rules?: number },
+  counts: { sensitive: number | null; rules?: number },
   select: (tab: QualityTab) => void,
 ): HTMLElement {
   const bar = el("div", { class: "qp-tabs", role: "tablist", "aria-label": "Data quality sections" });
   const tabs: { id: QualityTab; label: string }[] = [
-    { id: "issues", label: `Issues ${counts.issues}` },
     { id: "columns", label: "Columns" },
     { id: "sensitive", label: counts.sensitive === null ? "Sensitive" : `Sensitive ${counts.sensitive}` },
     { id: "rules", label: counts.rules === undefined || counts.rules === 0 ? "Rules" : `Rules ${counts.rules}` },
@@ -456,6 +632,8 @@ export function buildIssuesTab(
     fixGroup?: (issues: readonly PageIssue[]) => void;
     safeCount?: number;
     review?: (issue: PageIssue) => void;
+    /** Exact points a group adds when all of it is fixed, and the dimension it lifts most. */
+    groupGain?: (issues: readonly PageIssue[]) => { points: number; dimension: string | null };
   },
 ): HTMLElement {
   const root = el("div", { class: "qp-issues" });
@@ -541,7 +719,8 @@ function buildIssueGroup(group: IssueGroup, issues: readonly PageIssue[], open: 
     count("info") > 0 ? `${count("info")} info` : "",
   ].filter(Boolean);
   const columns = new Set(issues.map((issue) => issue.column).filter((column) => column !== null)).size;
-  const points = issues.reduce((sum, issue) => sum + (issue.points ?? 0), 0);
+  const gain = actions.groupGain?.(issues) ?? null;
+  const points = gain?.points ?? issues.reduce((sum, issue) => sum + (issue.points ?? 0), 0);
   const worst = count("fix") > 0 ? "fix" : count("review") > 0 ? "review" : "info";
   const body = el("div", { class: "qp-group-body", id: `qp-group-${group.id}` });
   const head = el(
@@ -556,7 +735,12 @@ function buildIssueGroup(group: IssueGroup, issues: readonly PageIssue[], open: 
       el("span", { class: "qp-group-facts" }, [
         el("span", { class: `qp-group-sev sev-${worst}` }, [parts.join(" \u00b7 ")]),
         columns > 0 ? el("span", {}, [`${n(columns)} ${plural(columns, "column", "columns")}`]) : "",
-        points >= 0.1 ? el("span", { class: "pts-pill" }, [pointsLabel(points)]) : "",
+        points >= 0.1
+          ? el("span", { class: "qp-group-gain", title: "What the score gains when every issue in this group is fixed" }, [
+              el("span", { class: "pts-pill" }, [pointsLabel(points)]),
+              gain?.dimension ? el("span", { class: "qp-group-dim" }, [gain.dimension]) : "",
+            ])
+          : "",
       ]),
     ],
   );
@@ -593,7 +777,7 @@ function buildIssueGroup(group: IssueGroup, issues: readonly PageIssue[], open: 
   return section;
 }
 
-/** A single purple line on the Issues tab; the full list lives in the Sensitive tab. */
+/** A single purple line on the Clean page; the full list lives in the report's Sensitive tab. */
 export function buildSensitiveBanner(names: readonly string[], review: () => void): HTMLElement | null {
   if (names.length === 0) return null;
   const shown = names.slice(0, 4).join(", ");

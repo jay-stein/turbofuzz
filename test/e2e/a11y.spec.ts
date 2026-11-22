@@ -62,12 +62,21 @@ for (const scheme of ["light", "dark"] as const) {
     await page.goto("/");
     await page.locator('input[type="file"]').setInputFiles({ name: "a11y.csv", mimeType: "text/csv", buffer: Buffer.from(messy()) });
     await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
-    await page.getByRole("tab", { name: "Data Quality" }).click();
+    await page.getByRole("tab", { name: "Clean" }).click();
+    await expect(page.locator(".cl-hero")).toBeVisible();
+    await page.locator(".qp-expand-all").click();
+    await page.waitForTimeout(250);
+    const clean = await new AxeBuilder({ page }).include(".clean-host").withTags(["wcag2a", "wcag2aa"]).analyze();
+    expect(
+      clean.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.help} (${v.nodes.length}) ${v.nodes[0]?.target.join(" ")}`),
+      `Clean in ${scheme}`,
+    ).toEqual([]);
+    await page.getByRole("tab", { name: "Data Quality Report" }).click();
     await expect(page.locator(".qp-hero2")).toBeVisible();
-    for (const name of [/^Issues/, /^Columns/, /^Sensitive/, /^Rules/, "History", "All checks"]) {
+    for (const name of [/^Columns/, /^Sensitive/, /^Rules/, "History", "All checks"]) {
       await page.locator(".qp-tabs").getByRole("tab", { name }).click();
       await page.waitForTimeout(250);
-      const result = await new AxeBuilder({ page }).include(".quality-host").withTags(["wcag2a", "wcag2aa"]).analyze();
+      const result = await new AxeBuilder({ page }).include(".quality-host:not(.clean-host)").withTags(["wcag2a", "wcag2aa"]).analyze();
       const serious = result.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
       expect(
         serious.map((v) => `${v.id}: ${v.help} (${v.nodes.length}) ${v.nodes[0]?.target.join(" ")}`),

@@ -70,8 +70,8 @@ test("a KNN fill adds to the Recipe: earlier steps stay, kept as part of the dat
   await page.locator('input[type="file"]').setInputFiles({ name: "homes.csv", mimeType: "text/csv", buffer: Buffer.from(lines.join("\n")) });
   await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
 
-  await page.getByRole("tab", { name: "Data Quality" }).click();
-  await page.locator(".qp-hero-actions .primary").click();
+  await page.getByRole("tab", { name: "Clean" }).click();
+  await page.locator("[data-qp='fix-all-safe']").click();
   await page.locator(".fix-preview-modal").getByRole("button", { name: /^Apply/ }).click();
   const recipe = page.locator(".nav-actions button", { hasText: /^Recipe/ });
   await expect(recipe).toHaveText(/Recipe \(\d+\)/);

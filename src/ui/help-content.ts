@@ -111,16 +111,17 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
   },
   {
     id: "data-quality",
-    title: "Data Quality page",
-    summary: "Score, what to fix first, previews and undo, rules, history and the privacy guarantee.",
+    title: "Clean and the Data Quality Report",
+    summary: "Clean fixes the data with the points each fix adds; the report scores it, before and after, with rules, history and exports.",
     blocks: [
       p(
-        "The Data Quality page (the DQ tile in the topbar, the “quality” palette command, or the tab between Overview and Table) scores the whole dataset — not the filtered rows — across six dimensions: Completeness, Validity, Uniqueness, Consistency, Timeliness and Accuracy.",
+        "Two pages share one score. Clean lists what to fix, grouped by the kind of work: Standardise, Junk data, Dates, Fill the gaps, Duplicates, Unusual values and To review. The Data Quality Report (the DQ tile in the topbar, the “quality” palette command, or its tab) scores the whole dataset — not the filtered rows — across six dimensions: Completeness, Validity, Uniqueness, Consistency, Timeliness and Accuracy.",
       ),
       list(
         "The ring shows the overall score, a weighted mean of the dimensions that apply. The band word (good, fair, poor) follows the number, but one badly broken column holds it down: a required column more than half empty, or any column with more than a fifth of its values invalid, caps the band at fair; three-quarters empty or half invalid caps it at poor. The line under the title says which column and why.",
-        "Needs fixing and Worth reviewing count the same issues the Issues tab lists. Rows affected is the number of distinct rows failing at least one check; click it to see them.",
-        "Issues are ranked by the points they would add back (+x.x pts). Each card shows what is wrong with exact counts, a Now / After cleaning comparison where one applies, and a Preview before any change. Every fix lands in the Recipe and can be undone. “Fix top 3 issues” and “Apply all safe fixes” open one combined preview first.",
+        "Clean's bar starts at the raw load (the file as read, before any step), shows what cleaning has gained in green and what is still on the table hatched. Each group says the points it adds when all of it is fixed and the dimension it lifts most; the points are worked out exactly from the same checks the report scores.",
+        "Needs fixing and Worth reviewing on the report count the same issues Clean lists. Rows affected is the number of distinct rows failing at least one check; click it to see them.",
+        "Each issue card shows what is wrong with exact counts, a Now / After cleaning comparison where one applies, and a Preview before any change. Every fix lands in the Recipe and can be undone. “Fix all safe” and a group's “Fix N safe” open one combined preview first.",
         "Optional columns: a column named like notes, comment or middle name, or the only incomplete column in an otherwise complete table, counts its blanks at a quarter weight and never caps the band. Use “This column is optional” on its empty-cells card to change that; the choice lasts for the session.",
         "Mixed formats are flagged: a date column written two ways, a number column with $ on some values, thousands separators beside plain numbers. Impossible values are flagged for columns named age (0 to 120), percent (0 to 100) and year (1900 to next year).",
         "Columns shows every column worst first with its own 0 to 100 score; hover for how it was worked out.",

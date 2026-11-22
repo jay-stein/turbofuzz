@@ -1,4 +1,4 @@
-import type { DQScore, ScoreCheck, ScoreDimension } from "../data/score.js";
+import { overallIfPassed, pointsIfPassed, type DQScore, type ScoreCheck, type ScoreDimension } from "../data/score.js";
 import { FITNESS_PROFILES, fitnessProfile, readFitnessId, saveFitnessId } from "../data/fitness.js";
 import type { Finding } from "../data/findings.js";
 import {
@@ -9,10 +9,14 @@ import {
   type SensitiveLabel,
 } from "../data/sensitivity.js";
 import type { DatasetStats } from "../data/stats.js";
+import type { DQBaseline } from "../data/dq-baseline.js";
 import type { ColumnHealth, PageIssue } from "../data/dq-issues.js";
 import {
+  buildCleanHero,
   buildHero,
   buildIssuesTab,
+  groupIssues,
+  openIssueGroup,
   buildSensitiveBanner,
   buildSkeleton,
   buildStrip,
@@ -57,6 +61,15 @@ function bandWord(band: DQScore["band"]): string {
 }
 
 export interface QualityPageCallbacks {
+  /**
+   * Which page this is: "clean" lists the issues to fix, grouped by the kind of work;
+   * "report" (the default) is the Data Quality Report with its tabs and exports.
+   */
+  mode?: "clean" | "report";
+  /** Go to the Clean page (from the report). */
+  onOpenClean?(): void;
+  /** Go to the Data Quality Report, optionally on one tab (from the Clean page). */
+  onOpenReport?(tab?: QualityTab): void;
   /** Filter the table to the failing rows of a check. */
   onFilter(check: ScoreCheck): void;
   /** Convert a downgraded text column to its richer type. */
@@ -166,6 +179,8 @@ export interface QualityPageInput {
   freshness?: readonly FreshnessColumn[];
   /** Injectable clock for deterministic freshness labels in tests. */
   now?: number;
+  /** The data as loaded, before any step: the "before" of the Clean page and the report. */
+  baseline?: DQBaseline | null;
 }
 
 /**
@@ -175,8 +190,7 @@ export interface QualityPageInput {
  * display-only, every number drills to the failing rows.
  */
 export class QualityPage {
-  private tab: QualityTab = "issues";
-  private showAllColumns = false;
+  private tab: QualityTab = "columns";
   private showAllIssues = false;
   private fixed: FixedEntry[] = [];
   /** True while a fix run is in progress. */
@@ -200,6 +214,17 @@ export class QualityPage {
     private readonly callbacks: QualityPageCallbacks,
   ) {
     this.root.classList.add("quality-page");
+    if (this.isClean) this.root.classList.add("clean-page");
+  }
+
+  private get isClean(): boolean {
+    return this.callbacks.mode === "clean";
+  }
+
+  /** Shows one tab of the report (used when another page sends the user here). */
+  openTab(tab: QualityTab): void {
+    this.tab = tab;
+    this.render(this.lastInput);
   }
 
   /** Re-renders from a fresh score; null shows the empty state. */
@@ -229,7 +254,6 @@ export class QualityPage {
       this.datasetKey = input.datasetKey;
       this.fixed = [];
       this.showAllIssues = false;
-      this.showAllColumns = false;
     }
     this.scopeLabel = describeScope({ total: rowCount });
     this.tableScopeLabel =
@@ -246,6 +270,11 @@ export class QualityPage {
     const reviewIssues = issues.filter((issue) => issue.severity === "review");
     const safe = fixIssues.filter((issue) => issue.batchSafe && issue.fixes.length > 0);
     const topWin = fixIssues.find((issue) => issue.points !== null) ?? null;
+
+    if (this.isClean) {
+      this.renderClean(input, issues, safe, liveCards.map((card) => card.name), checkCount);
+      return;
+    }
 
     this.root.append(
       buildHero(
@@ -271,6 +300,7 @@ export class QualityPage {
         },
         {
           fixTop: () => void this.fix(safe.slice(0, 3)),
+          ...(this.callbacks.onOpenClean === undefined ? {} : { openClean: () => this.callbacks.onOpenClean?.() }),
           copy: () => void this.callbacks.onExport("markdown"),
           ...(this.callbacks.onExceptions === undefined
             ? {}
@@ -299,21 +329,14 @@ export class QualityPage {
                 },
         },
         {
-          openIssues: () => this.select("issues"),
+          openIssues: () => this.callbacks.onOpenClean?.(),
           openSensitive: () => this.select("sensitive"),
           showAffected: () => this.callbacks.onShowAffectedRows?.(),
         },
       ),
-      buildStrip(health, this.showAllColumns, {
-        open: (column, anchor) => this.callbacks.onOpenColumn?.(column, anchor),
-        toggle: () => {
-          this.showAllColumns = !this.showAllColumns;
-          this.render(this.lastInput);
-        },
-      }),
       buildTabs(
         this.tab,
-        { issues: issues.length, sensitive: scanned ? liveCards.length : null, rules: this.callbacks.ruleCount?.() ?? 0 },
+        { sensitive: scanned ? liveCards.length : null, rules: this.callbacks.ruleCount?.() ?? 0 },
         (tab) => this.select(tab),
       ),
     );
@@ -324,45 +347,7 @@ export class QualityPage {
       role: "tabpanel",
       "aria-labelledby": `qp-tab-${this.tab}`,
     });
-    if (this.tab === "issues") {
-      panel.append(
-        buildIssuesTab(
-          issues,
-          this.fixed,
-          { showAll: this.showAllIssues, checkCount },
-          buildSensitiveBanner(
-            liveCards.map((card) => card.name),
-            () => this.select("sensitive"),
-          ),
-          {
-            applyAllSafe: () => void this.fix(safe),
-            fixGroup: (group) => void this.fix(group),
-            ...(this.callbacks.onReviewIssue === undefined ? {} : { review: (issue: PageIssue) => void this.review(issue) }),
-            safeCount: safe.length,
-            ...(this.callbacks.onDismissIssue === undefined ? {} : { dismiss: (issue: PageIssue) => this.callbacks.onDismissIssue?.(issue) }),
-            reviewed: this.callbacks.reviewedList?.() ?? [],
-            restore: (id: string) => this.callbacks.onRestoreReviewed?.(id),
-            fix: (issue) => void this.fixOne(issue),
-            show: (issue) => this.callbacks.onShowIssue?.(issue),
-            showSide: (issue, special) => this.callbacks.onShowIssueSide?.(issue, special),
-            ...(this.callbacks.onOptionalChange === undefined
-              ? {}
-              : {
-                  optional: (issue: PageIssue, optional: boolean) => {
-                    if (issue.columnName !== null) this.callbacks.onOptionalChange?.(issue.columnName, optional);
-                  },
-                }),
-            toggleAll: () => {
-              this.showAllIssues = !this.showAllIssues;
-              this.render(this.lastInput);
-            },
-            openChecks: () => this.select("checks"),
-            undo: (entry) => this.undoFixed(entry),
-          },
-        ),
-      );
-      if (this.advanced !== null) panel.append(this.advanced);
-    } else if (this.tab === "columns") {
+    if (this.tab === "columns") {
       panel.append(
         buildStrip(health, true, { open: (column, anchor) => this.callbacks.onOpenColumn?.(column, anchor), toggle: () => {} }, health.length),
       );
@@ -452,12 +437,128 @@ export class QualityPage {
     });
   }
 
-  /** Sets (or replaces) the advisory-signals section shown at the bottom of the Issues tab. */
+  /** Sets (or replaces) the advisory-signals section shown at the bottom of the Clean page. */
   setAdvanced(section: HTMLElement | null): void {
     this.advanced?.remove();
     this.advanced = section;
-    const panel = this.root.querySelector("#qp-panel");
-    if (section !== null && panel !== null && this.tab === "issues") panel.append(section);
+    const panel = this.root.querySelector(".cl-panel");
+    if (section !== null && panel !== null && this.isClean) panel.append(section);
+  }
+
+  /** The checks behind these issues that a fix would clear (optional columns' blanks are not defects). */
+  private scoredChecks(issues: readonly PageIssue[]): Set<string> {
+    const ids = new Set<string>();
+    for (const issue of issues) {
+      if (issue.check !== undefined && issue.optional !== true) ids.add(issue.check.id);
+    }
+    return ids;
+  }
+
+  /** Exact points a group adds when all of it is fixed, and the dimension its largest check sits in. */
+  private groupGain(score: DQScore, issues: readonly PageIssue[]): { points: number; dimension: string | null } {
+    const ids = this.scoredChecks(issues);
+    let top: ScoreCheck | null = null;
+    for (const issue of issues) {
+      const check = issue.check;
+      if (check === undefined || !ids.has(check.id)) continue;
+      if (top === null || check.fail > top.fail) top = check;
+    }
+    const dimension = top === null ? null : (score.dimensions.find((entry) => entry.dimension === top.dimension)?.label ?? null);
+    return { points: pointsIfPassed(score, ids), dimension };
+  }
+
+  /**
+   * The Clean page: the score from the raw load to now and what is still on the table, the
+   * biggest win next, then every issue in its group of work with the points the group adds.
+   */
+  private renderClean(
+    input: QualityPageInput,
+    issues: readonly PageIssue[],
+    safe: readonly PageIssue[],
+    sensitiveNames: readonly string[],
+    checkCount: number,
+  ): void {
+    const { score } = input;
+    const groups = groupIssues(issues).map((entry) => ({ ...entry, gain: this.groupGain(score, entry.issues) }));
+    const ranked = groups.filter((entry) => entry.gain.points >= 0.1).sort((a, b) => b.gain.points - a.gain.points);
+    const top = ranked[0] ?? null;
+    const topSafe = top === null ? [] : top.issues.filter((issue) => issue.batchSafe && issue.fixes.length > 0);
+    const potential = overallIfPassed(score, this.scoredChecks(issues));
+    const baseline = input.baseline ?? null;
+    const present = new Set(groups.filter((entry) => entry.issues.some((issue) => issue.severity !== "info")).map((entry) => entry.group.id));
+    const progress =
+      baseline === null || baseline.groups.length === 0
+        ? null
+        : { done: baseline.groups.filter((id) => !present.has(id)).length, total: baseline.groups.length };
+    this.root.append(
+      buildCleanHero(
+        {
+          overall: score.overall === null ? null : Math.round(score.overall * 10) / 10,
+          band: score.band,
+          bandWord: bandWord(score.band),
+          raw: baseline === null || baseline.overall === null ? null : Math.round(baseline.overall * 10) / 10,
+          potential: potential === null ? null : Math.round(potential * 10) / 10,
+          bandFair: this.callbacks.config?.bandFair ?? 75,
+          bandGood: this.callbacks.config?.bandGood ?? 90,
+          fixCount: issues.filter((issue) => issue.severity === "fix").length,
+          reviewCount: issues.filter((issue) => issue.severity === "review").length,
+          safeCount: safe.length,
+          progress,
+          next: top === null ? null : { id: top.group.id, title: top.group.title, points: top.gain.points, dimension: top.gain.dimension, safe: topSafe.length },
+        },
+        {
+          fixAllSafe: () => void this.fix(safe),
+          fixNext: () => void this.fix(topSafe),
+          openNext: () => {
+            if (top === null) return;
+            openIssueGroup(top.group.id);
+            this.render(this.lastInput);
+            this.root.querySelector(`[data-group="${top.group.id}"].qp-group`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+          },
+          openReport: () => this.callbacks.onOpenReport?.(),
+        },
+      ),
+    );
+    const panel = el("div", { class: "cl-panel" });
+    panel.append(
+      buildIssuesTab(
+        issues,
+        this.fixed,
+        { showAll: this.showAllIssues, checkCount },
+        buildSensitiveBanner(sensitiveNames, () => this.callbacks.onOpenReport?.("sensitive")),
+        {
+          fixGroup: (group) => void this.fix(group),
+          ...(this.callbacks.onReviewIssue === undefined ? {} : { review: (issue: PageIssue) => void this.review(issue) }),
+          ...(this.callbacks.onDismissIssue === undefined ? {} : { dismiss: (issue: PageIssue) => this.callbacks.onDismissIssue?.(issue) }),
+          reviewed: this.callbacks.reviewedList?.() ?? [],
+          restore: (id: string) => this.callbacks.onRestoreReviewed?.(id),
+          fix: (issue) => void this.fixOne(issue),
+          show: (issue) => this.callbacks.onShowIssue?.(issue),
+          showSide: (issue, special) => this.callbacks.onShowIssueSide?.(issue, special),
+          ...(this.callbacks.onOptionalChange === undefined
+            ? {}
+            : {
+                optional: (issue: PageIssue, optional: boolean) => {
+                  if (issue.columnName !== null) this.callbacks.onOptionalChange?.(issue.columnName, optional);
+                },
+              }),
+          groupGain: (list) => this.groupGain(score, list),
+          toggleAll: () => {
+            this.showAllIssues = !this.showAllIssues;
+            this.render(this.lastInput);
+          },
+          openChecks: () => this.callbacks.onOpenReport?.("checks"),
+          undo: (entry) => this.undoFixed(entry),
+        },
+      ),
+    );
+    if (this.advanced !== null) panel.append(this.advanced);
+    this.root.append(
+      panel,
+      el("footer", { class: "qp-footer" }, [
+        "Points are what the score gains when an issue is fixed, worked out from the same checks the report scores · Computed locally in your browser",
+      ]),
+    );
   }
 
   private select(tab: QualityTab): void {

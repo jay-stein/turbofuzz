@@ -14,10 +14,11 @@ function setupDom(): Window {
 }
 
 test("the keyboard hint follows the number of registered tabs", () => {
-  assert.equal(VIEW_ORDER.length, 9);
+  assert.equal(VIEW_ORDER.length, 10);
   assert.deepEqual(VIEW_ORDER, [
     "table",
     "overview",
+    "clean",
     "quality",
     "views",
     "chart",
@@ -26,7 +27,8 @@ test("the keyboard hint follows the number of registered tabs", () => {
     "outliers",
     "relationships",
   ]);
-  assert.equal(viewSwitchHint(), `switch anytime with 1–${VIEW_ORDER.length}`);
+  assert.equal(viewSwitchHint(), "switch anytime with 1–9 and 0");
+  assert.equal(viewSwitchHint(5), "switch anytime with 1–5");
 });
 
 test("the research tools are Time Series, Map, Outliers and Relationships, last on the bar", () => {

@@ -17620,7 +17620,8 @@ mark.cmp-ch {
   flex: none;
   padding: 9px 16px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.18);
+  /* A darker tint, not a lighter one: white text stays above 4.5:1 on the green. */
+  background: rgba(0, 0, 0, 0.22);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -19581,4 +19582,64 @@ select.chart-add-agg {
 
 @media (max-width: 720px) {
   .qp-group-facts { display: none; }
+}
+
+/* Clean page: the score from the raw load to now, what is still on the table, and the biggest win next. */
+.cl-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 14px 24px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 18px 20px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.cl-intro { min-width: 0; }
+.cl-title { margin: 0 0 4px; font-size: var(--fs-xl); }
+.cl-sub { margin: 0; color: var(--text-dim); font-size: var(--fs-md); line-height: 1.5; max-width: 560px; }
+.cl-meter { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cl-score-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 10px; }
+.cl-score { font-family: var(--font-mono, ui-monospace, monospace); font-size: 34px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.cl-of { color: var(--text-dim); }
+.cl-score-facts { margin-left: auto; color: var(--text-dim); font-size: var(--fs-sm); }
+.cl-score-facts b { color: var(--text); font-variant-numeric: tabular-nums; }
+.cl-score-facts b.cl-up, .cl-legend b.cl-up { color: var(--ok-text); }
+.cl-bar { position: relative; display: flex; height: 14px; overflow: hidden; border-radius: 7px; background: var(--panel-2); }
+.cl-seg { display: block; height: 100%; transition: width 260ms ease; }
+.cl-seg-base { background: color-mix(in srgb, var(--text-dim) 55%, var(--panel)); }
+.cl-seg-gain { background: var(--ok); }
+.cl-seg-left { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ok) 35%, var(--panel)) 0 4px, var(--ok-soft) 4px 8px); }
+.cl-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text); opacity: 0.35; }
+.cl-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--text-dim); font-size: var(--fs-sm); }
+.cl-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.cl-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.cl-bands { margin-left: auto; }
+.cl-progress { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.cl-dots { display: inline-flex; gap: 5px; }
+.cl-dots i { width: 24px; height: 6px; border-radius: 3px; background: var(--border); }
+.cl-dots i.done { background: var(--ok); }
+.cl-progress-text { font-weight: 600; font-size: var(--fs-md); }
+.cl-spacer { flex: 1 1 0; }
+.cl-next {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--panel));
+}
+.cl-next-label { font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.cl-next-title { font-weight: 600; }
+.cl-next-dim { color: var(--text-dim); font-size: var(--fs-sm); }
+.cl-next-pts { margin-left: auto; font-weight: 600; color: var(--ok-text); font-variant-numeric: tabular-nums; }
+.qp-group-gain { display: inline-flex; align-items: center; gap: 6px; }
+.qp-group-dim { color: var(--text-dim); }
+@media (max-width: 860px) {
+  .cl-hero { grid-template-columns: 1fr; }
+  .cl-score-facts, .cl-bands, .cl-next-pts { margin-left: 0; }
 }

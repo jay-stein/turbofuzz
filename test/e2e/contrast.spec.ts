@@ -30,7 +30,11 @@ const audit = (): { ratio: number; text: string; where: string }[] => {
   const backdrop = (el: Element): number[] => {
     const chain: number[][] = [];
     for (let e: Element | null = el; e; e = e.parentElement) {
-      const c = parse(getComputedStyle(e).backgroundColor);
+      const style = getComputedStyle(e);
+      // A linear gradient paints over the background colour: read it as its first colour stop.
+      const gradient = style.backgroundImage.startsWith("linear-gradient") ? parse(style.backgroundImage) : null;
+      if (gradient && gradient[3] === 1) { chain.push(gradient); break; }
+      const c = parse(style.backgroundColor);
       if (c && c[3]! > 0) { chain.push(c); if (c[3] === 1) break; }
     }
     let base = [255, 255, 255, 1];
@@ -72,7 +76,7 @@ for (const theme of ["light", "dark"] as const) {
     await page.locator(".nav-row").waitFor();
     await page.keyboard.press("Escape");
     const failures: string[] = [];
-    for (const view of ["Overview", "Data Quality", "Table", "Pivot View", "Outliers", "Relationships", "Time Series"]) {
+    for (const view of ["Overview", "Clean", "Data Quality", "Table", "Pivot View", "Outliers", "Relationships", "Time Series"]) {
       await page.locator(".view-tabs button", { hasText: view }).first().click();
       await page.waitForTimeout(1500);
       await page.locator(".hint-callout, .toast").evaluateAll((els) => els.forEach((e) => (e as HTMLElement).remove()));

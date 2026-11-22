@@ -21,10 +21,10 @@ test("Apply all safe fixes applies every ticked fix, each as its own Recipe step
   await expect(page.locator(".workspace")).toBeVisible({ timeout: 30_000 });
   const recipe = page.locator(".nav-actions button", { hasText: /^Recipe/ });
 
-  await page.getByRole("tab", { name: "Data Quality" }).click();
-  const all = page.locator(".qp-apply-all");
-  await expect(all).toHaveText(/Apply all \d+ safe fixes/);
-  const count = Number(/Apply all (\d+)/.exec((await all.textContent()) ?? "")?.[1] ?? "0");
+  await page.getByRole("tab", { name: "Clean" }).click();
+  const all = page.locator("[data-qp='fix-all-safe']");
+  await expect(all).toHaveText(/Fix all safe \(\d+\)/);
+  const count = Number(/\((\d+)\)/.exec((await all.textContent()) ?? "")?.[1] ?? "0");
   expect(count).toBeGreaterThanOrEqual(4);
 
   await all.click();
@@ -36,8 +36,7 @@ test("Apply all safe fixes applies every ticked fix, each as its own Recipe step
   // One Recipe step per fix, as the dialog promised: none folded into a batch.
   await expect(recipe).toHaveText(`Recipe (${count})`);
   // Nothing safe is left to apply.
-  await expect(page.locator(".qp-apply-all")).toHaveCount(0);
-  await expect(page.locator(".qp-hero-actions .primary")).toHaveText("Nothing to fix automatically");
+  await expect(page.locator("[data-qp='fix-all-safe']")).toHaveCount(0);
 
   // The Recipe lists each fix on its own row, one per cleaned column plus the placeholder change.
   await recipe.click();
@@ -55,7 +54,7 @@ test("Apply all safe fixes applies every ticked fix, each as its own Recipe step
     const head = page.locator(".th").filter({ has: page.locator(".th-label", { hasText: new RegExp(`^${name}$`) }) });
     await expect(head.first()).toContainText("4 distinct");
   }
-  await page.getByRole("tab", { name: "Data Quality" }).click();
+  await page.getByRole("tab", { name: "Clean" }).click();
 
   // One Undo takes back only the last fix.
   await page.locator(".nav-actions button", { hasText: /^Undo$/ }).click();

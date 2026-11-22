@@ -604,6 +604,41 @@ export function computeDQScore(
   };
 }
 
+/**
+ * The overall score if these checks passed in full, pooled exactly as computeDQScore pools
+ * them. Pure arithmetic over counts already made, so it reads no rows: with no ids it equals
+ * `score.overall`, and the difference is what fixing those checks would add.
+ */
+export function overallIfPassed(score: DQScore, passed: ReadonlySet<string>): number | null {
+  let weightSum = 0;
+  let weighted = 0;
+  for (const dimension of score.dimensions) {
+    if (dimension.weight <= 0) continue;
+    let pass = 0;
+    let fail = 0;
+    for (const check of dimension.checks) {
+      if (passed.has(check.id)) {
+        pass += check.pass + check.fail;
+        continue;
+      }
+      pass += check.pass;
+      fail += check.fail * (check.optional === true ? OPTIONAL_COMPLETENESS_FACTOR : 1);
+    }
+    if (pass + fail === 0) continue;
+    weightSum += dimension.weight;
+    weighted += dimension.weight * (pass / (pass + fail)) * 100;
+  }
+  return weightSum === 0 ? null : weighted / weightSum;
+}
+
+/** Points the overall score gains if these checks passed in full; 0 when nothing is scored. */
+export function pointsIfPassed(score: DQScore, passed: ReadonlySet<string>): number {
+  if (passed.size === 0) return 0;
+  const now = overallIfPassed(score, new Set());
+  const after = overallIfPassed(score, passed);
+  return now === null || after === null ? 0 : Math.max(0, after - now);
+}
+
 export interface ColumnScore {
   /** 0-100, or null when none of the column's checks apply. */
   score: number | null;

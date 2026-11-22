@@ -26,10 +26,14 @@ test("every tab is always on the bar: there is no General or Research switch", a
   await expect(page.getByRole("tab", { name: "Table" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("radiogroup", { name: "Mode" })).toHaveCount(0);
   for (const name of RESEARCH_TABS) await expect(page.getByRole("tab", { name })).toBeVisible();
-  // Number keys run over all nine tabs: 9 is Relationships.
-  await page.keyboard.press("9");
+  // Number keys run over all ten tabs: 9 is Outliers and 0 the tenth, Relationships.
+  await page.keyboard.press("0");
   await expect(page.getByRole("tab", { name: "Relationships" })).toHaveAttribute("aria-selected", "true");
-  await page.keyboard.press("5");
+  await page.keyboard.press("9");
+  await expect(page.getByRole("tab", { name: "Outliers" })).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("3");
+  await expect(page.getByRole("tab", { name: "Clean" })).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("6");
   await expect(page.getByRole("tab", { name: "Chart" })).toHaveAttribute("aria-selected", "true");
 });
 

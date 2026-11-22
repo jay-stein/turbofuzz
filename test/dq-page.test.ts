@@ -4,9 +4,11 @@ import { Window } from "happy-dom";
 import { ColumnData } from "../src/data/column.js";
 import { IMPACT, TITLES, maskToWords, percentLabel, plural, pointsLabel } from "../src/data/dq-copy.js";
 import { buildColumnHealth, buildIssues, type PageIssue } from "../src/data/dq-issues.js";
-import { computeDQScore } from "../src/data/score.js";
+import { computeDQScore, overallIfPassed, pointsIfPassed } from "../src/data/score.js";
+import { captureBaseline } from "../src/data/dq-baseline.js";
 import type { DatasetStats } from "../src/data/stats.js";
 import { QualityPage } from "../src/ui/quality-page.js";
+import { groupIssues } from "../src/ui/quality-layout.js";
 import { renderDistCompare } from "../src/ui/dist-compare.js";
 import { openFixPreview } from "../src/ui/fix-preview-dialog.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
@@ -228,22 +230,36 @@ function input(metas: ColumnMeta[], issues: PageIssue[], extra: Record<string, u
   };
 }
 
-test("Fix top 3 applies via the callback, lists the fix under Fixed this session and undo restores it", async () => {
+test("the report's main button goes to the Clean page", () => {
+  const metas = messy();
+  const score = computeDQScore(metas, stats(400), 400);
+  const issues = buildIssues({ score, metas, rowCount: 400, review: [], sensitiveColumns: new Set() });
+  let opened = 0;
+  const { host, quality } = page({ onOpenClean: () => { opened++; } });
+  quality.render(input(metas, issues) as never);
+  const primary = host.querySelector(".qp-hero-actions .primary") as unknown as HTMLButtonElement;
+  assert.match(primary.textContent ?? "", /^Clean \d+ issues?$/);
+  primary.click();
+  assert.equal(opened, 1);
+  assert.equal(host.querySelector(".issue-card, .qp-group"), null, "the issues live on the Clean page");
+});
+
+test("Fix all safe on the Clean page applies via the callback, lists the fix under Fixed this session and undo restores it", async () => {
   const metas = messy();
   const score = computeDQScore(metas, stats(400), 400);
   const issues = buildIssues({ score, metas, rowCount: 400, review: [], sensitiveColumns: new Set() });
   let undone = 0;
   const seen: string[][] = [];
   const { host, quality } = page({
+    mode: "clean",
     onFixIssues: async (picked) => {
       seen.push(picked.map((issue) => issue.id));
       return { items: picked.map((issue) => ({ id: issue.id, undo: () => { undone++; } })) };
     },
   });
   quality.render(input(metas, issues) as never);
-  const primary = host.querySelector(".qp-hero-actions .primary") as unknown as HTMLButtonElement;
-  assert.equal(primary.disabled, false);
-  assert.match(primary.textContent ?? "", /Fix top 3 issues/);
+  const primary = host.querySelector("[data-qp='fix-all-safe']") as unknown as HTMLButtonElement;
+  assert.match(primary.textContent ?? "", /Fix all safe \(1\)/);
   primary.click();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(seen, [["variants.1"]]);
@@ -267,7 +283,7 @@ test("tabs follow the ARIA pattern and arrow keys move between them", () => {
   assert.equal(tabs.filter((tab) => tab.getAttribute("aria-selected") === "true").length, 1);
   assert.equal(tabs[0].getAttribute("tabindex"), "0");
   assert.equal(tabs[1].getAttribute("tabindex"), "-1");
-  assert.equal(host.querySelector("[role='tabpanel']")?.getAttribute("aria-labelledby"), "qp-tab-issues");
+  assert.equal(host.querySelector("[role='tabpanel']")?.getAttribute("aria-labelledby"), "qp-tab-columns");
   const KeyboardEventCtor = (globalThis as unknown as { window: Window }).window.KeyboardEvent;
   tabs[0].dispatchEvent(new KeyboardEventCtor("keydown", { key: "ArrowRight", bubbles: true }) as unknown as Event);
   const after = [...host.querySelectorAll("[role='tab']")] as unknown as HTMLButtonElement[];
@@ -277,14 +293,18 @@ test("tabs follow the ARIA pattern and arrow keys move between them", () => {
 test("clean data shows a calm empty state with a link to every check", () => {
   const column = ColumnData.create("id", rows(300, (i) => String(i)));
   const metas = [metaOf(column)];
-  const { host, quality } = page();
+  const clean = page({ mode: "clean" });
+  clean.quality.render(input(metas, []) as never);
+  assert.match(clean.host.querySelector(".qp-empty-state")?.textContent ?? "", /No issues found across \d+ checks/);
+  assert.match(clean.host.querySelector(".cl-sub")?.textContent ?? "", /Nothing left to fix or review/);
+  assert.equal(clean.host.querySelector("[data-qp='fix-all-safe']"), null);
+  const { host, quality } = page({ onOpenClean: () => undefined });
   quality.render(input(metas, []) as never);
-  assert.match(host.querySelector(".qp-empty-state")?.textContent ?? "", /No issues found across \d+ checks/);
   const tiles = [...host.querySelectorAll(".qp-tile-value")].map((node) => node.textContent);
   assert.equal(tiles[0], "0");
   assert.equal(tiles[1], "0");
   const primary = host.querySelector(".qp-hero-actions .primary") as unknown as HTMLButtonElement;
-  assert.equal(primary.disabled, true);
+  assert.equal(primary.textContent, "Open Clean");
 });
 
 test("issues are grouped by the kind of work, each group a card that opens; the strip collapses after two rows of nine", () => {
@@ -295,14 +315,19 @@ test("issues are grouped by the kind of work, each group a card that opens; the 
     title: `Issue ${i}`, evidence: "evidence", impact: null, points: kind === "variants" ? 1 : null, examples: [], dist: null,
     fixes: [], fixLabel: null, batchSafe: false, rows: 10 - i,
   }));
-  const { host, quality } = page();
+  // The report opens on its Columns tab, every column listed.
+  const report = page();
+  report.quality.render(input(metas, issues) as never);
+  assert.equal(report.host.querySelectorAll(".qp-col").length, 30);
+  assert.equal(report.host.querySelector(".qp-strip-toggle"), null);
+  const { host, quality } = page({ mode: "clean" });
   quality.render(input(metas, issues) as never);
   const groups = [...host.querySelectorAll(".qp-group")].map((node) => node.getAttribute("data-group"));
   // The groups with something to fix first (by rows), then review, then info.
   assert.deepEqual(groups, ["standardise", "junk", "duplicates", "empty", "review"]);
   assert.equal(host.querySelectorAll(".issue-card").length, 0, "every group starts closed");
   const empty = host.querySelector(".qp-group[data-group='empty']")!;
-  assert.match(empty.textContent ?? "", /Empty cells3/);
+  assert.match(empty.textContent ?? "", /Fill the gaps3/);
   assert.match(empty.textContent ?? "", /3 to review/);
   (empty.querySelector(".qp-group-head") as unknown as HTMLButtonElement).click();
   assert.equal(host.querySelectorAll(".issue-card").length, 3);
@@ -311,9 +336,6 @@ test("issues are grouped by the kind of work, each group a card that opens; the 
   assert.equal(host.querySelectorAll(".issue-card").length, 8);
   (host.querySelector(".qp-expand-all") as unknown as HTMLButtonElement).click();
   assert.equal(host.querySelectorAll(".issue-card").length, 0);
-  assert.equal(host.querySelectorAll(".qp-col").length, 18);
-  (host.querySelector(".qp-strip-toggle") as unknown as HTMLButtonElement).click();
-  assert.equal(host.querySelectorAll(".qp-col").length, 30);
 });
 
 test("the rows-affected tile reads N of TOTAL with a percentage and filters on click", () => {
@@ -340,4 +362,37 @@ test("no raw masks, internal ids or undefined appear in the visible text", () =>
   assert.ok(!/undefined|NaN/.test(text));
   assert.ok(!/\bA A\b|\b9-9\b|\bA9\b/.test(text), "no raw character masks");
   assert.ok(!/variants\.\d|consistency\.|validity\./.test(text), "no internal check ids");
+});
+
+test("points are exact: with no checks passed the score is unchanged, and fixing a group adds what re-scoring gives", () => {
+  const metas = messy();
+  const score = computeDQScore(metas, stats(400), 400);
+  assert.ok(score.overall !== null);
+  assert.ok(Math.abs((overallIfPassed(score, new Set()) ?? 0) - score.overall) < 1e-9);
+  const issues = buildIssues({ score, metas, rowCount: 400, review: [], sensitiveColumns: new Set() });
+  const ids = new Set(issues.flatMap((issue) => (issue.check === undefined ? [] : [issue.check.id])));
+  const gain = pointsIfPassed(score, ids);
+  assert.ok(gain > 0);
+  assert.ok(Math.abs(score.overall + gain - (overallIfPassed(score, ids) ?? 0)) < 1e-9);
+  assert.equal(pointsIfPassed(score, new Set()), 0);
+});
+
+test("the Clean page sets the score against the raw load and counts the kinds of work cleaned", () => {
+  const metas = messy();
+  const score = computeDQScore(metas, stats(400), 400);
+  const issues = buildIssues({ score, metas, rowCount: 400, review: [], sensitiveColumns: new Set() });
+  const present = groupIssues(issues.filter((issue) => issue.severity !== "info")).map((entry) => entry.group.id);
+  assert.ok(present.length > 0);
+  const baseline = captureBaseline({ score, metas, rowCount: 400, rowsAffected: 80, duplicateRows: 0, groups: [...present, "duplicates", "dates"], issues: issues.length });
+  assert.equal(baseline.columns.length, metas.length);
+  assert.equal(baseline.emptyCells, metas.reduce((sum, meta) => sum + meta.stats.nulls, 0));
+  const { host, quality } = page({ mode: "clean", onOpenReport: () => undefined });
+  quality.render(input(metas, issues, { baseline: { ...baseline, overall: (score.overall ?? 0) - 5 } }) as never);
+  assert.match(host.querySelector(".cl-score-facts")?.textContent ?? "", /Raw load \d+\.\d/);
+  assert.match(host.querySelector(".cl-legend")?.textContent ?? "", /Gained by cleaning \+5\.0/);
+  // Duplicates and dates were found at load and are no longer on the page: two kinds of work done.
+  assert.equal(host.querySelector(".cl-progress-text")?.textContent, `2 of ${present.length + 2} kinds of work cleaned`);
+  assert.equal(host.querySelectorAll(".cl-dots i.done").length, 2);
+  assert.match(host.querySelector(".cl-next")?.textContent ?? "", /Biggest win next/);
+  assert.ok(host.querySelector(".cl-bar")?.getAttribute("aria-label")?.startsWith("Score "));
 });

@@ -2,6 +2,7 @@ import { el, svgIcon } from "./dom.js";
 
 export type ViewId =
   | "overview"
+  | "clean"
   | "quality"
   | "table"
   | "views"
@@ -12,7 +13,7 @@ export type ViewId =
   | "map";
 
 /** The everyday lenses. */
-const EVERYDAY_VIEWS: readonly ViewId[] = ["table", "overview", "quality", "views", "chart"];
+const EVERYDAY_VIEWS: readonly ViewId[] = ["table", "overview", "clean", "quality", "views", "chart"];
 
 /** The deeper research tools, always on the tab bar, set apart after a thin green divider. */
 export const RESEARCH_VIEWS: readonly ViewId[] = ["timeseries", "map", "outliers", "relationships"];
@@ -21,7 +22,7 @@ export const VIEW_ORDER: readonly ViewId[] = [...EVERYDAY_VIEWS, ...RESEARCH_VIE
 
 /** Hint text derived from the tabs actually available, not a hardcoded range. */
 export function viewSwitchHint(count = VIEW_ORDER.length): string {
-  return `switch anytime with 1–${count}`;
+  return `switch anytime with 1–${count >= 10 ? "9 and 0" : count}`;
 }
 
 const LABELS: Record<ViewId, { label: string; title: string }> = {
@@ -29,9 +30,13 @@ const LABELS: Record<ViewId, { label: string; title: string }> = {
     label: "Overview",
     title: "What this file is and what to do next",
   },
+  clean: {
+    label: "Clean",
+    title: "Fix the data: junk values, gaps, duplicates, spellings and dates, with the points each fix adds",
+  },
   quality: {
-    label: "Data Quality",
-    title: "The data-quality dashboard — score, checks, columns and fixes",
+    label: "Data Quality Report",
+    title: "The data-quality report — the raw load against the cleaned data, columns, checks and exports",
   },
   table: { label: "Table", title: "Show the row table" },
   views: {
@@ -60,6 +65,7 @@ const LABELS: Record<ViewId, { label: string; title: string }> = {
 /** Stroke icons (24x24 box) so nine tabs fit; the name shows on the active tab and on hover or focus. */
 const ICONS: Record<ViewId, string> = {
   overview: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  clean: '<path d="M4 20L14 10"/><path d="M16 3v3M16 12v3M19.5 7.5H22M10 7.5h2.5M18.5 5l1.5-1.5M18.5 10l1.5 1.5"/>',
   quality: '<path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',
   table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>',
   views: '<path d="M4 7h13l-3-3"/><path d="M20 17H7l3 3"/>',
@@ -106,7 +112,7 @@ export class ViewTabs {
           // The four deeper tools say so on hover, alongside the lane's own "Research tools" label.
           title: RESEARCH_VIEWS.includes(id) ? `Research · ${LABELS[id].title}` : LABELS[id].title,
         },
-        [el("span", { class: "view-tab-key", "data-key": String(VIEW_ORDER.indexOf(id) + 1) }), svgIcon(ICONS[id], "view-tab-icon"), el("span", { class: "view-tab-label" }, [LABELS[id].label])],
+        [el("span", { class: "view-tab-key", "data-key": String((VIEW_ORDER.indexOf(id) + 1) % 10) }), svgIcon(ICONS[id], "view-tab-icon"), el("span", { class: "view-tab-label" }, [LABELS[id].label])],
       ) as HTMLButtonElement;
       button.addEventListener("click", () => this.select(id));
       this.buttons.set(id, button);
@@ -148,7 +154,7 @@ export class ViewTabs {
     });
   }
 
-  /** The tabs, in order; number keys 1–9 map onto these. */
+  /** The tabs, in order; number keys 1–9, then 0, map onto these. */
   visibleViews(): readonly ViewId[] {
     return VIEW_ORDER;
   }
