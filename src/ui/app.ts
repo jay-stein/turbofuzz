@@ -21,6 +21,7 @@ import { openHeaderRowDialog } from "./header-row-dialog.js";
 import { bufferLayoutSource, checkLayoutBeforeLoad, type LayoutCheckSource } from "./layout-check.js";
 import { LoadCard } from "./load-card.js";
 import { QaNudge } from "./qa-nudge.js";
+import { buildClearFiltersButton } from "./clear-filters.js";
 import { openProtectDialog, type ProtectMode } from "./protect-dialog.js";
 import { openFixPreview } from "./fix-preview-dialog.js";
 import { fixReportText, planFixes, runFixPlan, type PlannedFix } from "./fix-apply.js";
@@ -869,6 +870,7 @@ export class App {
   /** How the Filters pane was before the Pivot View minimised it; null once set by hand. */
   private filtersBeforePivot: boolean | null = null;
   private filterChipsEl!: HTMLElement;
+  private readonly clearFiltersButton = buildClearFiltersButton(() => this.clearFilters());
   private addFilterButton!: HTMLButtonElement;
   private latestFacets: Record<number, number[]> = {};
   private latestHistograms: Record<number, number[]> = {};
@@ -1636,6 +1638,7 @@ export class App {
 
     resultsRow.append(
       this.countEl,
+      this.clearFiltersButton,
       this.filtersShowButton,
       this.filterChipsEl,
       this.addFilterButton,
@@ -7138,6 +7141,7 @@ export class App {
 
   private updateCount(count: number, queryMs: number): void {
     this.resultCount = count;
+    this.clearFiltersButton.classList.toggle("hidden", !this.filtersActive() && this.rowLimit === null);
     // Every new row set can come with a new order (a filter ends a shuffle).
     this.refreshTableOrder();
     this.table?.refreshViewport();

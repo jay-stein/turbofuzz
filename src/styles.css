@@ -2133,6 +2133,38 @@ textarea:focus {
   line-height: 1;
 }
 
+/* Shown only while rows are narrowed: the one obvious way back to every row. */
+.clear-filters-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 3px 10px 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.clear-filters-btn:hover {
+  background: color-mix(in srgb, var(--accent) 26%, var(--panel));
+  border-color: var(--accent);
+}
+
+.clear-filters-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--accent);
+}
+
+.clear-filters-btn.hidden {
+  display: none;
+}
+
 .filter-chips {
   display: inline-flex;
   align-items: center;
