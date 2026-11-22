@@ -6740,7 +6740,7 @@ export class App {
         kind: "nulls",
         label:
           placeholderTotal > 0
-            ? `View placeholders · ${placeholderTotal.toLocaleString()}`
+            ? `View empty cells and junk text · ${placeholderTotal.toLocaleString()}`
             : `View empty cells · ${columnsWithNulls.length.toLocaleString()} ${columnsWithNulls.length === 1 ? "col" : "cols"}`,
         title:
           placeholderTotal > 0

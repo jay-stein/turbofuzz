@@ -3426,7 +3426,7 @@ test("chart data issues expose filter, rows and scoped fixes", async () => {
   const bar = host.querySelector(".chart-data-issues") as HTMLElement;
   assert.ok(bar !== null);
   assert.match(bar.textContent ?? "", /3 missing/);
-  assert.match(bar.textContent ?? "", /2 placeholders/);
+  assert.match(bar.textContent ?? "", /2 junk text/);
   assert.match(bar.textContent ?? "", /TBC/);
   const chips = [...bar.querySelectorAll(".chart-issue-chip")] as HTMLButtonElement[];
   assert.ok(chips.some((chip) => /^Filter:/.test(chip.textContent ?? "")));

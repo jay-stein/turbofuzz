@@ -390,14 +390,14 @@ test("placeholder tokens get a header chip that blanks them in one column", () =
     title: string;
     click(): void;
   };
-  assert.equal(chip.textContent, "Fix: Blank 9 placeholders");
+  assert.equal(chip.textContent, "Fix: Blank 9 junk text cells");
   assert.match(chip.title, /12 cells in “amount” are missing/);
-  assert.match(chip.title, /3 blank \+ 9 placeholder text/);
-  assert.match(chip.title, /blank the placeholder text “NA”, “TBD”/);
+  assert.match(chip.title, /3 blank \+ 9 junk text/);
+  assert.match(chip.title, /blank the junk text “NA”, “TBD”/);
   assert.doesNotMatch(chip.title, /“”/);
   assert.equal(
     host.querySelector(".th-qa-chip.warn")?.textContent,
-    "View placeholders · 12",
+    "View empty cells and junk text · 12",
     "the missing cells can still be viewed",
   );
   chip.click();
@@ -418,8 +418,8 @@ test("the one header chip says what is wrong and its menu runs the fix", () => {
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
   const items = [...doc.querySelectorAll(".context-menu .context-item")] as unknown as { textContent: string; click(): void }[];
   const labels = items.map((item) => item.textContent);
-  assert.ok(labels.some((label) => label.startsWith("View placeholders")), "the rows can be shown");
-  const fix = items.find((item) => item.textContent === "Fix: Blank 9 placeholders");
+  assert.ok(labels.some((label) => label.startsWith("View empty cells and junk text")), "the rows can be shown");
+  const fix = items.find((item) => item.textContent === "Fix: Blank 9 junk text cells");
   assert.ok(fix !== undefined, "the fix is in the menu");
   fix.click();
   assert.deepEqual(converts, [{ column: 0, tokens: ["NA"] }]);

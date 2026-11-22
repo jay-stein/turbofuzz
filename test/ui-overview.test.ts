@@ -459,7 +459,7 @@ test("placeholder null tokens surface a one-click convert step", () => {
   const steps = pickNextSteps(columns, stats({ rowsWithNulls: 45 }), 100);
   const convert = steps.find((step) => step.id === "nullTokens");
   assert.ok(convert !== undefined);
-  assert.equal(convert.text, "35 cells hold placeholder text like “NA”, “TBD”");
+  assert.equal(convert.text, "35 cells hold junk text like “NA”, “TBD”");
   assert.equal(convert.button, "Convert to nulls");
   assert.deepEqual(convert.action, { kind: "blankTokens", tokens: ["NA", "TBD"] });
   assert.ok(!steps.some((step) => step.id === "empties"), "the review card is replaced");
