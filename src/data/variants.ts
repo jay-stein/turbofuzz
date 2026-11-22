@@ -10,6 +10,8 @@ export interface LooseVariants {
   rows: number;
   /** True when a long state name was matched to its code through a bundled list. */
   longForm: boolean;
+  /** True when company names were matched by their legal ending (Pty Ltd, Proprietary Limited). */
+  companyForm?: boolean;
   mappings: { from: string; to: string; count: number }[];
   groups: { spellings: { value: string; count: number }[] }[];
 }
@@ -67,19 +69,73 @@ function strictKeys(labels: readonly string[]): string[] {
   return yesNo ? keys.map((key) => (key === "" ? key : TRUTHY.has(key) ? "yes" : "no")) : keys;
 }
 
+/** Why two spellings share a loose key: only dots, a state's long name, or a company ending. */
+type LooseHow = "dots" | "state" | "company";
+
 /**
  * The looser key for forms that are probably, not certainly, one value: dots
- * dropped (N.S.W. and NSW), and a state's long name read as its code when the column
- * is named like a state and mostly holds names from that bundled list. Values with
- * digits keep their dots (1.0 is not 10).
+ * dropped (N.S.W. and NSW), a state's long name read as its code when the column
+ * is named like a state and mostly holds names from that bundled list, and a company's
+ * legal ending written one way (Pty Ltd, Proprietary Limited, P/L) when the column holds
+ * company names. Values with digits keep their dots (1.0 is not 10).
  */
-function looseKeyer(strict: readonly string[], columnName: string): (key: string) => string {
+function looseKeyer(strict: readonly string[], columnName: string): (key: string) => { loose: string; how: LooseHow } {
   const undotted = (key: string): string => (/\d/.test(key) ? key : key.replace(/\.(?!\s)/g, "").replace(/\.\s+/g, " ").trim());
-  const forms = stateFormsFor(strict.map(undotted).filter((key) => key !== ""), columnName);
+  const plain = strict.map(undotted).filter((key) => key !== "");
+  const forms = stateFormsFor(plain, columnName);
+  const companies = looksLikeCompanies(plain, columnName);
   return (key) => {
-    const plain = undotted(key);
-    return forms?.get(plain) ?? plain;
+    const value = undotted(key);
+    const state = forms?.get(value);
+    if (state !== undefined) return { loose: state, how: "state" };
+    if (companies) {
+      const company = companyKey(value);
+      if (company !== value) return { loose: company, how: "company" };
+    }
+    return { loose: value, how: "dots" };
   };
+}
+
+/**
+ * A company's legal ending, one way: "Proprietary Limited", "Pty Limited" and "P/L" read as
+ * "pty ltd", "Limited" as "ltd", "Incorporated" as "inc", "Corporation" as "corp", "Company"
+ * as "co", "&" as "and", and commas dropped. Only the ending is rewritten, never dropped:
+ * "Acme" and "Acme Pty Ltd" may be different legal entities, so they stay apart.
+ * Takes a key already lower-cased with its dots removed.
+ */
+export function companyKey(key: string): string {
+  let out = key.replace(/,/g, " ").replace(/\s*&\s*/g, " and ").replace(/\s+/g, " ").trim();
+  for (const [pattern, to] of COMPANY_ENDINGS) out = out.replace(pattern, to);
+  return out;
+}
+
+const COMPANY_ENDINGS: readonly (readonly [RegExp, string])[] = [
+  [/\b(?:proprietary|pty) (?:limited|ltd)$/, "pty ltd"],
+  [/ p\/l$/, " pty ltd"],
+  [/\bprivate limited$/, "pte ltd"],
+  [/\blimited$/, "ltd"],
+  [/\bincorporated$/, "inc"],
+  [/\bcorporation$/, "corp"],
+  [/\bcompany$/, "co"],
+];
+
+/** A legal ending once written one way. */
+const COMPANY_ENDING = /\s(?:pty ltd|pte ltd|ltd|inc|corp|co|llc|llp|lp|plc|gmbh|ag|bv|nv)$/;
+
+/** Named like a column of organisations. */
+const COMPANY_COLUMN = /compan|business|employer|vendor|supplier|merchant|firm|organi[sz]ation|entity|payee|insurer|manufacturer|contractor|lender|bank|brand/i;
+
+/**
+ * True when a column holds company names: at least three values and a fifth of them end in a
+ * legal ending, or it is named like one (supplier, employer…) and at least two do. Anything
+ * else (people, places) is left alone, where "Co" or "Inc" may mean something else.
+ */
+function looksLikeCompanies(keys: readonly string[], columnName: string): boolean {
+  const distinct = new Set(keys);
+  let ending = 0;
+  for (const key of distinct) if (COMPANY_ENDING.test(companyKey(key))) ending++;
+  if (COMPANY_COLUMN.test(columnName)) return ending >= 2;
+  return ending >= 3 && ending / Math.max(1, distinct.size) >= 0.2;
 }
 
 /** Long state name -> its code (both as keys), from the list that recognises most of the column. */
@@ -150,29 +206,32 @@ export function spellingVariants(
 
 /**
  * Groups of certain spellings that share a loose key (N.S.W. and NSW, New South Wales
- * and NSW). Each maps to the most used group's standard spelling. Null when none.
+ * and NSW, Acme Pty Ltd and Acme Proprietary Limited). Each maps to the most used group's
+ * standard spelling. Null when none.
  */
-function looseVariants(byKey: ReadonlyMap<string, Spelling[]>, looseKey: (key: string) => string): LooseVariants | null {
-  const byLoose = new Map<string, { key: string; total: number; spellings: Spelling[] }[]>();
+function looseVariants(byKey: ReadonlyMap<string, Spelling[]>, looseKey: (key: string) => { loose: string; how: LooseHow }): LooseVariants | null {
+  const byLoose = new Map<string, { key: string; how: LooseHow; total: number; spellings: Spelling[] }[]>();
   for (const [key, spellings] of byKey) {
-    const loose = looseKey(key);
+    const { loose, how } = looseKey(key);
     if (loose === "") continue;
-    const entry = { key, total: spellings.reduce((sum, s) => sum + s.count, 0), spellings };
+    const entry = { key, how, total: spellings.reduce((sum, s) => sum + s.count, 0), spellings };
     const list = byLoose.get(loose);
     if (list === undefined) byLoose.set(loose, [entry]);
     else list.push(entry);
   }
   let rows = 0;
   let longForm = false;
+  let companyForm = false;
   const mappings: { from: string; to: string; count: number }[] = [];
   const examples: { minority: number; spellings: Spelling[] }[] = [];
   for (const [loose, list] of byLoose) {
     if (list.length < 2) continue;
     list.sort((a, b) => b.total - a.total || byCommon(a.spellings[0]!, b.spellings[0]!));
     const standard = list[0]!.spellings[0]!.value.trim();
+    if (list.some((group) => group.how === "company")) companyForm = true;
     let minority = 0;
     for (const group of list.slice(1)) {
-      if (group.key.replace(/[.\s]/g, "") !== loose.replace(/\s/g, "")) longForm = true;
+      if (group.how !== "company" && list[0]!.how !== "company" && group.key.replace(/[.\s]/g, "") !== loose.replace(/\s/g, "")) longForm = true;
       for (const spelling of group.spellings) {
         minority += spelling.count;
         if (mappings.length < MAX_MAPPINGS) mappings.push({ from: spelling.value, to: standard, count: spelling.count });
@@ -186,6 +245,7 @@ function looseVariants(byKey: ReadonlyMap<string, Spelling[]>, looseKey: (key: s
   return {
     rows,
     longForm,
+    ...(companyForm ? { companyForm } : {}),
     mappings,
     groups: examples.slice(0, MAX_DETAIL_GROUPS).map(({ spellings }) => ({ spellings: spellings.slice(0, MAX_DETAIL_SPELLINGS) })),
   };

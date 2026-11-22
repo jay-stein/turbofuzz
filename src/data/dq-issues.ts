@@ -684,7 +684,11 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
       columnName: meta.name,
       title: `“${meta.name}” writes ${n(loose.mappings.length)} ${plural(loose.mappings.length, "value", "values")} in another form of a value it already has`,
       evidence: `${shown.slice(0, 4).map((m) => `“${showSpaces(m.from)}” ×${n(m.count)} → ${m.to}`).join(" · ")}. ${
-        loose.longForm ? "Long names were matched to their codes with the bundled state list" : "They differ only by dots"
+        loose.longForm
+          ? "Long names were matched to their codes with the bundled state list"
+          : loose.companyForm === true
+            ? "They differ only in how the company ending is written (Pty Ltd, Limited, Inc, & or and)"
+            : "They differ only by dots"
       }, so check before standardising`,
       impact: `${n(loose.rows)} ${plural(loose.rows, "row is", "rows are")} grouped apart from the standard form in pivots and charts`,
       points: null,
