@@ -51,12 +51,10 @@ const ROLE_WORD: Record<RecRole, string> = {
   text: "text",
 };
 
-/** Aggregation chip choices, in cycling order. */
-const AGG_CYCLE: readonly [ValueAgg, string][] = (["sum", "mean", "median", "min", "max"] as const).map(
+/** Aggregation choices on a field chip's menu. */
+const AGG_CHOICES: readonly [ValueAgg, string][] = (["sum", "mean", "median", "min", "max"] as const).map(
   (value): [ValueAgg, string] => [value, aggShort(value)],
 );
-
-const aggLabel = (agg: ValueAgg): string => AGG_CYCLE.find(([value]) => value === agg)?.[1] ?? agg;
 
 /**
  * The data-first "Add a chart" panel: pick a source, pick fields (or a quick
@@ -284,17 +282,18 @@ export class ChartAddPanel {
       const chip = el("span", { class: "chart-add-chip" }, [found.meta.name]);
       if (found.p.role === "measure" || found.p.canMeasure === true) {
         const current = agg ?? aggFor(found.meta.name);
-        const aggButton = el(
-          "button",
-          { class: "chart-add-agg", type: "button", "data-key": `agg-${index}`, title: "Change how this field is combined" },
-          [aggLabel(current)],
-        );
-        aggButton.addEventListener("click", () => {
-          const at = AGG_CYCLE.findIndex(([value]) => value === current);
-          this.picks.set(index, AGG_CYCLE[(at + 1) % AGG_CYCLE.length][0]);
+        // One small menu with every choice, not a button that steps through them a click at a time.
+        const aggSelect = el(
+          "select",
+          { class: "chart-add-agg", "data-key": `agg-${index}`, title: "How this field is combined", "aria-label": `How ${found.meta.name} is combined` },
+          AGG_CHOICES.map(([value, label]) => el("option", { value }, [label])),
+        ) as HTMLSelectElement;
+        aggSelect.value = current;
+        aggSelect.addEventListener("change", () => {
+          this.picks.set(index, aggSelect.value as ValueAgg);
           this.render(`[data-key="agg-${index}"]`);
         });
-        chip.append(aggButton);
+        chip.append(aggSelect);
       }
       shelf.append(chip);
     }

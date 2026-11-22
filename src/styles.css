@@ -19320,3 +19320,11 @@ mark.cmp-ch {
 .chart-headline .chart-summary {
   cursor: text;
 }
+
+/* A field chip's aggregation: one small menu. */
+select.chart-add-agg {
+  margin-left: 6px;
+  min-height: 22px;
+  padding: 0 2px 0 4px;
+  font-size: var(--fs-xs);
+}
