@@ -16,6 +16,7 @@ import type { Frame } from "./chart-card-types.js";
 import { refAxisTop, setRefAxis, setRefX } from "./chart-ref-lines.js";
 import { barFill, markColor, markKey, markLabelled, openSeriesColours } from "./chart-mark-colors.js";
 import { RANKED_BARS_ABOVE, SPLIT_AXIS_LIMIT, GROUP_LINE_LIMIT, KDE_SIGMA_BINS } from "./chart-card-types.js";
+import { disposePanels, drawPanelGrid, panelsOn } from "./chart-panels.js";
 
 /** Wrapped message drawn inside the empty plot area. */
 export function drawPlotMessage(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, message: string): void {
@@ -145,12 +146,14 @@ export function drawChart(card: ChartCard, ctx: CanvasRenderingContext2D, width:
   const ui = card.textScale(height, forExport);
   const labels = card.axisLabels();
   card.plotHasHeadline = card.options.docked === true && !forExport;
+  // A small-multiples panel: the grid names the axes once, not every panel.
+  const panel = card.panelUi !== null;
   const hasXTitle =
-    (labels.x ?? "") !== "" || (card.config.xTitle?.trim() ?? "") !== "";
+    !panel && ((labels.x ?? "") !== "" || (card.config.xTitle?.trim() ?? "") !== "");
   const hasYTitle =
-    (labels.y ?? "") !== "" ||
+    !panel && ((labels.y ?? "") !== "" ||
     (card.config.yTitle?.trim() ?? "") !== "" ||
-    (card.config.yUnit?.trim() ?? "") !== "";
+    (card.config.yUnit?.trim() ?? "") !== "");
   const frame = card.frame(
     ctx,
     width,
@@ -173,7 +176,11 @@ export function drawChart(card: ChartCard, ctx: CanvasRenderingContext2D, width:
   const ownTitle = card.config.title.trim();
   const genericAggregate =
     ownTitle === "" && card.options.docked !== true && card.usesAggregate() && card.config.kind !== "pivotHeatmap" && card.config.kind !== "kpi";
-  if (card.plotHasHeadline) {
+  if (panel) {
+    card.font(ctx, frame.ui, 12, "600");
+    ctx.fillStyle = frame.text;
+    ctx.fillText(card.fit(ctx, card.panelTitle, width - 8 * frame.ui), 4 * frame.ui, 14 * frame.ui);
+  } else if (card.plotHasHeadline) {
     // One line above the plot says what this is; a title typed by the person is shown on it too.
     if (ownTitle !== "" && card.options.titleOutside !== true) {
       card.font(ctx, frame.ui, 13, "600");
@@ -186,7 +193,13 @@ export function drawChart(card: ChartCard, ctx: CanvasRenderingContext2D, width:
     ctx.fillStyle = frame.text;
     ctx.fillText(card.fit(ctx, title, width - frame.left - frame.right), frame.left, 22 * frame.ui);
   }
-  if (!card.plotHasHeadline) {
+  if (panelsOn(card)) {
+    const top = (card.plotHasHeadline ? (ownTitle !== "" && card.options.titleOutside !== true ? 24 : 4) : 48) * frame.ui;
+    drawPanelGrid(card, ctx, frame, width, height, top);
+    return;
+  }
+  if (card.panelUi === null) disposePanels(card);
+  if (!card.plotHasHeadline && !panel) {
     card.font(ctx, frame.ui, genericAggregate ? 12 : 11);
     ctx.fillStyle = frame.dim;
     ctx.fillText(
@@ -253,7 +266,7 @@ export function drawChart(card: ChartCard, ctx: CanvasRenderingContext2D, width:
       break;
   }
 
-  if (!card.plotMessageDrawn) {
+  if (!card.plotMessageDrawn && !panel) {
     card.drawAxisTitles(ctx, frame, labels.x, labels.y);
   }
 
@@ -725,7 +738,8 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
     card.drawKpi(ctx, frame, result, values);
     return;
   }
-  if (result.dimensionIsTime[0] !== true && result.groupCount > RANKED_BARS_ABOVE) {
+  // A small-multiples panel takes the whole chart's layout, so every panel draws its bars the same way.
+  if (result.dimensionIsTime[0] !== true && (card.panelOrder?.size ?? result.groupCount) > RANKED_BARS_ABOVE) {
     card.drawRankedBars(ctx, frame, result, values);
     return;
   }

@@ -369,6 +369,8 @@ export type GetChartBinsRequest = {
   column: number;
   options: ChartBinOptions;
   chartExclude?: ChartExclusion[];
+  /** Only rows with this category (one small-multiple panel). */
+  chartFilter?: { column: number; code: number };
 };
 
 export interface ChartBinsMessage extends ChartBins {
@@ -387,6 +389,7 @@ export type GetGroupedBinsRequest = {
   options: ChartBinOptions;
   topN: number;
   chartExclude?: ChartExclusion[];
+  chartFilter?: { column: number; code: number };
 };
 
 export interface GroupedBinsMessage {

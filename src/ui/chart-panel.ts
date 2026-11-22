@@ -65,6 +65,7 @@ export interface ChartsPanelOptions {
     column: number,
     options: ChartBinOptions,
     exclude?: ChartExclusion[],
+    filter?: { column: number; code: number },
   ): Promise<ChartBinsMessage>;
   requestSeries(input: SeriesRequestInput): Promise<ChartSeriesMessage>;
   /** Value lists for groupable non-category columns, fetched only when charts need them. */
@@ -104,6 +105,7 @@ export interface ChartsPanelOptions {
     options: ChartBinOptions;
     topN: number;
     chartExclude?: ChartExclusion[];
+    chartFilter?: { column: number; code: number };
   }): Promise<GroupedBinsMessage>;
   /** Aggregate result for a view-bound card (null when the view is gone). */
   requestViewAggregate?(source: string, shape?: PivotChartShape): Promise<AggregateMessage | null>;

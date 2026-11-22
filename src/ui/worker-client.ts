@@ -371,12 +371,14 @@ export class SearchWorkerClient {
     column: number,
     options: ChartBinOptions,
     chartExclude?: ChartExclusion[],
+    chartFilter?: { column: number; code: number },
   ): Promise<ChartBinsMessage> {
     return this.request<ChartBinsMessage>({
       type: "getChartBins",
       column,
       options,
       ...(chartExclude === undefined ? {} : { chartExclude }),
+      ...(chartFilter === undefined ? {} : { chartFilter }),
     });
   }
 
@@ -386,6 +388,7 @@ export class SearchWorkerClient {
     options: ChartBinOptions;
     topN: number;
     chartExclude?: ChartExclusion[];
+    chartFilter?: { column: number; code: number };
   }): Promise<GroupedBinsMessage> {
     return this.request<GroupedBinsMessage>({ type: "getGroupedBins", ...input });
   }

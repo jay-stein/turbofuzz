@@ -15,6 +15,7 @@ import { openPrompt } from "./dialog.js";
 import type { ChartCard } from "./chart-card.js";
 import type { ChartCardConfig } from "./chart-card-types.js";
 import { MAX_VALUES, SHORT_PALETTES, MORE_PALETTES } from "./chart-card-types.js";
+import { panelsSupported } from "./chart-panels.js";
 
 /**
  * The settings panel in three parts. What every chart needs stays in view: its type, its fields
@@ -839,8 +840,8 @@ export function renderControls(card: ChartCard): void {
   card.regions?.setLanding(card.regionsOn());
   card.syncRegionAxes();
   card.colorWrap.classList.toggle("hidden", (!seriesKind && !mapKind) || card.regionsOn());
-  // Panels split a scatter's dots; a density grid or a map has no small multiples (yet).
-  card.facetWrap.classList.toggle("hidden", card.config.kind !== "scatter" || card.config.mode === "density");
+  // Panels (small multiples) work for the chart types in chart-panels.ts; a map or a matrix fills the whole plot.
+  card.facetWrap.classList.toggle("hidden", !panelsSupported(card));
   card.sizeTagLabel.textContent =
     mapKind && card.config.mapMode === "heat" ? "Measure" : "Size";
   card.sizeWrap.classList.toggle(

@@ -1715,19 +1715,30 @@ function handleGetChartBins(message: GetChartBinsRequest): void {
   const { dataset } = state();
   const column = dataset.columns[message.column];
   if (column === undefined) throw new Error("Unknown column");
-  const bins = binValues(
-    column.numbers(),
-    keepRows(sortedIds, message.chartExclude, dataset.columns),
-    message.options,
-  );
+  const ids = chartScopedIds(undefined, message.chartFilter, message.chartExclude);
+  const bins = binValues(column.numbers(), ids, message.options);
   const numeric = isNumericLikeType(column.type);
   post({
     type: "chartBins",
     requestId: message.requestId,
     column: message.column,
-    median: numeric ? column.medianSampled() : null,
+    // One small-multiples panel marks its own rows' median, not the whole column's.
+    median: !numeric ? null : message.chartFilter === undefined ? column.medianSampled() : medianOf(column.numbers(), ids),
     ...bins,
   });
+}
+
+/** Median of the finite values at these rows (null when there are none). */
+function medianOf(values: Float64Array, ids: Uint32Array): number | null {
+  const kept: number[] = [];
+  for (const id of ids) {
+    const value = values[id]!;
+    if (Number.isFinite(value)) kept.push(value);
+  }
+  if (kept.length === 0) return null;
+  kept.sort((a, b) => a - b);
+  const mid = kept.length >> 1;
+  return kept.length % 2 === 1 ? kept[mid]! : (kept[mid - 1]! + kept[mid]!) / 2;
 }
 
 /** Downsampled null map of the working table for the Overview heatmap. */
@@ -1767,7 +1778,7 @@ function handleGetGroupedBins(message: GetGroupedBinsRequest): void {
     column.numbers(),
     codes,
     categories.labels.length,
-    keepRows(sortedIds, message.chartExclude, dataset.columns),
+    chartScopedIds(undefined, message.chartFilter, message.chartExclude),
     message.options,
     message.topN,
   );

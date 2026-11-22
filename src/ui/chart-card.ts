@@ -6,6 +6,7 @@ import { groupSettings, dock, fieldSlots, toggleSidebar, bindSettingsDismiss, re
 import { importChartSpecFile, exportPng, openStats, chartExtract, drawnBins, histogramExtract, exportCsv, chartCsvRows, gridCsvRows, syncDeepDive, openCardMenu, toggleFocus, closeFocus, openExportMenu, downloadChartSpec, downloadChartCode, downloadBlob } from "./chart-card-export.js";
 import { openKindPicker, selectRegion, drawSelection, queuePointer, showTooltipAtPointer, emitHighlight, setLinkedHighlight, cancelSliceFetch, sliceRegions, sliceEntries, scheduleSliceFetch, scheduleSlicePoints, drawSlicePoints, drawLinkedOverlay, drawSliceShare, handleCanvasClick, finishBrush, timeSlotBrush, drawBrushOverlay, onWheel, withoutExcludedBins, syncExclusions, handleCanvasContextMenu, dataPointAt, openExclusionMenu, excludeFromTable, applyHitAction } from "./chart-interaction.js";
 import { allCategoryBars, refreshSeries, refreshTreemap, drawTreemap, refreshText, drawTerms, refreshBox, refreshGroupedBins, widestYLabel, fillTopRounded, drawKpi, drawExtraKind, axisLabels, drawAxisTitles, drawBars, drawAxes, drawBox } from "./chart-draw-bars.js";
+import { disposePanels } from "./chart-panels.js";
 import { refreshCrosstab, refreshBubble, refreshCorrelation, drawBubble, bubbleFraction, drawBubbleGrid, drawScatterLike, pointSizes, colorBuckets, drawColorBar, colorNote, drawPoints, drawDensity, paintDensityHeat, paintDensityBands, paintContourLines, drawCorrelationNote, pivotHeatmapData, drawPivotHeatmap, drawHeatmap, drawCorrelation } from "./chart-draw-points.js";
 import { syncAnimationOptions, frameWidths, syncFrameOptions, refreshAnimation, animationBlock, setAnimationTime, toggleAnimationSetup, toggleAnimation, setAnimationSpeed, promptAnimationSpeed, playAnimation, stopAnimation, syncAnimationBar, renderAnimationFrames, exportAnimationGif, exportAnimationVideo, drawAnimatedHistogram, drawAnimatedTreemap, drawAnimatedDensity, drawAnimatedBars } from "./chart-draw-animated.js";
 import { drawReferenceLines, syncRefLines, type RefAxis } from "./chart-ref-lines.js";
@@ -124,6 +125,16 @@ export class ChartCard {
   seriesLabels: string[] | null = null;
   /** Panel names when a scatter is split into small multiples. */
   facetLabels: string[] | null = null;
+  /** Set on a panel copy (chart-panels.ts): its text scale, drawn small inside its card's grid. */
+  panelUi: number | null = null;
+  /** A panel copy's heading, drawn in place of the title and subtitle. */
+  panelTitle = "";
+  /** The value axis every panel shares (top for axes from zero, lo/hi otherwise). */
+  panelShared: { top?: number; lo?: number; hi?: number } | null = null;
+  /** What this panel's own data would put on that axis, read back after it draws. */
+  panelNatural: { top?: number; lo?: number; hi?: number } = {};
+  /** Bars in every panel follow the whole chart's order. */
+  panelOrder: Map<string, number> | null = null;
   seriesMs = 0;
   seriesCorrelation = Number.NaN;
   boxResult: BoxStatsResult | null = null;
@@ -584,6 +595,7 @@ export class ChartCard {
 
   dispose(): void {
     this.disposed = true;
+    disposePanels(this);
     this.dataDrawer.dispose();
     document.removeEventListener("keydown", this.onDrawerEscape);
     forgetSettingsDisclosure(this.settingsDisclosure);
@@ -1638,6 +1650,10 @@ export class ChartCard {
   }
 
   render(): void {
+    if (this.options.panelHost !== undefined) {
+      this.options.panelHost();
+      return;
+    }
     if (this.options.sectionedSettings === true) this.dataDrawer.schedule();
     this.options.onTitleChange?.(this);
     this.syncScope();
@@ -2003,6 +2019,7 @@ export class ChartCard {
    * ui never drops below 1.25; exports keep the reference height/540 scale.
    */
   textScale(height: number, forExport: boolean): number {
+    if (this.panelUi !== null) return this.panelUi;
     const scale = height / 540;
     return forExport ? Math.max(0.7, Math.min(2.6, scale)) : Math.max(1.25, scale);
   }
@@ -2023,8 +2040,8 @@ export class ChartCard {
     const baseLeft = 56 * ui;
     const left = Math.max(baseLeft, tickW + 8) + labelPad;
     const right = 18 * ui;
-    const top = (this.plotHasHeadline ? (this.config.title.trim() !== "" && this.options.titleOutside !== true ? 40 : 28) : 58) * ui;
-    const bottom = (40 + (xTitle ? 14 : 0)) * ui;
+    const top = (this.panelUi !== null ? 24 : this.plotHasHeadline ? (this.config.title.trim() !== "" && this.options.titleOutside !== true ? 40 : 28) : 58) * ui;
+    const bottom = (this.panelUi !== null ? 26 : 40 + (xTitle ? 14 : 0)) * ui;
     return {
       ui,
       left,

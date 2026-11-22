@@ -43,7 +43,11 @@ export function allCategoryBars(card: ChartCard): CategoryBar[] {
       };
     })
     .filter((bar) => !gone.has(bar.label))
-    .sort((a, b) => b.count - a.count);
+    .sort((a, b) => {
+      // A small-multiples panel keeps the whole chart's order, so a bar sits in the same place in each.
+      const order = card.panelOrder;
+      return order === null ? b.count - a.count : (order.get(a.label) ?? Infinity) - (order.get(b.label) ?? Infinity) || b.count - a.count;
+    });
 }
 
 export function refreshSeries(card: ChartCard): void {
@@ -522,7 +526,8 @@ export function refreshGroupedBins(card: ChartCard): void {
   const generation = ++card.generation;
   const column = card.config.column;
   const groupColumn = card.config.groupColumn;
-  void request({ column, groupColumn, options, topN: GROUP_LINE_LIMIT, ...card.excludeScope() })
+  const filter = card.chartScope().chartFilter;
+  void request({ column, groupColumn, options, topN: GROUP_LINE_LIMIT, ...card.excludeScope(), ...(filter === undefined ? {} : { chartFilter: filter }) })
     .then((message) => {
       if (generation !== card.generation || card.disposed) return;
       card.groupResult = message;

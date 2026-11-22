@@ -161,14 +161,19 @@ export function aggregateResult(card: ChartCard): AggregateMessage | null {
   const result = card.config.source !== "" ? card.viewResult : card.valueResult;
   if (result === null) return null;
   const order = card.config.chartSort ?? "none";
-  if (order === "none" || result.groupCount < 2) return result;
+  // A small-multiples panel puts its bars in the whole chart's order.
+  const rank = order === "none" && result.dimensions.length === 1 ? card.panelOrder : null;
+  if ((order === "none" && rank === null) || result.groupCount < 2) return result;
   const indexes = Array.from({ length: result.groupCount }, (_, index) => index);
   const dimension = result.dimensions[0] ?? [];
   const times = result.dimensionTimes[0];
   const measure = result.measures[0];
   const compare = (a: number, b: number): number => {
     let delta = 0;
-    if (order === "valueDesc" || order === "valueAsc") {
+    if (rank !== null) {
+      delta = (rank.get(result.labels[a] ?? "") ?? Infinity) - (rank.get(result.labels[b] ?? "") ?? Infinity);
+      if (Number.isNaN(delta)) delta = 0;
+    } else if (order === "valueDesc" || order === "valueAsc") {
       const av = measure?.[a] ?? Number.NaN;
       const bv = measure?.[b] ?? Number.NaN;
       const af = Number.isFinite(av);
@@ -947,7 +952,7 @@ export function refreshBins(card: ChartCard): void {
     const binCount = card.preferredLineBins(max - min);
     // The same column and span produce the same buckets: don't re-request on
     // every filter push (each response used to trigger another repaint).
-    const signature = `${card.config.column}|${binCount}|${min}|${max}|${JSON.stringify(card.excludes())}`;
+    const signature = `${card.config.column}|${binCount}|${min}|${max}|${JSON.stringify(card.excludes())}|${card.config.filterColumn ?? -1}:${card.config.filterCode ?? -1}`;
     if (card.lineBinSignature === signature && card.lineBinResult !== null) return;
     card.lineBinSignature = signature;
     const generation = ++card.generation;
@@ -957,6 +962,7 @@ export function refreshBins(card: ChartCard): void {
         card.config.column,
         { min, max, binCount, overflow: false },
         card.excludes().length > 0 ? card.excludes() : undefined,
+        card.chartScope().chartFilter,
       )
       .then((bins) => {
         if (generation !== card.generation || card.disposed) return;
@@ -992,7 +998,7 @@ export function refreshBins(card: ChartCard): void {
           max: zoom.max,
         };
   void card.options
-    .requestBins(column, binOptions, card.excludes().length > 0 ? card.excludes() : undefined)
+    .requestBins(column, binOptions, card.excludes().length > 0 ? card.excludes() : undefined, card.chartScope().chartFilter)
     .then((bins) => {
       if (generation !== card.generation || card.disposed) return;
       card.binResult = bins;

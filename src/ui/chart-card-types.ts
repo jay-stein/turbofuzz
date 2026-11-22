@@ -265,6 +265,7 @@ export interface ChartCardOptions {
     column: number,
     options: ChartBinOptions,
     exclude?: ChartExclusion[],
+    filter?: { column: number; code: number },
   ): Promise<ChartBinsMessage>;
   requestSeries(input: SeriesRequestInput): Promise<ChartSeriesMessage>;
   /** Map card rectangle brush: filter both coordinate columns to the area. */
@@ -314,6 +315,7 @@ export interface ChartCardOptions {
     options: ChartBinOptions;
     topN: number;
     chartExclude?: ChartExclusion[];
+    chartFilter?: { column: number; code: number };
   }): Promise<GroupedBinsMessage>;
   /** Aggregate result for a view-bound card (null when the view is gone). */
   requestViewAggregate?(source: string, shape?: PivotChartShape): Promise<AggregateMessage | null>;
@@ -370,6 +372,8 @@ export interface ChartCardOptions {
   currentFilter?(column: number): ColumnFilter | null;
   /** On the Chart page: settings beside the plot, one headline, the plot filling the window. */
   docked?: boolean;
+  /** A hidden panel copy (chart-panels.ts): instead of painting its own canvas it asks its card to repaint. */
+  panelHost?: () => void;
   /** Whether the docked settings panel starts open, and news of it being toggled. */
   settingsOpen?: boolean;
   onSettingsToggle?(open: boolean): void;

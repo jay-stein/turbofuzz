@@ -115,11 +115,23 @@ function knownValues(card: ChartCard, axis: "x" | "y"): number[] {
 export function refAxisTop(card: ChartCard, top: number): number {
   let highest = top;
   for (const value of knownValues(card, "y")) if (value > highest) highest = value * 1.06;
-  return highest;
+  // A small-multiples panel: report its own top, draw on the one all panels share.
+  if (card.panelUi === null) return highest;
+  card.panelNatural.top = highest;
+  return Math.max(highest, card.panelShared?.top ?? 0);
 }
 
 /** A value axis that need not start at zero (box plots, scatter Y): widened to take in every line, unless the person fixed it. */
 export function refAxisRange(card: ChartCard, axis: "x" | "y", min: number, max: number): { min: number; max: number } {
+  if (axis === "y" && card.panelUi !== null) {
+    card.panelNatural.lo = min;
+    card.panelNatural.hi = max;
+    const shared = card.panelShared;
+    if (shared?.lo !== undefined && shared.hi !== undefined) {
+      min = Math.min(min, shared.lo);
+      max = Math.max(max, shared.hi);
+    }
+  }
   let lo = min;
   let hi = max;
   for (const value of knownValues(card, axis)) {
