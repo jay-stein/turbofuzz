@@ -748,32 +748,150 @@ function contourColors(card: ChartCard, count: number): string[] {
   return Array.from({ length: count }, (_, index) => colorForFraction((index + 1) / count, stops, rampColor));
 }
 
+/**
+ * Filled contour bands, painted per pixel. Each pixel reads the smoothed density by
+ * bilinear interpolation between the four nearest grid samples (the rule the contour lines use, so fills
+ * and outlines meet exactly), and a pixel on a band edge blends the two bands by how much of it lies on
+ * each side, so edges are smooth instead of stepping along the grid's cells.
+ */
+/** A reusable offscreen surface per chart card for the filled bands. */
+const bandSurfaces = new WeakMap<ChartCard, { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D; image: ImageData; dirty: [number, number, number, number] | null }>();
+
 export function paintDensityBands(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesGrid, smooth: Float64Array, smoothMax: number): void {
   const levels = contourLevels(smoothMax, 5);
-  const colors = contourColors(card, levels.length).map(hexToRgb);
-  const off = document.createElement("canvas");
-  off.width = result.cols;
-  off.height = result.rows;
-  const offCtx = off.getContext("2d");
-  if (offCtx === null) return;
-  const image = offCtx.createImageData(result.cols, result.rows);
-  for (let cy = 0; cy < result.rows; cy++) {
-    for (let cx = 0; cx < result.cols; cx++) {
-      const value = smooth[cy * result.cols + cx];
-      let band = 0;
-      while (band < levels.length && value >= levels[band]) band++;
-      if (band === 0) continue;
-      const [r, g, b] = colors[band - 1];
-      const offset = ((result.rows - 1 - cy) * result.cols + cx) * 4;
-      image.data[offset] = r;
-      image.data[offset + 1] = g;
-      image.data[offset + 2] = b;
-      image.data[offset + 3] = 205;
+  const { cols, rows } = result;
+  if (levels.length === 0 || cols < 2 || rows < 2) return;
+  // Band 0 is below the lowest level: clear. Band k (1..n) takes the level's colour.
+  const rgba = [[0, 0, 0, 0], ...contourColors(card, levels.length).map((c) => [...hexToRgb(c), 205])];
+  // Painted at layout pixels, not the screen's denser ones: edges are already blended, so scaling up keeps them
+  // smooth, and a high-DPI screen costs no more than a normal one.
+  const scale = 1;
+  const width = Math.max(1, Math.round(frame.plotW * scale));
+  const height = Math.max(1, Math.round(frame.plotH * scale));
+  // One reusable surface per card: allocating a screen-sized image on every redraw costs more than drawing it.
+  let surface = bandSurfaces.get(card);
+  if (surface === undefined || surface.image.width !== width || surface.image.height !== height) {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (context === null) return;
+    surface = { canvas, context, image: context.createImageData(width, height), dirty: null };
+    bandSurfaces.set(card, surface);
+  }
+  const { canvas: off, context: offCtx, image } = surface;
+  const data = image.data;
+  const words = new Uint32Array(data.buffer);
+  // Only the area the last drawing touched needs clearing; this drawing records its own.
+  if (surface.dirty !== null) {
+    const [x0, y0, x1, y1] = surface.dirty;
+    for (let py = y0; py < y1; py++) words.fill(0, py * width + x0, py * width + x1);
+  }
+  let minX = width;
+  let minY = height;
+  let maxX = 0;
+  let maxY = 0;
+  const bandOf = (value: number): number => {
+    let band = 0;
+    while (band < levels.length && value >= levels[band]) band++;
+    return band;
+  };
+  // Little-endian RGBA words, for filling whole runs of pixels at once.
+  const word = rgba.map(([r, g, b, a]) => ((a << 24) | (b << 16) | (g << 8) | r) >>> 0);
+  // Which grid cell each pixel column and row reads (bilinear between samples), and where in it.
+  const pxCell = new Int32Array(width);
+  const pxFrac = new Float64Array(width);
+  for (let px = 0; px < width; px++) {
+    const gx = Math.min(cols - 1, Math.max(0, ((px + 0.5) / width) * cols));
+    pxCell[px] = Math.min(cols - 2, Math.floor(gx));
+    pxFrac[px] = gx - pxCell[px];
+  }
+  const pyCell = new Int32Array(height);
+  const pyFrac = new Float64Array(height);
+  for (let py = 0; py < height; py++) {
+    const gy = Math.min(rows - 1, Math.max(0, (1 - (py + 0.5) / height) * rows));
+    pyCell[py] = Math.min(rows - 2, Math.floor(gy));
+    pyFrac[py] = gy - pyCell[py];
+  }
+  // Each cell's pixel span: columns run left to right, rows bottom to top (screen y grows downwards).
+  const xFrom = new Int32Array(cols - 1).fill(-1);
+  const xTo = new Int32Array(cols - 1);
+  for (let px = 0; px < width; px++) {
+    const x = pxCell[px];
+    if (xFrom[x] < 0) xFrom[x] = px;
+    xTo[x] = px + 1;
+  }
+  const yFrom = new Int32Array(rows - 1).fill(-1);
+  const yTo = new Int32Array(rows - 1);
+  for (let py = 0; py < height; py++) {
+    const y = pyCell[py];
+    if (yFrom[y] < 0) yFrom[y] = py;
+    yTo[y] = py + 1;
+  }
+  // Grid units per device pixel, for turning the density's slope into a distance in pixels.
+  const kx = cols / width;
+  const ky = rows / height;
+  for (let y0 = 0; y0 < rows - 1; y0++) {
+    if (yFrom[y0] < 0) continue;
+    for (let x0 = 0; x0 < cols - 1; x0++) {
+      if (xFrom[x0] < 0) continue;
+      const i = y0 * cols + x0;
+      const a = smooth[i];
+      const b = smooth[i + 1];
+      const d = smooth[i + cols];
+      const c = smooth[i + cols + 1];
+      // A bilinear value never leaves its corners' range: a cell inside one band is filled flat (most are
+      // empty), and only cells a level passes through get the per-pixel edge work.
+      const lowBand = bandOf(Math.min(a, b, c, d));
+      const highBand = bandOf(Math.max(a, b, c, d));
+      if (highBand === 0) continue;
+      minX = Math.min(minX, xFrom[x0]);
+      maxX = Math.max(maxX, xTo[x0]);
+      minY = Math.min(minY, yFrom[y0]);
+      maxY = Math.max(maxY, yTo[y0]);
+      if (lowBand === highBand) {
+        for (let py = yFrom[y0]; py < yTo[y0]; py++) words.fill(word[lowBand], py * width + xFrom[x0], py * width + xTo[x0]);
+        continue;
+      }
+      for (let py = yFrom[y0]; py < yTo[y0]; py++) {
+        const fy = pyFrac[py];
+        for (let px = xFrom[x0]; px < xTo[x0]; px++) {
+          const fx = pxFrac[px];
+          const value = (a * (1 - fx) + b * fx) * (1 - fy) + (d * (1 - fx) + c * fx) * fy;
+          const band = bandOf(value);
+          // How far the pixel is from the nearest band edge, in pixels: within half a pixel, blend the neighbour in.
+          const slope = Math.hypot(((b - a) * (1 - fy) + (c - d) * fy) * kx, ((d - a) * (1 - fx) + (c - b) * fx) * ky);
+          let other = band;
+          let mix = 0;
+          if (slope > 1e-12) {
+            const below = band > 0 ? (value - levels[band - 1]) / slope : Infinity;
+            const above = band < levels.length ? (levels[band] - value) / slope : Infinity;
+            if (below < above && below < 0.5) { other = band - 1; mix = 0.5 - below; }
+            else if (above < 0.5) { other = band + 1; mix = 0.5 - above; }
+          }
+          const own = rgba[band];
+          const next = rgba[other];
+          const alphaOwn = own[3] * (1 - mix);
+          const alphaNext = next[3] * mix;
+          const alpha = alphaOwn + alphaNext;
+          if (alpha <= 0) continue;
+          const offset = (py * width + px) * 4;
+          data[offset] = (own[0] * alphaOwn + next[0] * alphaNext) / alpha;
+          data[offset + 1] = (own[1] * alphaOwn + next[1] * alphaNext) / alpha;
+          data[offset + 2] = (own[2] * alphaOwn + next[2] * alphaNext) / alpha;
+          data[offset + 3] = alpha;
+        }
+      }
     }
   }
-  offCtx.putImageData(image, 0, 0);
+  surface.dirty = maxX > minX ? [minX, minY, maxX, maxY] : null;
+  if (surface.dirty === null) return;
+  // Upload and draw just the touched area.
+  const w = maxX - minX;
+  const h = maxY - minY;
+  offCtx.putImageData(image, 0, 0, minX, minY, w, h);
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(off, frame.left, frame.top, frame.plotW, frame.plotH);
+  ctx.drawImage(off, minX, minY, w, h, frame.left + minX / scale, frame.top + minY / scale, w / scale, h / scale);
 }
 
 export function paintContourLines(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesGrid, smooth: Float64Array, smoothMax: number, labelled = false): void {
