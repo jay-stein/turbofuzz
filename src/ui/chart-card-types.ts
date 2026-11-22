@@ -236,7 +236,8 @@ export interface MapMarkerDraw {
 }
 
 
-export type DensityStyle = "heat" | "contours" | "both";
+/** "contours" is filled contours (kept as the saved name); "lines" is labelled contour lines alone. */
+export type DensityStyle = "heat" | "contours" | "lines" | "both";
 
 /** Above this many categories a value bar chart reads better on its side, with its names in full. */
 export const RANKED_BARS_ABOVE = 12;

@@ -2370,8 +2370,8 @@ export class ChartCard {
     return paintDensityBands(this, ctx, frame, result, smooth, smoothMax);
   }
 
-  paintContourLines(ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesGrid, smooth: Float64Array, smoothMax: number): void {
-    return paintContourLines(this, ctx, frame, result, smooth, smoothMax);
+  paintContourLines(ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesGrid, smooth: Float64Array, smoothMax: number, labelled = false): void {
+    return paintContourLines(this, ctx, frame, result, smooth, smoothMax, labelled);
   }
 
   drawCorrelationNote(ctx: CanvasRenderingContext2D, frame: Frame, fit: { slope: number; intercept: number; r2: number } | null = null): void {

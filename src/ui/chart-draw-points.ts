@@ -667,7 +667,7 @@ export function drawDensity(card: ChartCard, ctx: CanvasRenderingContext2D, fram
     for (const value of smooth) if (value > smoothMax) smoothMax = value;
   }
 
-  if (style !== "contours") {
+  if (style === "heat" || style === "both") {
     ctx.save();
     ctx.beginPath();
     ctx.rect(frame.left, frame.top, frame.plotW, frame.plotH);
@@ -680,8 +680,9 @@ export function drawDensity(card: ChartCard, ctx: CanvasRenderingContext2D, fram
     ctx.beginPath();
     ctx.rect(frame.left, frame.top, frame.plotW, frame.plotH);
     ctx.clip();
+    // "contours" is the filled style (its saved name); the line styles carry their values on the lines.
     if (style === "contours") card.paintDensityBands(ctx, frame, result, smooth, smoothMax);
-    card.paintContourLines(ctx, frame, result, smooth, smoothMax);
+    card.paintContourLines(ctx, frame, result, smooth, smoothMax, style !== "contours");
     ctx.restore();
   }
 
@@ -703,7 +704,7 @@ export function drawDensity(card: ChartCard, ctx: CanvasRenderingContext2D, fram
     `peak ${result.max.toLocaleString()}`,
   ];
   notes.push(
-    style === "heat" ? "heat" : style === "contours" ? "5 contour levels" : "heat + contour lines",
+    style === "heat" ? "heat" : style === "contours" ? "5 filled contour levels" : `${style === "both" ? "heat + " : ""}contour lines labelled in rows per grid cell (smoothed)`,
   );
   if (result.outside > 0) notes.push(`${result.outside.toLocaleString()} outside p1–p99`);
   notes.push("Ctrl+scroll to zoom · drag to pan · double-click resets");
@@ -764,26 +765,87 @@ export function paintDensityBands(card: ChartCard, ctx: CanvasRenderingContext2D
   ctx.drawImage(off, frame.left, frame.top, frame.plotW, frame.plotH);
 }
 
-export function paintContourLines(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesGrid, smooth: Float64Array, smoothMax: number): void {
+export function paintContourLines(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesGrid, smooth: Float64Array, smoothMax: number, labelled = false): void {
   const levels = contourLevels(smoothMax, 5);
+  const placed: Box[] = [];
   levels.forEach((level, index) => {
     const segments = marchingSquares(smooth, result.cols, result.rows, level);
     if (segments.length === 0) return;
-    ctx.strokeStyle = rampColor((index + 1) / levels.length);
+    const color = rampColor((index + 1) / levels.length);
+    const px = new Float64Array(segments.length);
+    for (let i = 0; i < segments.length; i += 2) {
+      px[i] = frame.left + (segments[i] / result.cols) * frame.plotW;
+      px[i + 1] = frame.top + (1 - segments[i + 1] / result.rows) * frame.plotH;
+    }
+    ctx.strokeStyle = color;
     ctx.globalAlpha = 0.85;
-    ctx.lineWidth = 1.2;
+    ctx.lineWidth = labelled ? 1.4 : 1.2;
     ctx.beginPath();
-    for (let i = 0; i < segments.length; i += 4) {
-      const x1 = frame.left + (segments[i] / result.cols) * frame.plotW;
-      const y1 = frame.top + (1 - segments[i + 1] / result.rows) * frame.plotH;
-      const x2 = frame.left + (segments[i + 2] / result.cols) * frame.plotW;
-      const y2 = frame.top + (1 - segments[i + 3] / result.rows) * frame.plotH;
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
+    for (let i = 0; i < px.length; i += 4) {
+      ctx.moveTo(px[i], px[i + 1]);
+      ctx.lineTo(px[i + 2], px[i + 3]);
     }
     ctx.stroke();
+    ctx.globalAlpha = 1;
+    if (labelled) labelContour(card, ctx, frame, px, contourValue(level), color, placed);
   });
   ctx.globalAlpha = 1;
+}
+
+interface Box { x0: number; y0: number; x1: number; y1: number }
+
+/** A contour level as a label: rows per grid cell, smoothed, to two significant figures. */
+export function contourValue(level: number): string {
+  if (level >= 1000) return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(level);
+  if (level >= 10) return String(Math.round(level));
+  return String(Number(level.toPrecision(2)));
+}
+
+/**
+ * Writes a level's value on its line, as on a topographic map: the text follows the line and sits in a gap
+ * cut out of it. Up to two places per line, spread along it, away from the plot's edges and from other labels.
+ */
+function labelContour(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, px: Float64Array, text: string, color: string, placed: Box[]): void {
+  const edge = 14 * frame.ui;
+  const spots: { x: number; y: number; angle: number }[] = [];
+  for (let i = 0; i < px.length; i += 4) {
+    const x = (px[i] + px[i + 2]) / 2;
+    const y = (px[i + 1] + px[i + 3]) / 2;
+    if (x < frame.left + edge || x > frame.left + frame.plotW - edge || y < frame.top + edge || y > frame.top + frame.plotH - edge) continue;
+    let angle = Math.atan2(px[i + 3] - px[i + 1], px[i + 2] - px[i]);
+    if (angle > Math.PI / 2) angle -= Math.PI;
+    if (angle < -Math.PI / 2) angle += Math.PI;
+    // Steep spots read badly; flatter ones look like a map's labels.
+    if (Math.abs(angle) > Math.PI / 3) continue;
+    spots.push({ x, y, angle });
+  }
+  if (spots.length === 0) return;
+  spots.sort((a, b) => a.x - b.x);
+  card.font(ctx, frame.ui, 10, "600");
+  const w = ctx.measureText(text).width + 6 * frame.ui;
+  const h = 13 * frame.ui;
+  let drawn = 0;
+  for (const at of [0.3, 0.75, 0.5, 0.1, 0.9]) {
+    if (drawn === 2) break;
+    const spot = spots[Math.min(spots.length - 1, Math.floor(at * spots.length))];
+    const half = Math.max(w, h) / 2 + 2 * frame.ui;
+    const box = { x0: spot.x - half, y0: spot.y - half, x1: spot.x + half, y1: spot.y + half };
+    if (placed.some((b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0)) continue;
+    placed.push(box);
+    drawn++;
+    ctx.save();
+    ctx.translate(spot.x, spot.y);
+    ctx.rotate(spot.angle);
+    ctx.fillStyle = card.plateColor();
+    ctx.globalAlpha = 0.9;
+    ctx.fillRect(-w / 2, -h / 2, w, h);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 0, 0.5 * frame.ui);
+    ctx.restore();
+  }
 }
 
 export function drawCorrelationNote(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, fit: { slope: number; intercept: number; r2: number } | null = null): void {

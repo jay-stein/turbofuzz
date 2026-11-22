@@ -426,8 +426,9 @@ export function buildPart3(card: ChartCard) {
     (
       [
         ["heat", "Heat"],
-        ["contours", "Contours"],
-        ["both", "Heat + lines"],
+        ["contours", "Filled contours"],
+        ["lines", "Contour lines"],
+        ["both", "Heat + contour lines"],
       ] as const
     ).forEach(([value, label]) => {
       card.densityStyleSelect.append(el("option", { value }, [label]) as HTMLOptionElement);
