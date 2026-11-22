@@ -6,6 +6,9 @@ import { TYPE_LABELS } from "../types.js";
 import { CAST_LOSS_CONFIRM_SHARE } from "../data/cast-ops.js";
 import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
+import type { DateAuditMessage } from "../worker/protocol.js";
+import { openDateAudit, readAs } from "./date-audit-dialog.js";
+import { isTemporalType } from "../types.js";
 
 export interface CastPreviewCounts {
   changed: number;
@@ -31,6 +34,8 @@ export interface CastDialogInput {
   preview: (options: CastOptions) => Promise<CastPreviewCounts>;
   /** Some of the column's values, to show which date formats fit. */
   samples?: readonly string[];
+  /** A column already read as dates: its file text beside what it was read as (date-audit-dialog.ts). */
+  audit?: () => Promise<DateAuditMessage>;
 }
 
 const TARGET_LABELS: Record<CastTarget, string> = {
@@ -69,11 +74,51 @@ export function openCastDialog(input: CastDialogInput): Promise<CastDialogResult
     modal.append(head);
 
     const body = el("div", { class: "chart-setup-body" });
+    // Already dates (date & time to date, or back): nothing is parsed again, so there are no formats
+    // or invalid values to choose; the dialog says what happens to each value and shows it.
+    const alreadyDates = isTemporalType(input.fromType) && (input.target === "date" || input.target === "datetime") && input.fromType !== "time" && input.fromType !== "duration";
     body.append(
       el("p", { class: "confirm-body" }, [
-        "Valid values are rewritten into the canonical format. Invalid values are handled by the policy below.",
+        alreadyDates
+          ? input.target === "date"
+            ? "These values are already read as dates. Converting keeps each one's day and drops its time of day."
+            : "These values are already read as dates. Converting gives each one a time of day of 00:00."
+          : "Valid values are rewritten into the canonical format. Invalid values are handled by the policy below.",
       ]),
     );
+    const already = el("div", { class: "cast-already hidden" });
+    body.append(already);
+    if (alreadyDates && input.audit !== undefined) {
+      already.classList.remove("hidden");
+      already.append(el("p", { class: "cast-already-wait" }, ["Reading some values…"]));
+      void input.audit().then((audit) => {
+        const sample = audit.rows.filter((row) => Number.isFinite(row.value));
+        const timed = sample.filter((row) => row.value % 86_400_000 !== 0).length;
+        const lines = el("table", { class: "cast-already-table" }, [
+          el("thead", {}, [el("tr", {}, [el("th", {}, ["In the file"]), el("th", {}, ["Now"]), el("th", {}, ["After"])])]),
+          el(
+            "tbody",
+            {},
+            sample.slice(0, 4).map((row) =>
+              el("tr", {}, [
+                el("td", { class: "mono" }, [row.text]),
+                el("td", { class: "mono" }, [readAs(audit.columnType, row.value)]),
+                el("td", { class: "mono" }, [readAs(input.target as "date" | "datetime", input.target === "date" ? row.value - (((row.value % 86_400_000) + 86_400_000) % 86_400_000) : row.value)]),
+              ]),
+            ),
+          ),
+        ]);
+        const loss =
+          input.target !== "date"
+            ? ""
+            : timed === 0
+              ? `In the first ${sample.length.toLocaleString()} values every time is 00:00:00, so nothing but that is dropped.`
+              : `${timed.toLocaleString()} of the first ${sample.length.toLocaleString()} values have a time of day, which is dropped.`;
+        const check = el("button", { class: "link small", type: "button" }, ["See how the whole column was read"]);
+        check.addEventListener("click", () => openDateAudit(input.name, input.audit!));
+        already.replaceChildren(lines, ...(loss === "" ? [] : [el("p", { class: "cast-already-note" }, [loss])]), check);
+      }, () => already.classList.add("hidden"));
+    }
 
     const policyField = el("label", { class: "chart-setup-field" });
     policyField.append(el("span", { class: "chart-field-label" }, ["Invalid values"]));
@@ -88,6 +133,7 @@ export function openCastDialog(input: CastDialogInput): Promise<CastDialogResult
     }
     policySelect.value = input.initial.policy;
     policyField.append(policySelect);
+    policyField.classList.toggle("hidden", alreadyDates);
     body.append(policyField);
 
     const localeField = el("label", { class: "chart-setup-field" });
@@ -113,7 +159,7 @@ export function openCastDialog(input: CastDialogInput): Promise<CastDialogResult
       withTime: input.target === "datetime",
       onChange: () => refresh(),
     });
-    picker.root.classList.toggle("hidden", !wantsOrder);
+    picker.root.classList.toggle("hidden", !wantsOrder || alreadyDates);
     body.append(picker.root);
 
     const summary = el("div", { class: "cast-summary", role: "status" }, [
@@ -138,6 +184,8 @@ export function openCastDialog(input: CastDialogInput): Promise<CastDialogResult
       "Reinterpret only",
     ]);
     reinterpret.title = "Change the logical type without rewriting values.";
+    // Between date & time and date there is nothing to reinterpret: the values are dates either way.
+    reinterpret.classList.toggle("hidden", alreadyDates);
     const confirm = el("button", { class: "primary", type: "button" }, [
       `Convert to ${TARGET_LABELS[input.target]}`,
     ]);

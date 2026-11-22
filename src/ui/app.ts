@@ -3819,6 +3819,7 @@ export class App {
       target,
       initial,
       samples,
+      ...(isTemporalType(meta.type) ? { audit: () => this.client.getDateAudit(column) } : {}),
       preview: async (options) => {
         const preview = await this.client.previewClean([
           { column, ops: [...existing, castOp(options)] },
@@ -7950,8 +7951,8 @@ export class App {
       displayFormat: this.displayFormats.get(column) ?? null,
       displayGrouping: this.groupedNow(column),
       sensitiveWhy: this.sensitiveNotes.has(column) ? [this.sensitiveNotes.get(column) ?? ""] : [],
-    });
       ...(isTemporalType(meta.type) ? { checkDates: () => openDateAudit(meta.name, () => this.client.getDateAudit(column)) } : {}),
+    });
   }
 
   /** Freshness rule (plan §6): scores Timeliness against “now”. */
