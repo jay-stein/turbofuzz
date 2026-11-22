@@ -8,6 +8,6 @@ test("the nudge speaks only when something needs fixing", () => {
 });
 
 test("the nudge gives the score and the same counts as Data Quality", () => {
-  assert.equal(nudgeText({ score: 71.44, fix: 1, review: 0 }), "Data quality 71.4: 1 thing needs fixing. Data Quality shows where, and fixes most in a click.");
-  assert.equal(nudgeText({ score: 64, fix: 6, review: 2 }), "Data quality 64.0: 6 things need fixing and 2 things worth a look. Data Quality shows where, and fixes most in a click.");
+  assert.equal(nudgeText({ score: 71.44, fix: 1, review: 0 }), "Data quality 71.4: 1 thing needs fixing. Data Quality shows you how to fix these issues in a single click.");
+  assert.equal(nudgeText({ score: 64, fix: 6, review: 2 }), "Data quality 64.0: 6 things need fixing and 2 things worth a look. Data Quality shows you how to fix these issues in a single click.");
 });

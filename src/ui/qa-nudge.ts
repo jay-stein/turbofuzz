@@ -23,7 +23,7 @@ export function nudgeText(input: Pick<QaNudgeInput, "score" | "fix" | "review">)
   if (input.fix <= 0) return null;
   const things = (count: number): string => `${nf.format(count)} ${count === 1 ? "thing" : "things"}`;
   const review = input.review > 0 ? ` and ${things(input.review)} worth a look` : "";
-  return `Data quality ${input.score.toFixed(1)}: ${things(input.fix)} ${input.fix === 1 ? "needs" : "need"} fixing${review}. Data Quality shows where, and fixes most in a click.`;
+  return `Data quality ${input.score.toFixed(1)}: ${things(input.fix)} ${input.fix === 1 ? "needs" : "need"} fixing${review}. Data Quality shows you how to fix these issues in a single click.`;
 }
 
 export class QaNudge {
