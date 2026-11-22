@@ -29,6 +29,7 @@ import type {
   CategoryMeta,
   ErrorBarsMessage,
   ErrorBarsProgressMessage,
+  RowsMessage,
 } from "../worker/protocol.js";
 import type { IntervalKind } from "../data/error-bars.js";
 import type { RegionRequests } from "./chart-card-types.js";
@@ -113,6 +114,8 @@ export interface ChartsPanelOptions {
   onOpenSource?(source: string): void;
   /** Pivot result for a pivot-heatmap card. */
   requestViewPivot?(source: string): Promise<PivotMessage | null>;
+  /** Rows of the table as it stands, for a chart's Peek. */
+  requestRows?(start: number, end: number): Promise<RowsMessage>;
   /** Ad-hoc aggregation for the treemap measure. */
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
   /** Token frequencies for the top-terms chart. */
@@ -887,6 +890,7 @@ export class ChartsPanel {
         requestViewAggregate: this.options.requestViewAggregate,
         onOpenSource: this.options.onOpenSource,
         requestViewPivot: this.options.requestViewPivot,
+        requestRows: this.options.requestRows,
         requestAggregate: this.options.requestAggregate,
         requestTextProfile: this.options.requestTextProfile,
         requestGridCounts: this.options.requestGridCounts,

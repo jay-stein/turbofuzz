@@ -9,6 +9,7 @@ import { DEFAULT_PALETTE } from "../data/palettes.js";
 import { CHART_COLORS, parseChartNumber } from "./chart-utils.js";
 import { el } from "./dom.js";
 import { MapRegions } from "./map-regions.js";
+import { buildPeekButton } from "./chart-peek.js";
 import type { ChartCard } from "./chart-card.js";
 import type { MarkerShape } from "./chart-card-types.js";
 import { MARKER_SHAPES, MORE_PALETTES, HEX } from "./chart-card-types.js";
@@ -31,6 +32,7 @@ export function buildPart4(card: ChartCard, head: HTMLElement, more: HTMLButtonE
     head.append(
       el("span", { class: "grow" }),
       card.focusButton,
+      buildPeekButton(card),
       card.statsButton,
       card.pngButton,
       card.animateButton,

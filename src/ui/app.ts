@@ -3169,6 +3169,7 @@ export class App {
         if (this.viewsPanel?.openViewById(source) === true) this.setView("views");
       },
       requestViewPivot: (source) => this.pivotForSource(source),
+      requestRows: (start, end) => this.client.getRows(start, end),
       requestAggregate: (view) => this.client.getAggregate(view),
       requestTextProfile: (column) => this.client.getTextProfile(column),
       requestGridCounts: (xColumn, yColumn, bins, measure, groupColumn, scope) =>

@@ -19190,3 +19190,102 @@ mark.cmp-ch {
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--text) 15%, transparent);
 }
+
+/* Peek: the data behind a chart, in a popover under its button. */
+.chart-peek-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chart-peek-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.chart-peek {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  width: min(880px, calc(100vw - 32px));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+}
+
+.chart-peek-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--fs-sm);
+}
+
+.chart-peek-title {
+  font-weight: 600;
+}
+
+.chart-peek-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.chart-peek-wait,
+.chart-peek-note {
+  padding: 12px 14px;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.chart-peek-note {
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.chart-peek-table {
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.chart-peek-table th,
+.chart-peek-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chart-peek-table th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--text-dim);
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.chart-peek-table th.used {
+  color: var(--accent);
+}
+
+.chart-peek-table td.used {
+  background: color-mix(in srgb, var(--accent-soft) 45%, transparent);
+}
+
+.chart-peek-empty {
+  color: var(--null-text);
+  font-style: italic;
+}
+
+.chart-peek-table .num {
+  text-align: right;
+}
