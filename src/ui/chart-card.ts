@@ -2396,8 +2396,8 @@ export class ChartCard {
     return paintContourLines(this, ctx, frame, result, smooth, smoothMax, labelled);
   }
 
-  drawCorrelationNote(ctx: CanvasRenderingContext2D, frame: Frame, fit: { slope: number; intercept: number; r2: number } | null = null, r: number = this.seriesCorrelation): void {
-    return drawCorrelationNote(this, ctx, frame, fit, r);
+  drawCorrelationNote(ctx: CanvasRenderingContext2D, frame: Frame, fit: { slope: number; intercept: number; r2: number } | null = null, r: number = this.seriesCorrelation, panel = false): void {
+    return drawCorrelationNote(this, ctx, frame, fit, r, panel);
   }
 
   drawBox(ctx: CanvasRenderingContext2D, frame: Frame): void {

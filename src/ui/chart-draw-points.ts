@@ -396,8 +396,11 @@ function drawPanels(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame
   // The grid uses the whole chart's tick margins for its outer edge; each panel keeps room for its own.
   const tickW = 34 * ui;
   const tickH = 22 * ui;
-  const titleH = 22 * ui;
-  const area = { x: frame.left - tickW, y: frame.top - titleH, w: frame.plotW + tickW, h: frame.plotH + titleH + tickH };
+  // Two lines over each panel: its name, then its r and equation.
+  const titleH = 34 * ui;
+  // The first row's two heading lines start where the chart's one would have: never above the canvas.
+  const lift = 22 * ui;
+  const area = { x: frame.left - tickW, y: frame.top - lift, w: frame.plotW + tickW, h: frame.plotH + lift + tickH };
   const grid = panelGrid(panels.length, area.w, area.h, 10 * ui);
   const panelName = card.meta(card.config.facetColumn ?? -1)?.name ?? "panel";
   panels.forEach((code, index) => {
@@ -596,7 +599,8 @@ export function drawPoints(card: ChartCard, ctx: CanvasRenderingContext2D, frame
     card.font(ctx, frame.ui, 11, "700");
     ctx.fillStyle = frame.text;
     ctx.textAlign = "left";
-    ctx.fillText(panel.title, frame.left, frame.top - 8 * frame.ui);
+    // The title has its own line; the panel's r and equation go on the line under it.
+    ctx.fillText(card.fit(ctx, panel.title, frame.plotW), frame.left, frame.top - 20 * frame.ui);
   }
   if (result.shown === 0) {
     if (panel !== null) return;
@@ -696,7 +700,7 @@ export function drawPoints(card: ChartCard, ctx: CanvasRenderingContext2D, frame
   ctx.restore();
 
   if (panel !== null) {
-    card.drawCorrelationNote(ctx, frame, fit, pearson(result.x, result.y, result.shown));
+    card.drawCorrelationNote(ctx, frame, fit, pearson(result.x, result.y, result.shown), true);
     return;
   }
   card.drawCorrelationNote(ctx, frame, fit);
@@ -1056,22 +1060,28 @@ function labelContour(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Fra
   }
 }
 
-export function drawCorrelationNote(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, fit: { slope: number; intercept: number; r2: number } | null = null, r: number = card.seriesCorrelation): void {
+/** `panel`: a small multiple, where the note has its own line under the panel's title. */
+export function drawCorrelationNote(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, fit: { slope: number; intercept: number; r2: number } | null = null, r: number = card.seriesCorrelation, panel = false): void {
   if (!Number.isFinite(r)) return;
-  card.font(ctx, frame.ui, 11, "600");
+  card.font(ctx, frame.ui, panel ? 10 : 11, panel ? "" : "600");
   ctx.fillStyle = frame.dim;
-  ctx.textAlign = "right";
+  ctx.textAlign = panel ? "left" : "right";
   // R² and the equation are the line's: they appear only with it, and each can be switched off on its own.
-  const r2 = fit !== null && (card.config.fitR2 ?? true) ? `  ·  R² = ${(r ** 2).toFixed(2)}` : "";
-  let text = `r = ${r.toFixed(2)}${r2}`;
+  // A small panel's line is tighter: one space round the dots, "0.13x" for "0.13 × x".
+  const dot = panel ? " · " : "  ·  ";
+  const r2 = fit !== null && (card.config.fitR2 ?? true) ? `${dot}R² = ${(r ** 2).toFixed(2)}` : "";
+  const base = `r = ${r.toFixed(2)}${r2}`;
+  // Longest first: the equation in column names, then in y and x, then r and R², then r alone.
+  const options: string[] = [];
   if (fit !== null && (card.config.fitEquation ?? true)) {
-    const named = `${text}  ·  ${fitEquation(fit.slope, fit.intercept, card.meta(card.config.y)?.name ?? "y", card.meta(card.config.x)?.name ?? "x")}`;
-    // Long column names fall back to y and x rather than run across the plot's title.
-    const short = `${text}  ·  ${fitEquation(fit.slope, fit.intercept, "y", "x")}`;
-    const room = frame.plotW * 0.92;
-    text = ctx.measureText(named).width <= room ? named : ctx.measureText(short).width <= room ? short : text;
+    options.push(`${base}${dot}${fitEquation(fit.slope, fit.intercept, card.meta(card.config.y)?.name ?? "y", card.meta(card.config.x)?.name ?? "x")}`);
+    const short = fitEquation(fit.slope, fit.intercept, "y", "x");
+    options.push(`${base}${dot}${panel ? short.replace(" × x", "x") : short}`);
   }
-  ctx.fillText(text, frame.left + frame.plotW - 6 * frame.ui, frame.top - 8 * frame.ui);
+  options.push(base, `r = ${r.toFixed(2)}`);
+  const room = panel ? frame.plotW : frame.plotW * 0.92;
+  const text = options.find((option) => ctx.measureText(option).width <= room);
+  if (text !== undefined) ctx.fillText(text, panel ? frame.left : frame.left + frame.plotW - 6 * frame.ui, frame.top - (panel ? 7 : 8) * frame.ui);
   ctx.textAlign = "left";
 }
 
