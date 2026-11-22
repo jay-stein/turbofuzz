@@ -1,4 +1,5 @@
 import { junkTextCount } from "./missing-views.js";
+import { inspectorWarm } from "./column-inspector.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
 import { FilterPanel } from "./filters.js";
@@ -52,7 +53,7 @@ const ADD_COLUMN_WIDTH = 40;
 const OVERSCAN = 10;
 const CACHE_LIMIT = 4000;
 /** How long the mouse rests on a column name before its inspector opens. */
-const HOVER_INSPECT_MS = 450;
+const HOVER_INSPECT_MS = 120;
 
 /** A bin: reads as "delete" at a glance, where a small × could mean close or clear. */
 function binIcon(): SVGElement {
@@ -667,10 +668,15 @@ export class ResultTable {
       }
       label.setAttribute("aria-haspopup", "dialog");
       label.addEventListener("click", () => this.options.onColumnInspect(index, label));
-      // Resting a mouse on the name shows the same panel; a pass across the headers or a drag does not.
+      // Resting a mouse on the name shows the same panel; a quick pass across the headers or a drag does not.
+      // Once one is open (or just closed), the next opens at once: building it takes a millisecond or two.
       let hoverTimer = 0;
       label.addEventListener("pointerenter", (event) => {
         if (event.pointerType !== "mouse" || event.buttons !== 0) return;
+        if (inspectorWarm()) {
+          this.options.onColumnInspect(index, label, true);
+          return;
+        }
         hoverTimer = window.setTimeout(() => {
           if (label.isConnected && label.matches(":hover")) this.options.onColumnInspect(index, label, true);
         }, HOVER_INSPECT_MS);

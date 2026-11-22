@@ -14,6 +14,9 @@ test("resting on a column name shows its inspector; moving away closes it and a 
   await expect(panel).toBeVisible();
   await expect(panel).toHaveClass(/hover/);
   await expect(panel).toContainText("region");
+  // With one open, the next header's panel swaps in at once.
+  await page.locator(".th-label", { hasText: /^amount$/ }).hover();
+  await expect(panel).toHaveAttribute("aria-label", "About column “amount”", { timeout: 60 });
   await page.mouse.move(5, 5);
   await expect(panel).toBeHidden();
 

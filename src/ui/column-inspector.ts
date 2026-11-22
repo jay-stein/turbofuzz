@@ -24,6 +24,18 @@ export interface ColumnInspectorInfo {
 
 /** The open inspector, if any: so a new one closes it properly, and a click can pin a hover one. */
 let current: { anchor: HTMLElement; hover: boolean; close: () => void; pin: () => void } | null = null;
+let lastClosedAt = -Infinity;
+
+/** How long after one inspector closes the next still opens without a wait (moving along the headers). */
+const WARM_MS = 900;
+
+/**
+ * True while an inspector is open or has just closed: the pointer is reading along the headers,
+ * so the next one opens at once instead of after the first-hover wait.
+ */
+export function inspectorWarm(): boolean {
+  return current !== null || performance.now() - lastClosedAt < WARM_MS;
+}
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -116,6 +128,7 @@ export function openColumnInspector(
     closed = true;
     unhover();
     if (current?.close === close) current = null;
+    lastClosedAt = performance.now();
     panel.remove();
     document.removeEventListener("pointerdown", onPointerDown, true);
     document.removeEventListener("keydown", onKey);
