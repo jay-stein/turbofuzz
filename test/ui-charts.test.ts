@@ -3430,10 +3430,10 @@ test("chart data issues expose filter, rows and scoped fixes", async () => {
   assert.match(bar.textContent ?? "", /TBC/);
   const chips = [...bar.querySelectorAll(".chart-issue-chip")] as HTMLButtonElement[];
   assert.ok(chips.some((chip) => /^Filter:/.test(chip.textContent ?? "")));
-  assert.ok(chips.some((chip) => /^Fix: convert/.test(chip.textContent ?? "")));
+  assert.ok(chips.some((chip) => /^Fix: blank/.test(chip.textContent ?? "")));
   assert.ok(chips.some((chip) => /^Fix: treat/.test(chip.textContent ?? "")));
   (chips.find((chip) => /^Filter:/.test(chip.textContent ?? "")) as HTMLButtonElement).click();
-  (chips.find((chip) => /^Fix: convert/.test(chip.textContent ?? "")) as HTMLButtonElement).click();
+  (chips.find((chip) => /^Fix: blank/.test(chip.textContent ?? "")) as HTMLButtonElement).click();
   (chips.find((chip) => /^Fix: treat/.test(chip.textContent ?? "")) as HTMLButtonElement).click();
   assert.deepEqual(filters[0], [{ column: 0, filter: { kind: "blank", negate: false } }]);
   assert.deepEqual(converted, [["n/a"]]);
