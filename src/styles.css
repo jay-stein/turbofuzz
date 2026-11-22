@@ -19328,3 +19328,13 @@ select.chart-add-agg {
   padding: 0 2px 0 4px;
   font-size: var(--fs-xs);
 }
+
+/* Renaming a column in place: its name in the header becomes this box. */
+.th-rename {
+  flex: 1 1 auto;
+  min-width: 60px;
+  height: 24px;
+  padding: 0 6px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}

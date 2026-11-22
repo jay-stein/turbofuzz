@@ -30,3 +30,25 @@ test("resting on a column name shows its inspector; moving away closes it and a 
   await page.keyboard.press("Escape");
   await expect(panel).toBeHidden();
 });
+
+test("double-clicking a column name renames it in place; Escape keeps the old name", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "orders.csv", mimeType: "text/csv", buffer: Buffer.from(CSV) });
+  await page.locator(".nav-row").waitFor();
+  await page.getByRole("tab", { name: "Table" }).click();
+  await page.locator(".th-label", { hasText: /^region$/ }).dblclick();
+  const box = page.locator(".th-rename");
+  await expect(box).toBeFocused();
+  await expect(box).toHaveValue("region");
+  // The inspector the first click opened gets out of the way.
+  await expect(page.locator(".column-inspector")).toBeHidden();
+  await box.fill("area");
+  await box.press("Enter");
+  await expect(page.locator(".th-label", { hasText: /^area$/ })).toBeVisible();
+  await expect(page.locator(".th-label", { hasText: /^region$/ })).toHaveCount(0);
+
+  await page.locator(".th-label", { hasText: /^amount$/ }).dblclick();
+  await page.locator(".th-rename").fill("nope");
+  await page.locator(".th-rename").press("Escape");
+  await expect(page.locator(".th-label", { hasText: /^amount$/ })).toBeVisible();
+});

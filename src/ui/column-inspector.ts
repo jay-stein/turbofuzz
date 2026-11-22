@@ -37,6 +37,11 @@ export function inspectorWarm(): boolean {
   return current !== null || performance.now() - lastClosedAt < WARM_MS;
 }
 
+/** Closes the open inspector, if any (a double-click on a name renames instead of inspecting). */
+export function closeColumnInspector(): void {
+  current?.close();
+}
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 function section(title: string, aside?: string): HTMLElement {

@@ -3087,6 +3087,7 @@ export class App {
       onToggleFilters: () => this.setSidebarCollapsed(!this.sidebarCollapsed),
       filtersOpen: () => !this.sidebarCollapsed,
       onColumnInspect: (column, anchor, hover) => this.openColumnInspector(column, anchor, hover),
+      onColumnRename: (column, name) => this.renameColumnTo(column, name),
       onTypeChange: (column, type) => this.changeType(column, type),
       quickFilterFor: (column) => {
         const filter = this.filters.get(column);
@@ -8161,18 +8162,15 @@ export class App {
   private async renameColumn(column: number): Promise<void> {
     const meta = this.metas[column];
     if (meta === undefined) return;
-    const next = await openPrompt({
-      title: "Rename column",
-      label: "Column name",
-      value: meta.name,
-      confirmLabel: "Rename",
-    });
-    if (next === null) return;
+    const next = await openPrompt({ title: "Rename column", label: "Column name", value: meta.name, confirmLabel: "Rename" });
+    if (next !== null) this.renameColumnTo(column, next);
+  }
+
+  /** Renames one column (right-click Rename, or a double-click on its name); blank or unchanged does nothing. */
+  private renameColumnTo(column: number, next: string): void {
     const name = next.trim();
-    if (name === "" || name === meta.name) return;
-    const headers = this.metas.map((entry) => entry.name);
-    headers[column] = name;
-    this.applyHeaderRename(headers);
+    if (name === "" || this.metas[column] === undefined || name === this.metas[column].name) return;
+    this.applyHeaderRename(this.metas.map((entry, index) => (index === column ? name : entry.name)));
   }
 
   /** Applies a parameter-free clean straight from the menu, with an undo toast. */

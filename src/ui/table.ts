@@ -1,5 +1,5 @@
 import { junkTextCount } from "./missing-views.js";
-import { inspectorWarm } from "./column-inspector.js";
+import { closeColumnInspector, inspectorWarm } from "./column-inspector.js";
 import { buildFileOrderSort, buildSortControl } from "./sort-control.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
@@ -92,6 +92,8 @@ export interface ResultTableOptions {
   filtersOpen?: () => boolean;
   /** Clicking a column name opens the (read-only) inspector anchored to it; resting the pointer on it opens it as a hover. */
   onColumnInspect: (column: number, anchor: HTMLElement, hover?: boolean) => void;
+  /** Double-clicking a column name renames it in place. */
+  onColumnRename?: (column: number, name: string) => void;
   onTypeChange: (column: number, type: ColumnType) => boolean | Promise<boolean>;
   /** The column's values that best fit what was typed in a filter (a few letters or a small typo). */
   requestValueSuggestions?: (column: number, query: string) => Promise<{ label: string; count: number }[]>;
@@ -626,6 +628,37 @@ export class ResultTable {
     }
   }
 
+  /** The column's name becomes a text box: Enter or leaving it renames, Escape keeps the name. */
+  private renameInPlace(index: number, label: HTMLElement): void {
+    const name = this.columns[index]?.name ?? "";
+    closeColumnInspector();
+    const input = el("input", { class: "text-input th-rename", type: "text", "aria-label": "Column name", spellcheck: "false" }) as HTMLInputElement;
+    input.value = name;
+    let done = false;
+    const finish = (keep: boolean): void => {
+      if (done) return;
+      done = true;
+      const next = input.value.trim();
+      if (input.isConnected) input.replaceWith(label);
+      if (keep && next !== "" && next !== name) {
+        label.textContent = next;
+        this.options.onColumnRename?.(index, next);
+      }
+    };
+    input.addEventListener("keydown", (event) => {
+      event.stopPropagation();
+      if (event.key === "Enter") finish(true);
+      else if (event.key === "Escape") finish(false);
+    });
+    // Clicks in the box edit the name; they must not sort or select the column.
+    input.addEventListener("pointerdown", (event) => event.stopPropagation());
+    input.addEventListener("click", (event) => event.stopPropagation());
+    input.addEventListener("blur", () => finish(true));
+    label.replaceWith(input);
+    input.focus();
+    input.select();
+  }
+
   private startResize(event: PointerEvent, index: number): void {
     event.preventDefault();
     event.stopPropagation();
@@ -702,6 +735,12 @@ export class ResultTable {
       const sort = buildSortControl(name, column.type, shownDir, (dir) => this.options.onSort(index, dir));
       label.setAttribute("aria-haspopup", "dialog");
       label.addEventListener("click", () => this.options.onColumnInspect(index, label));
+      label.addEventListener("dblclick", (event) => {
+        if (this.options.onColumnRename === undefined) return;
+        event.preventDefault();
+        window.clearTimeout(hoverTimer);
+        this.renameInPlace(index, label);
+      });
       // Resting a mouse on the name shows the same panel; a quick pass across the headers or a drag does not.
       // Once one is open (or just closed), the next opens at once: building it takes a millisecond or two.
       let hoverTimer = 0;
