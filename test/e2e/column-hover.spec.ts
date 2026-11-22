@@ -52,3 +52,18 @@ test("double-clicking a column name renames it in place; Escape keeps the old na
   await page.locator(".th-rename").press("Escape");
   await expect(page.locator(".th-label", { hasText: /^amount$/ })).toBeVisible();
 });
+
+test("every column name to snake_case from the header menu, and Undo puts them back", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "orders.csv", mimeType: "text/csv", buffer: Buffer.from("Order ID,Ship Region,amount\n1,North,10\n2,South,20\n") });
+  await page.locator(".nav-row").waitFor();
+  await page.getByRole("tab", { name: "Table" }).click();
+  await page.locator(".th-label", { hasText: /^amount$/ }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: /All column names/ }).click();
+  await page.getByRole("menuitem", { name: /^snake_case/ }).click();
+  await expect(page.locator(".th-label", { hasText: /^order_id$/ })).toBeVisible();
+  await expect(page.locator(".th-label", { hasText: /^ship_region$/ })).toBeVisible();
+  await expect(page.locator(".toast")).toContainText("Renamed 2 columns to snake_case");
+  await page.locator(".toast").getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator(".th-label", { hasText: /^Order ID$/ })).toBeVisible();
+});

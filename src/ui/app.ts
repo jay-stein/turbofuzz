@@ -63,6 +63,7 @@ import { describeCleanOp, describeCleanOpDetail, type CleanOp } from "../data/cl
 import type { CastOptions, CastTarget } from "../data/cast-ops.js";
 import { openCastDialog } from "./cast-dialog.js";
 import { openDateAudit } from "./date-audit-dialog.js";
+import { tidyAllNames } from "./header-tidy.js";
 import { openBatchCastDialog } from "./batch-cast-dialog.js";
 import { formatBound, openRangePrompt } from "./range-prompt.js";
 import { pandasRecipeScript, type RecipeInput, viewToPandas } from "../data/recipe.js";
@@ -7893,7 +7894,7 @@ export class App {
 
   private openClean(
     column?: number,
-    tab?: "values" | "nulls",
+    tab?: "values" | "nulls" | "names",
     op?: CleanOp,
   ): void {
     if (this.datasetName === "" || this.loading) return;
@@ -8138,6 +8139,7 @@ export class App {
         if (locale !== meta.numberLocale) this.changeNumberLocale(column, locale);
       },
       onRename: () => void this.renameColumn(column),
+      onTidyNames: (style) => (style === null ? this.openClean(undefined, "names") : tidyAllNames(this.metas.map((entry) => entry.name), style, (headers) => this.applyHeaderRename(headers), (text, undo) => this.showToast(text, undo))),
       onChangeType: (type) => void this.changeType(column, type),
       onInsert: (at) => void this.openNewColumn(at),
       onDelete: () => void this.confirmDeleteColumn(column),

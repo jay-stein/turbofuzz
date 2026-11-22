@@ -8,6 +8,8 @@ import type { ColumnMeta } from "../worker/protocol.js";
 import { ICONS, fromMenuItems, type ActionItem, type ActionSection } from "./action-menu.js";
 import { openPrompt } from "./dialog.js";
 import type { MenuItem } from "./menu.js";
+import type { HeaderCaseStyle } from "../data/headers.js";
+import { TIDY_STYLES } from "./header-tidy.js";
 
 /** What the column's action menu needs from the page: its state, and a callback per verb. */
 export interface ColumnActionContext {
@@ -36,6 +38,8 @@ export interface ColumnActionContext {
   onDisplayGrouping(on: boolean): void;
   onNumberLocale(locale: NumberLocale): void;
   onRename(): void;
+  /** Every column name in one style (null: the Clean panel's Column names tab, with a preview). */
+  onTidyNames?(style: HeaderCaseStyle | null): void;
   onChangeType(type: ColumnType): void;
   /** New column at this position (column index it takes). */
   onInsert(at: number): void;
@@ -162,6 +166,19 @@ export function columnActionSections(ctx: ColumnActionContext): ActionSection[] 
 
   const columnItems: ActionItem[] = [
     { label: "Rename column…", icon: ICONS.rename, run: () => ctx.onRename() },
+    ...(ctx.onTidyNames === undefined
+      ? []
+      : [
+          {
+            label: "All column names",
+            icon: ICONS.textCase,
+            hint: "Rename every column at once: snake_case, lower case and more",
+            children: [
+              ...TIDY_STYLES.map((entry) => ({ label: entry.label, hint: entry.example, instant: true, run: () => ctx.onTidyNames?.(entry.style) })),
+              { label: "More options…", hint: "Preview every name first; trim, brackets, duplicates", run: () => ctx.onTidyNames?.(null) },
+            ],
+          },
+        ]),
     {
       label: "Change type",
       icon: ICONS.type,
