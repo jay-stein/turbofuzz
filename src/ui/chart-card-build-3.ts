@@ -5,6 +5,7 @@
 import { movieIcon } from "./chart-card-parts.js";
 import type { TimeGrain } from "../data/aggregate.js";
 import { el } from "./dom.js";
+import { beginTitleEdit } from "./chart-title-edit.js";
 import type { ChartCard } from "./chart-card.js";
 
 export function buildPart7(card: ChartCard, field: (label: string, input: HTMLElement) => HTMLElement) {
@@ -173,7 +174,15 @@ export function buildPart7(card: ChartCard, field: (label: string, input: HTMLEl
     card.canvas.addEventListener("wheel", (event) => card.onWheel(event as WheelEvent), {
       passive: false,
     });
-    card.canvas.addEventListener("dblclick", () => card.resetMapZoom());
+    card.canvas.addEventListener("dblclick", (event) => {
+      // Above the plot is the chart's title: a double-click there renames it.
+      const frame = card.lastFrame;
+      if (card.options.docked === true && card.config.kind !== "map" && frame !== null && event.offsetY < frame.top) {
+        beginTitleEdit(card);
+        return;
+      }
+      card.resetMapZoom();
+    });
     if (typeof ResizeObserver !== "undefined") {
       card.resizeObserver = new ResizeObserver(() => card.scheduleRender());
       card.resizeObserver.observe(canvasWrap);

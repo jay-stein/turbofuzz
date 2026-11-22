@@ -16,6 +16,7 @@ import type { ChartCard } from "./chart-card.js";
 import type { ChartCardConfig } from "./chart-card-types.js";
 import { MAX_VALUES, SHORT_PALETTES, MORE_PALETTES } from "./chart-card-types.js";
 import { panelsSupported } from "./chart-panels.js";
+import { bindTitleEdit } from "./chart-title-edit.js";
 
 /**
  * The settings panel in three parts. What every chart needs stays in view: its type, its fields
@@ -82,6 +83,7 @@ export function dock(card: ChartCard, head: HTMLElement, quickRow: HTMLElement, 
     if (card.config.source !== "") card.options.onOpenSource?.(card.config.source);
   });
   head.prepend(el("div", { class: "chart-headline" }, [card.summaryEl, card.scopeEl, card.sourceChip]));
+  bindTitleEdit(card);
   card.undoButton = el(
     "button",
     { class: "ghost small chart-undo-btn", type: "button", title: "Undo the last change to this chart (Ctrl+Z)", "aria-label": "Undo the last change to this chart", disabled: "disabled" },

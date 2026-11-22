@@ -19289,3 +19289,16 @@ mark.cmp-ch {
 .chart-peek-table .num {
   text-align: right;
 }
+
+/* Renaming a chart in place: the headline becomes this box. */
+.chart-headline .chart-title-edit {
+  flex: 0 1 320px;
+  min-width: 160px;
+  height: 28px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.chart-headline .chart-summary {
+  cursor: text;
+}
