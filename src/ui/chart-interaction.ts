@@ -10,12 +10,12 @@ import type { SliceRegion } from "../worker/protocol.js";
 import { addExclusion, describeRange, exclusionChips, removeChip, type ChartExclusion } from "../data/chart-exclusions.js";
 import { barKindFor, COMMON_KINDS, fitChartKind, kindIcon, MORE_GROUPS } from "./chart-gallery.js";
 import { CHART_KIND_LABELS, describeStep, zoomPlotBounds } from "./chart-utils.js";
-import { clear, el } from "./dom.js";
-import { markButtons } from "./chart-mark-colors.js";
+import { clear, el, svgIcon } from "./dom.js";
+import { colourMapRow, markButtons } from "./chart-mark-colors.js";
 import { openMenu, type MenuItem } from "./menu.js";
 import type { ChartCard } from "./chart-card.js";
 import type { ValueScale, BrushRange, BrushSpace, Frame } from "./chart-card-types.js";
-import { addMarkerPath, POINT_LIMIT } from "./chart-card-types.js";
+import { addMarkerPath, POINT_LIMIT, SHORT_PALETTES } from "./chart-card-types.js";
 
 /** Every chart type as a picture, grouped by the question it answers; ones the data cannot draw say why. */
 export function openKindPicker(card: ChartCard): void {
@@ -115,8 +115,22 @@ export function selectRegion(card: ChartCard, region: HitRegion): void {
       card.render();
     });
     const marks = region.mark === undefined ? [] : markButtons(card, region.mark, bar, card.usesAggregate());
-    bar.replaceChildren(el("span", { class: "chart-selection-name", title: name }, [name]), ...(canFilter ? [filter] : []), ...(card.options.onShowRows === undefined || rows.length === 0 ? [] : [show]), ...marks, dismiss);
+    // Deleting a bar is the commonest thing after recolouring it: one button, chart only, with the chip to bring it back.
+    const canDelete = canFilter && card.canExclude();
+    const remove = el("button", { class: "small chart-delete-mark", type: "button", title: `Delete ${name} from this chart (the table keeps it; the chip above the chart brings it back)` }, [svgIcon('<path d="M4 7h16"/><path d="M9 7V4.5h6V7"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v5.5"/><path d="M14 11v5.5"/>', "chart-delete-icon"), "Delete"]);
+    remove.addEventListener("click", () => {
+      const actions = region.actions;
+      card.clearSelection();
+      if (!deleteMarks(card, actions)) card.render();
+    });
+    bar.replaceChildren(el("span", { class: "chart-selection-name", title: name }, [name]), ...(canDelete ? [remove] : []), ...marks, ...(canFilter ? [filter] : []), ...(card.options.onShowRows === undefined || rows.length === 0 ? [] : [show]), dismiss);
     bar.classList.remove("hidden");
+    if (region.mark !== undefined) {
+      // The colours show at once: this bar's swatches, then (for bar charts) a colour map for all of them.
+      (marks[0] as HTMLButtonElement | undefined)?.click();
+      if (card.config.kind === "bar" || card.config.kind === "barplot") bar.append(colourMapRow(card, SHORT_PALETTES));
+      card.canvas.focus({ preventScroll: true });
+    }
   }
   card.render();
 }
@@ -475,7 +489,7 @@ export function showTooltipAtPointer(card: ChartCard): void {
   }
   details.push(card.scopeEl.textContent ?? "");
   if (card.canExclude() && (region.actions.length > 0 || (region.contextActions?.length ?? 0) > 0)) {
-    details.push("Right-click to leave this out of this chart");
+    details.push(card.options.docked === true ? "Click to recolour or delete it; right-click for more" : "Right-click to delete or recolour it");
   }
   card.tooltipEl.append(
     el(
@@ -1208,7 +1222,26 @@ export function handleCanvasContextMenu(card: ChartCard, event: MouseEvent): voi
   const hasExclusions = card.excludes().length > 0;
   if (actions.length === 0 && point === null && !hasExclusions) return;
   event.preventDefault();
-  card.openExclusionMenu(actions, { x: event.clientX, y: event.clientY }, point);
+  card.openExclusionMenu(actions, { x: event.clientX, y: event.clientY }, point, region);
+}
+
+/** Takes what a mark stands for out of this chart only (the table keeps it). False when nothing could be. */
+export function deleteMarks(card: ChartCard, actions: readonly HitAction[]): boolean {
+  if (!card.canExclude()) return false;
+  let next = card.excludes();
+  for (const action of actions) {
+    if (action.kind === "values") {
+      const label = card.meta(action.column)?.categories?.labels[action.code];
+      if (label !== undefined) next = addExclusion(next, { kind: "values", column: action.column, labels: [label] });
+    } else if (action.kind === "range") {
+      next = addExclusion(next, { kind: "range", column: action.column, min: action.min, max: action.max });
+    } else {
+      next = addExclusion(next, { kind: "text", column: action.column, query: action.query });
+    }
+  }
+  if (next === card.excludes()) return false;
+  card.setExcludes(next);
+  return true;
 }
 
 /**
@@ -1245,8 +1278,18 @@ export function dataPointAt(card: ChartCard, clientX: number, clientY: number): 
  * value, a numeric range or a text term. Every entry is chart-local unless
  * it says "table"; exclusions never touch the table or other cards.
  */
-export function openExclusionMenu(card: ChartCard, actions: readonly HitAction[], at: { x: number; y: number }, point: { x: number; y: number } | null = null): void {
+export function openExclusionMenu(card: ChartCard, actions: readonly HitAction[], at: { x: number; y: number }, point: { x: number; y: number } | null = null, region: HitRegion | null = null): void {
   const items: MenuItem[] = [];
+  // Recolouring is what people most often want from a bar, next to deleting it: it opens the bar's own strip.
+  if (region !== null && region.mark !== undefined) {
+    items.push({
+      label: `Recolour “${region.lines[0] ?? "this"}”…`,
+      title: "Pick a colour for this one mark, or a colour map for them all",
+      action: () => {
+        if (card.selectedRegion === null || !sameMark(card.selectedRegion, region)) card.selectRegion(region);
+      },
+    });
+  }
   if (point !== null && card.canExclude()) {
     const axes: { column: number; value: number; name: string }[] = [
       { column: card.config.x, value: point.x, name: card.meta(card.config.x)?.name ?? "X" },
@@ -1258,7 +1301,7 @@ export function openExclusionMenu(card: ChartCard, actions: readonly HitAction[]
       const text = rounded.toLocaleString("en-US", { maximumFractionDigits: 6 });
       items.push(
         {
-          label: `Leave out rows where ${axis.name} is above ${text}`,
+          label: `Delete rows where ${axis.name} is above ${text} from this chart`,
           title: "Trim everything beyond this point on this axis, in this chart only",
           action: () =>
             card.setExcludes(
@@ -1271,7 +1314,7 @@ export function openExclusionMenu(card: ChartCard, actions: readonly HitAction[]
             ),
         },
         {
-          label: `Leave out rows where ${axis.name} is below ${text}`,
+          label: `Delete rows where ${axis.name} is below ${text} from this chart`,
           title: "Trim everything beyond this point on this axis, in this chart only",
           action: () =>
             card.setExcludes(
@@ -1296,8 +1339,8 @@ export function openExclusionMenu(card: ChartCard, actions: readonly HitAction[]
         if (label === undefined) continue;
         const shown = label === "" ? "(empty)" : label;
         items.push({
-          label: `Leave out “${shown}”${where}`,
-          title: "Remove these rows from this chart only; click the chip to put them back",
+          label: `Delete “${shown}”${where} from this chart`,
+          title: "Take these rows out of this chart only (the table keeps them); the chip above the chart brings them back",
           action: () =>
             card.setExcludes(
               addExclusion(card.excludes(), { kind: "values", column: action.column, labels: [label] }),
@@ -1317,8 +1360,8 @@ export function openExclusionMenu(card: ChartCard, actions: readonly HitAction[]
         const text = describeRange(action.min, action.max, card.boundFormatter(action.column));
         const name = column?.name ?? "values";
         items.push({
-          label: `Leave out ${name} ${text}`,
-          title: "Remove values in this range from this chart only",
+          label: `Delete ${name} ${text} from this chart`,
+          title: "Take values in this range out of this chart only (the table keeps them)",
           action: () =>
             card.setExcludes(
               addExclusion(card.excludes(), {
@@ -1331,8 +1374,8 @@ export function openExclusionMenu(card: ChartCard, actions: readonly HitAction[]
         });
       } else {
         items.push({
-          label: `Leave out rows containing “${action.query}”${where}`,
-          title: "Remove matching rows from this chart only",
+          label: `Delete rows containing “${action.query}”${where} from this chart`,
+          title: "Take matching rows out of this chart only (the table keeps them)",
           action: () =>
             card.setExcludes(
               addExclusion(card.excludes(), {
@@ -1363,7 +1406,7 @@ export function openExclusionMenu(card: ChartCard, actions: readonly HitAction[]
     });
     if (first.kind === "values") {
       items.push({
-        label: `Leave ${described} out of the table too`,
+        label: `Filter ${described} out of the table`,
         title: "A table filter that keeps every other value",
         action: () => card.excludeFromTable(first.column, first.code),
       });
@@ -1371,7 +1414,7 @@ export function openExclusionMenu(card: ChartCard, actions: readonly HitAction[]
   }
   if (card.excludes().length > 0) {
     items.push({
-      label: `Put back everything left out (${exclusionChips(card.excludes(), () => "").length})`,
+      label: `Bring back everything deleted from this chart (${exclusionChips(card.excludes(), () => "").length})`,
       action: () => card.setExcludes([]),
     });
   }

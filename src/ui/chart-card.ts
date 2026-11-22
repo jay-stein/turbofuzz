@@ -1969,8 +1969,8 @@ export class ChartCard {
     return dataPointAt(this, clientX, clientY);
   }
 
-  openExclusionMenu(actions: readonly HitAction[], at: { x: number; y: number }, point: { x: number; y: number } | null = null): void {
-    return openExclusionMenu(this, actions, at, point);
+  openExclusionMenu(actions: readonly HitAction[], at: { x: number; y: number }, point: { x: number; y: number } | null = null, region: HitRegion | null = null): void {
+    return openExclusionMenu(this, actions, at, point, region);
   }
 
   excludeFromTable(column: number, code: number): void {

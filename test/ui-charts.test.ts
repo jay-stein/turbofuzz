@@ -3586,14 +3586,14 @@ test("right-clicking a shape offers to leave it out, which re-requests the data 
   const items = [...document.querySelectorAll(".context-menu .context-item")].map(
     (item) => item.textContent,
   );
-  assert.ok(items.includes("Leave out “Perth”"), `menu was ${JSON.stringify(items)}`);
+  assert.ok(items.includes("Delete “Perth” from this chart"), `menu was ${JSON.stringify(items)}`);
   assert.ok(items.includes("Show only “Perth”"));
   assert.ok(items.includes("Filter the table to “Perth”"));
 
   const before = views.length;
   (
     [...document.querySelectorAll(".context-menu .context-item")].find(
-      (item) => item.textContent === "Leave out “Perth”",
+      (item) => item.textContent === "Delete “Perth” from this chart",
     ) as unknown as { click(): void }
   ).click();
   await tick();

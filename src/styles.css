@@ -19112,3 +19112,81 @@ mark.cmp-ch {
 .workspace:has(.sidebar.collapsed:not(.hidden)):has(.table-host:not(.hidden)):not(.overview-mode) .filters-show {
   display: none;
 }
+
+/* A clicked bar's strip: Delete stands out in red; this bar's swatches and the colour maps for all bars sit below. */
+.chart-delete-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--panel));
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.chart-delete-mark:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.chart-delete-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
+}
+
+.chart-selection .chart-mark-colors::before {
+  content: "This one";
+  align-self: center;
+  margin-right: 4px;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.chart-map-row {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-map-row-label {
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  margin-right: 2px;
+}
+
+.chart-map-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px 2px 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.chart-map-choice:hover {
+  border-color: var(--accent);
+}
+
+.chart-map-choice.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.chart-map-strip {
+  width: 34px;
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text) 15%, transparent);
+}

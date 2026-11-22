@@ -14,7 +14,7 @@ import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
 import type { Frame } from "./chart-card-types.js";
 import { refAxisTop, setRefAxis, setRefX } from "./chart-ref-lines.js";
-import { markColor, markKey, markLabelled, openSeriesColours } from "./chart-mark-colors.js";
+import { barFill, markColor, markKey, markLabelled, openSeriesColours } from "./chart-mark-colors.js";
 import { RANKED_BARS_ABOVE, SPLIT_AXIS_LIMIT, GROUP_LINE_LIMIT, KDE_SIGMA_BINS } from "./chart-card-types.js";
 
 /** Wrapped message drawn inside the empty plot area. */
@@ -660,7 +660,7 @@ export function drawRankedBars(card: ChartCard, ctx: CanvasRenderingContext2D, f
   rows.forEach((row, k) => {
     const y = frame.top + k * slot;
     const width = Number.isFinite(row.value) ? (Math.abs(row.value) / top) * barsW : 0;
-    ctx.fillStyle = row.index < 0 ? frame.dim : markColor(card, card.primaryColor(), result.labels[row.index] ?? "");
+    ctx.fillStyle = row.index < 0 ? frame.dim : markColor(card, barFill(card, k, row.value, top), result.labels[row.index] ?? "");
     ctx.globalAlpha = row.index < 0 ? 0.5 : 0.85;
     ctx.fillRect(left, y + (slot - barH) / 2, width, barH);
     ctx.globalAlpha = 1;
@@ -883,7 +883,7 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
       const height = ((values[i] || 0) / top) * frame.plotH;
       if (height <= 0) continue;
       ctx.globalAlpha = 0.85;
-      ctx.fillStyle = markColor(card, card.primaryColor(), result.labels[i] ?? "");
+      ctx.fillStyle = markColor(card, barFill(card, i, values[i] ?? 0, top), result.labels[i] ?? "");
       card.fillTopRounded(ctx, frame.left + i * slot + inset, frame.top + frame.plotH - height, barW, height, 3 * ui);
       ctx.globalAlpha = 1;
       const bar = card.errorBarAt(result, i);

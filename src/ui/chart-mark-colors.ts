@@ -10,7 +10,9 @@
  */
 
 import { cssVar } from "./chart-card-parts.js";
-import { hexToRgb } from "./chart-utils.js";
+import { hexToRgb, rampColor } from "./chart-utils.js";
+import { DEFAULT_PALETTE, isRampPalette, samplePalette } from "../data/palettes.js";
+import { colorForFraction } from "./color-scale.js";
 import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
 import type { ChartCardConfig } from "./chart-card-types.js";
@@ -231,4 +233,60 @@ export function openSeriesColours(card: ChartCard, series: string): void {
   bar.replaceChildren(el("span", { class: "chart-selection-name", title: series }, [series]), ...buttons, dismiss);
   bar.classList.remove("hidden");
   buttons[0]?.click();
+}
+
+/**
+ * "All bars" colour maps, shown when a bar is clicked: one plain colour, or every bar its own colour from a
+ * map, each drawn as a small strip of its colours so the choice is visual. Applies what Format → Colour map
+ * and "Colour each bar" would, and keeps them in step.
+ */
+export function colourMapRow(card: ChartCard, maps: readonly string[]): HTMLElement {
+  const row = el("div", { class: "chart-map-row", role: "group", "aria-label": "Colours for all bars" }, [el("span", { class: "chart-map-row-label" }, ["All bars"])]);
+  const current = card.config.multiColor ? (card.config.palette ?? "") : null;
+  const strip = (colors: readonly string[]): HTMLElement => {
+    const swatch = el("span", { class: "chart-map-strip", "aria-hidden": "true" });
+    swatch.style.background = colors.length === 1 ? colors[0]! : `linear-gradient(90deg, ${colors.map((c, i) => `${c} ${(i / colors.length) * 100}% ${((i + 1) / colors.length) * 100}%`).join(", ")})`;
+    return swatch;
+  };
+  const choice = (label: string, title: string, colors: readonly string[], on: boolean, apply: () => Promise<void> | void): void => {
+    const button = el("button", { class: "chart-map-choice", type: "button", title, "aria-pressed": String(on) }, [strip(colors), el("span", {}, [label])]) as HTMLButtonElement;
+    button.classList.toggle("active", on);
+    button.addEventListener("click", () => {
+      void Promise.resolve(apply()).then(() => {
+        for (const other of row.querySelectorAll(".chart-map-choice")) {
+          other.classList.toggle("active", other === button);
+          other.setAttribute("aria-pressed", String(other === button));
+        }
+      });
+    });
+    row.append(button);
+  };
+  choice("One colour", "Every bar in the chart's own colour", [card.primaryColor()], current === null, () => {
+    card.config.multiColor = false;
+    if (card.multiInput !== undefined) card.multiInput.checked = false;
+    card.render();
+  });
+  for (const name of maps) {
+    choice(name, `Give every bar its own colour from ${name}`, samplePalette(name, 6, []), current === name, async () => {
+      await card.applyPalette(name);
+      card.config.multiColor = true;
+      if (card.multiInput !== undefined) card.multiInput.checked = true;
+      card.render();
+    });
+  }
+  return row;
+}
+
+/**
+ * A bar's own colour before any single-bar override. With "Colour each bar" off, the chart's colour. On, a
+ * set of distinct colours gives each bar the next one, and a ramp shades each bar by its value (bigger is
+ * further along the ramp), so the colour says something.
+ */
+export function barFill(card: ChartCard, position: number, value: number, top: number): string {
+  if (!card.config.multiColor) return card.primaryColor();
+  const name = card.config.palette ?? DEFAULT_PALETTE;
+  if (!isRampPalette(name)) return card.paletteColor(position);
+  const share = top > 0 && Number.isFinite(value) ? Math.min(1, Math.max(0, Math.abs(value) / top)) : 0;
+  // The ramp's palest end vanishes into the background, so the smallest bar starts a fifth of the way in.
+  return colorForFraction(0.2 + 0.8 * share, card.rampStopsFor(name), rampColor);
 }
