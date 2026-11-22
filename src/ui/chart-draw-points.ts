@@ -737,9 +737,20 @@ export function paintDensityHeat(card: ChartCard, ctx: CanvasRenderingContext2D,
   ctx.drawImage(off, frame.left, frame.top, frame.plotW, frame.plotH);
 }
 
+/**
+ * One colour per contour level, low to high, from the card's colour map (Format → Colour map, Reverse
+ * included), the same rule heatmaps follow: a ramp is sampled along its length, and a set of distinct
+ * colours (which has no low-to-high order) keeps the default ramp.
+ */
+function contourColors(card: ChartCard, count: number): string[] {
+  const name = card.config.palette ?? DEFAULT_PALETTE;
+  const stops = isRampPalette(name) ? card.rampStopsFor(name) : null;
+  return Array.from({ length: count }, (_, index) => colorForFraction((index + 1) / count, stops, rampColor));
+}
+
 export function paintDensityBands(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesGrid, smooth: Float64Array, smoothMax: number): void {
   const levels = contourLevels(smoothMax, 5);
-  const colors = levels.map((_, index) => hexToRgb(rampColor((index + 1) / levels.length)));
+  const colors = contourColors(card, levels.length).map(hexToRgb);
   const off = document.createElement("canvas");
   off.width = result.cols;
   off.height = result.rows;
@@ -768,10 +779,11 @@ export function paintDensityBands(card: ChartCard, ctx: CanvasRenderingContext2D
 export function paintContourLines(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesGrid, smooth: Float64Array, smoothMax: number, labelled = false): void {
   const levels = contourLevels(smoothMax, 5);
   const placed: Box[] = [];
+  const colors = contourColors(card, levels.length);
   levels.forEach((level, index) => {
     const segments = marchingSquares(smooth, result.cols, result.rows, level);
     if (segments.length === 0) return;
-    const color = rampColor((index + 1) / levels.length);
+    const color = colors[index] ?? rampColor((index + 1) / levels.length);
     const px = new Float64Array(segments.length);
     for (let i = 0; i < segments.length; i += 2) {
       px[i] = frame.left + (segments[i] / result.cols) * frame.plotW;

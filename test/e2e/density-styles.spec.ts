@@ -38,4 +38,15 @@ test("density styles: heat, filled contours, contour lines and heat + contour li
     await expect(note).toContainText(words);
     if (process.env.SHOT_DIR) await page.locator("canvas.chart-canvas").first().screenshot({ path: `${process.env.SHOT_DIR}/density-${value}.png` });
   }
+
+  // The contours take their colours from Format → Colour map.
+  await style.selectOption("contours");
+  const canvas = page.locator("canvas.chart-canvas").first();
+  const pixels = (): Promise<string> => canvas.evaluate((node) => (node as HTMLCanvasElement).toDataURL());
+  const before = await pixels();
+  const map = page.getByLabel("Colour map", { exact: true });
+  const other = "rocket"; // a ramp: sets of distinct colours have no low-to-high order, so they keep the default ramp
+  await map.selectOption(other);
+  await expect.poll(pixels).not.toBe(before);
+  if (process.env.SHOT_DIR) await canvas.screenshot({ path: `${process.env.SHOT_DIR}/density-contours-${other}.png` });
 });
