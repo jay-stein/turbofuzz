@@ -336,6 +336,8 @@ export interface OrderMessage {
   reversed: boolean;
   shuffled: boolean;
   rowLimit: RowLimit | null;
+  /** Shown rows whose sorted-by cell is empty (blank or junk text): they sit at the end. 0 when not sorted. */
+  emptyAtEnd: number;
 }
 
 export type GetRowsRequest = {

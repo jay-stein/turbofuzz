@@ -1482,7 +1482,11 @@ function handlePreviewFormula(message: PreviewFormulaRequest): void {
 }
 
 function handleGetOrder(message: GetOrderRequest): void {
-  post({ type: "order", requestId: message.requestId, column: rankColumn, dir: sortDir, reversed: reversedOrder, shuffled: shuffledOrder, rowLimit });
+  // Empty cells in the sorted column sit at the end of the order; the Table offers to hide them.
+  let emptyAtEnd = 0;
+  const mask = rankColumn >= 0 ? dataset?.columns[rankColumn]?.nullMask : undefined;
+  if (mask !== undefined && !shuffledOrder) for (let i = 0; i < sortedIds.length; i++) if (mask.get(sortedIds[i])) emptyAtEnd++;
+  post({ type: "order", requestId: message.requestId, column: rankColumn, dir: sortDir, reversed: reversedOrder, shuffled: shuffledOrder, rowLimit, emptyAtEnd });
 }
 
 function handleGetRows(message: GetRowsRequest): void {

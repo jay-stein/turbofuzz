@@ -3069,6 +3069,7 @@ export class App {
       onAddColumn: () => void this.openNewColumn(),
       onShowAllColumns: () => this.setHiddenColumns(new Set()),
       currentRowLimit: () => this.rowLimit,
+      onHideEmpty: () => { if (this.tableOrder.column >= 0) this.changeFilter(this.tableOrder.column, { kind: "blank", negate: true }); },
       onFileOrder: () => {
         this.changeSort(-1, 0);
         this.table?.scrollToTop();
@@ -4360,6 +4361,7 @@ export class App {
           dir: order.dir,
           reversed: order.reversed,
           shuffled: order.shuffled,
+          emptyAtEnd: order.emptyAtEnd,
         });
       })
       .catch(() => undefined);

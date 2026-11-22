@@ -17,9 +17,13 @@ export interface TableOrder {
   dir: 1 | -1;
   reversed: boolean;
   shuffled: boolean;
+  /** Shown rows whose sorted-by cell is empty: they sit at the end, and one click hides them. */
+  emptyAtEnd?: number;
 }
 
 export interface TableNavOptions {
+  /** Hides the rows whose sorted-by cell is empty, as an ordinary "not empty" filter on that column. */
+  onHideEmpty(): void;
   /** Columns for "go to a column"; rows in the current order. */
   columns(): readonly string[];
   count(): number;
@@ -67,6 +71,8 @@ export class TableNav {
   private readonly limit: HTMLButtonElement;
   private readonly orderLabel: HTMLElement;
   private readonly fileOrder: HTMLButtonElement;
+  private readonly emptyNote: HTMLElement;
+  private readonly emptyCount: HTMLElement;
   private readonly peek: HTMLElement;
   private readonly hiddenNote: HTMLButtonElement;
   private readonly pop: HTMLElement;
@@ -94,6 +100,10 @@ export class TableNav {
     this.fileRow.setAttribute("aria-pressed", "false");
     this.orderLabel = el("span", { class: "table-nav-order", "aria-live": "polite" });
     this.fileOrder = el("button", { class: "table-nav-link", type: "button", title: "Clear the sort, shuffle and reverse" }, ["Back to file order"]) as HTMLButtonElement;
+    this.emptyCount = el("span", { class: "table-nav-dim" });
+    const hideEmpty = el("button", { class: "table-nav-link", type: "button", title: "Hide these rows with a “not empty” filter on the sorted column (Clear all filters brings them back)" }, ["Hide"]);
+    hideEmpty.addEventListener("click", () => options.onHideEmpty());
+    this.emptyNote = el("span", { class: "table-nav-empty hidden" }, [this.emptyCount, hideEmpty]);
     const addColumn = button("table-nav-add", "Add column", "A new column from a formula over the others, or one value for every row", ICONS.add);
     addColumn.addEventListener("click", () => options.onAddColumn());
     this.peek = el("span", { class: "table-nav-peek", "aria-live": "polite" });
@@ -133,7 +143,7 @@ export class TableNav {
       this.limit,
       this.fileRow,
       el("span", { class: "table-nav-sep", "aria-hidden": "true" }),
-      el("span", { class: "table-nav-order-wrap" }, [el("span", { class: "table-nav-dim" }, ["Order:"]), this.orderLabel, this.fileOrder]),
+      el("span", { class: "table-nav-order-wrap" }, [el("span", { class: "table-nav-dim" }, ["Order:"]), this.orderLabel, this.emptyNote, this.fileOrder]),
       this.hiddenNote,
       el("span", { class: "grow" }),
       this.peek,
@@ -184,6 +194,9 @@ export class TableNav {
     this.reverse.setAttribute("aria-pressed", String(order.reversed));
     const plain = order.column === null && !order.reversed && !order.shuffled;
     this.fileOrder.classList.toggle("hidden", plain);
+    const empty = order.column === null || order.shuffled ? 0 : (order.emptyAtEnd ?? 0);
+    this.emptyCount.textContent = `· ${nf.format(empty)} empty at the end`;
+    this.emptyNote.classList.toggle("hidden", empty === 0);
     this.element.classList.toggle("reordered", !plain);
   }
 

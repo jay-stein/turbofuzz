@@ -19050,3 +19050,14 @@ mark.cmp-ch {
 .th-sort-btn.on:not(.file-order) {
   background: var(--accent-soft);
 }
+
+/* "· 1,204 empty at the end · Hide" after the sort, in the bar under the Table. */
+.table-nav-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.table-nav-empty.hidden {
+  display: none;
+}
