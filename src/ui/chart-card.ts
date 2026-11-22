@@ -209,6 +209,7 @@ export class ChartCard {
   fitWrap!: HTMLElement;
   fitLineInput!: HTMLInputElement;
   fitR2Input!: HTMLInputElement;
+  fitEquationInput!: HTMLInputElement;
   dotOpacityOut!: HTMLElement;
   resetViewButton!: HTMLButtonElement;
   /** Map heat grid (count or measure per cell), computed by the worker. */

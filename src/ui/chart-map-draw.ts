@@ -1163,6 +1163,8 @@ export function syncDotControls(card: ChartCard, mapKind: boolean, scatterKind =
     card.fitLineInput.checked = card.config.fitLine ?? true;
     card.fitR2Input.checked = card.config.fitR2 ?? true;
     card.fitR2Input.disabled = !card.fitLineInput.checked;
+    card.fitEquationInput.checked = card.config.fitEquation ?? true;
+    card.fitEquationInput.disabled = !card.fitLineInput.checked;
     return;
   }
   card.dotMinInput.disabled = false;

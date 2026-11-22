@@ -92,6 +92,7 @@ export interface ChartSpec {
     markLabels?: string[];
     fitLine?: boolean;
     fitR2?: boolean;
+    fitEquation?: boolean;
     span: "auto" | "full";
     animationGrain: TimeGrain;
     animationSpeed: number;
@@ -237,6 +238,7 @@ export function chartSpecFromConfig(
       ...(config.markLabels === undefined ? {} : { markLabels: [...config.markLabels] }),
       ...(config.fitLine === undefined ? {} : { fitLine: config.fitLine }),
       ...(config.fitR2 === undefined ? {} : { fitR2: config.fitR2 }),
+      ...(config.fitEquation === undefined ? {} : { fitEquation: config.fitEquation }),
       span: config.span ?? "auto",
       animationGrain: config.animationGrain ?? "day",
       animationSpeed: config.animationSpeed ?? 1,
@@ -356,6 +358,7 @@ export function chartSpecToConfig(
   Object.assign(config, markStylesFromSpec(spec.presentation));
   if (spec.presentation.fitLine !== undefined) config.fitLine = spec.presentation.fitLine;
   if (spec.presentation.fitR2 !== undefined) config.fitR2 = spec.presentation.fitR2;
+  if (spec.presentation.fitEquation !== undefined) config.fitEquation = spec.presentation.fitEquation;
   config.span = spec.presentation.span;
   config.animationGrain = spec.presentation.animationGrain;
   config.animationSpeed = spec.presentation.animationSpeed;

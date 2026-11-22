@@ -983,14 +983,29 @@ export function drawCorrelationNote(card: ChartCard, ctx: CanvasRenderingContext
   card.font(ctx, frame.ui, 11, "600");
   ctx.fillStyle = frame.dim;
   ctx.textAlign = "right";
-  // R² is the line's: it appears only with the line, and can be switched off on its own. Every row, like r.
+  // R² and the equation are the line's: they appear only with it, and each can be switched off on its own.
   const r2 = fit !== null && (card.config.fitR2 ?? true) ? `  ·  R² = ${(card.seriesCorrelation ** 2).toFixed(2)}` : "";
-  ctx.fillText(
-    `r = ${card.seriesCorrelation.toFixed(2)}${r2}`,
-    frame.left + frame.plotW - 6 * frame.ui,
-    frame.top - 8 * frame.ui,
-  );
+  let text = `r = ${card.seriesCorrelation.toFixed(2)}${r2}`;
+  if (fit !== null && (card.config.fitEquation ?? true)) {
+    const named = `${text}  ·  ${fitEquation(fit.slope, fit.intercept, card.meta(card.config.y)?.name ?? "y", card.meta(card.config.x)?.name ?? "x")}`;
+    // Long column names fall back to y and x rather than run across the plot's title.
+    text = ctx.measureText(named).width <= frame.plotW * 0.92 ? named : `${text}  ·  ${fitEquation(fit.slope, fit.intercept, "y", "x")}`;
+  }
+  ctx.fillText(text, frame.left + frame.plotW - 6 * frame.ui, frame.top - 8 * frame.ui);
   ctx.textAlign = "left";
+}
+
+/** A fit line's equation in the chart's own words: "Total = 2.1 × Speed + 230". Three significant figures. */
+export function fitEquation(slope: number, intercept: number, yName: string, xName: string): string {
+  const figure = (value: number): string => {
+    const abs = Math.abs(value);
+    if (abs >= 1000) return Math.round(abs).toLocaleString("en-US");
+    if (abs === 0) return "0";
+    return String(Number(abs.toPrecision(3)));
+  };
+  const slopeText = `${slope < 0 ? "−" : ""}${figure(slope)} × ${xName}`;
+  if (!Number.isFinite(intercept) || Math.abs(intercept) < 1e-12) return `${yName} = ${slopeText}`;
+  return `${yName} = ${slopeText} ${intercept < 0 ? "−" : "+"} ${figure(intercept)}`;
 }
 
 export function pivotHeatmapData(card: ChartCard): {

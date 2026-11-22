@@ -566,6 +566,8 @@ export interface ChartCardConfig {
   /** A scatter's dashed line of best fit, and the R² beside it (both on unless switched off). */
   fitLine?: boolean;
   fitR2?: boolean;
+  /** The line's equation in the column names (on unless switched off). */
+  fitEquation?: boolean;
   /** Card width in the grid: normal cell or the whole row. */
   span?: "auto" | "full";
   /** The column frames step through, a date or a number column (-1 = off). */

@@ -45,6 +45,19 @@ test("a scatter has shape, size and opacity settings, a dashed best-fit line wit
   await expect(page.getByLabel("Show R squared")).toBeDisabled();
   await page.getByLabel("Line of best fit").check();
   await expect(page.getByLabel("Show R squared")).toBeEnabled();
+  // The line's equation is on by default too, follows the line, and switches off on its own.
+  const equation = page.getByLabel("Show the line's equation");
+  await expect(equation).toBeChecked();
+  const canvas = page.locator("canvas.chart-canvas").first();
+  const pixels = (): Promise<string> => canvas.evaluate((node) => (node as HTMLCanvasElement).toDataURL());
+  const withEquation = await pixels();
+  if (process.env.SHOT_DIR) await canvas.screenshot({ path: `${process.env.SHOT_DIR}/scatter-equation.png` });
+  await equation.uncheck();
+  await expect.poll(pixels).not.toBe(withEquation);
+  await equation.check();
+  await page.getByLabel("Line of best fit").uncheck();
+  await expect(equation).toBeDisabled();
+  await page.getByLabel("Line of best fit").check();
 
   // A horizontal line at the mean of price, and a vertical one at a typed value.
   await page.getByRole("button", { name: "+ Add a line" }).click();

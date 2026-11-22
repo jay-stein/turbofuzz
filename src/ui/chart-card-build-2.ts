@@ -389,9 +389,11 @@ export function buildPart5(card: ChartCard, field: (label: string, input: HTMLEl
     card.dotShapeWrap = dotField("Shape", [card.dotShapeSelect], "The shape of each dot");
     card.fitLineInput = el("input", { type: "checkbox", "aria-label": "Line of best fit" }) as HTMLInputElement;
     card.fitR2Input = el("input", { type: "checkbox", "aria-label": "Show R squared" }) as HTMLInputElement;
+    card.fitEquationInput = el("input", { type: "checkbox", "aria-label": "Show the line's equation" }) as HTMLInputElement;
     card.fitWrap = el("div", { class: "chart-field chart-fit" }, [
       el("label", { class: "chart-check", title: "A dashed least-squares line through the points" }, [card.fitLineInput, " Line of best fit"]),
       el("label", { class: "chart-check", title: "How much of the spread in Y the line accounts for (0 to 1). Shown only with the line." }, [card.fitR2Input, " R²"]),
+      el("label", { class: "chart-check", title: "The line as an equation in the column names, such as Total = 2.1 × Speed + 230. Shown only with the line." }, [card.fitEquationInput, " Equation"]),
     ]);
     card.dotShapeSelect.addEventListener("change", () => {
       card.config.markerShape = card.dotShapeSelect.value as MarkerShape;
@@ -400,10 +402,15 @@ export function buildPart5(card: ChartCard, field: (label: string, input: HTMLEl
     card.fitLineInput.addEventListener("change", () => {
       card.config.fitLine = card.fitLineInput.checked;
       card.fitR2Input.disabled = !card.fitLineInput.checked;
+      card.fitEquationInput.disabled = !card.fitLineInput.checked;
       card.render();
     });
     card.fitR2Input.addEventListener("change", () => {
       card.config.fitR2 = card.fitR2Input.checked;
+      card.render();
+    });
+    card.fitEquationInput.addEventListener("change", () => {
+      card.config.fitEquation = card.fitEquationInput.checked;
       card.render();
     });
     card.dotSettings = el("div", { class: "chart-bubble-settings chart-dot-settings hidden" }, [
