@@ -68,7 +68,14 @@ export function fitChartKind(
       if (dates.length >= 1) {
         return { kind, ok: true, reason: "", preset: { kind, column: dates[0].index } };
       }
-      return { kind, ok: false, reason: "needs a date or datetime column", preset: {} };
+      // No date: a value along an ordered x, as seaborn's lineplot draws it. A few-valued column
+      // (a stage, a rating, a category) reads best along x; otherwise a second number.
+      if (numeric.length >= 1 && (categories.length >= 1 || numeric.length >= 2)) {
+        const x = categories[0] ?? numeric[1]!;
+        const y = numeric.find((entry) => entry.index !== x.index) ?? numeric[0]!;
+        return { kind, ok: true, reason: "", preset: { kind, column: x.index, valueColumn: y.index, valueAgg: "mean" } };
+      }
+      return { kind, ok: false, reason: "needs a date, or a number to plot along another column", preset: {} };
     case "bar":
       if (categories.length >= 1) {
         return { kind, ok: true, reason: "", preset: { kind, column: categories[0].index } };

@@ -181,7 +181,17 @@ export function configForChart(
       if (m0) set.column = m0.pick.index;
       break;
     case "line":
-      if (t0) set.column = t0.pick.index;
+      if (!t0) {
+        // No date: a seaborn-style line of a value over an ordered x, a number or a category.
+        const x = c0 ?? m1 ?? m0;
+        const y = [m0, m1].find((entry) => entry !== undefined && entry !== x);
+        if (x) set.column = x.pick.index;
+        if (y) Object.assign(set, { valueColumn: y.pick.index, valueAgg: agg(y) });
+        const hue = catsAll.find((entry) => entry !== x && entry !== y);
+        if (hue) set.groupColumn = hue.pick.index;
+        break;
+      }
+      set.column = t0.pick.index;
       if (m0) Object.assign(set, { valueColumn: m0.pick.index, valueAgg: agg(m0) });
       if (cats[0]) set.groupColumn = cats[0].pick.index;
       // Several measures and no category: one line each.

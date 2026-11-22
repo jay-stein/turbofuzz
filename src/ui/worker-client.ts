@@ -33,6 +33,8 @@ import type {
   GetSliceBreakdownRequest,
   SliceBreakdownMessage,
   ChartBinsMessage,
+  GetRelLineRequest,
+  RelLineMessage,
   ChartSeriesMessage,
   CorrelationMessage,
   CrosstabMessage,
@@ -365,6 +367,10 @@ export class SearchWorkerClient {
 
   getStats(): Promise<StatsMessage> {
     return this.request<StatsMessage>({ type: "getStats" });
+  }
+
+  getRelLine(input: Omit<GetRelLineRequest, "type" | "requestId">): Promise<RelLineMessage> {
+    return this.request<RelLineMessage>({ type: "getRelLine", ...input });
   }
 
   getChartBins(

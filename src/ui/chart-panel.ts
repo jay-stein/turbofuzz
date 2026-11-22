@@ -17,6 +17,8 @@ import type {
   GetSliceBreakdownRequest,
   SliceBreakdownMessage,
   ChartBinsMessage,
+  GetRelLineRequest,
+  RelLineMessage,
   ChartSeriesMessage,
   ColumnMeta,
   CorrelationMessage,
@@ -117,6 +119,8 @@ export interface ChartsPanelOptions {
   requestViewPivot?(source: string): Promise<PivotMessage | null>;
   /** Rows of the table as it stands, for a chart's Peek. */
   requestRows?(start: number, end: number): Promise<RowsMessage>;
+  /** A seaborn-style line (y at each x with a band) for a Line whose x is not a date. */
+  requestRelLine?(input: Omit<GetRelLineRequest, "type" | "requestId">): Promise<RelLineMessage>;
   /** Ad-hoc aggregation for the treemap measure. */
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
   /** Token frequencies for the top-terms chart. */
@@ -906,6 +910,7 @@ export class ChartsPanel {
     return {
         datasetName: this.options.datasetName,
         requestBins: this.options.requestBins,
+        requestRelLine: this.options.requestRelLine,
         requestSeries: this.options.requestSeries,
         requestBoxStats: this.options.requestBoxStats,
         requestCrosstab: this.options.requestCrosstab,

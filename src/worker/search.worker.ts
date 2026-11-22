@@ -50,6 +50,7 @@ import { compileFormula, evaluateFormula } from "../data/column-formula.js";
 import { formulasFromExamples } from "../data/formula-examples.js";
 import { missingnessGrid } from "../data/missingness.js";
 import { categoryCodes, computeSeries, groupPlaces } from "../data/chart-series.js";
+import { computeRelLine } from "../data/rel-line.js";
 import {
   computeBoxStats,
   computeCorrelation,
@@ -108,7 +109,7 @@ import {
   type IngestProgress,
   type IngestResult,
 } from "./ingest.js";
-import type { CleanColumnsRequest, ClearExcludedRowsRequest, ColumnDetail, ColumnMeta, FileImportMeta, DropRowsRequest, FinalizeStatsRequest, CompareLoadRequest, CompareRunRequest, CompareRowsRequest, CompareDiffsRequest, CompareFindRequest, CompareSetupRequest, CompareSideInfo, GetRowsRequest, GetRowIdsRequest, FindRowRequest, GetOrderRequest, PreviewFormulaRequest, RowLimit, GetStatsRequest, GetChartBinsRequest, GetGroupedBinsRequest, GetMissingnessRequest, GetChartSeriesRequest, GetBoxStatsRequest, GetSliceBreakdownRequest, GetCrosstabRequest, GetCorrelationRequest, GetAggregateRequest, GetPivotRequest, GetCoMissingnessRequest, GetGroupAnomaliesRequest, GetOutlierAnalysisRequest, GetDependenciesRequest, GetRelationshipsRequest, GetTimeSeriesRequest, GetColumnNetworkRequest, GetTextProfileRequest, GetColumnSampleRequest, GetValueSuggestionsRequest, ScanSensitiveRequest, GetRowsAffectedRequest, GetExceptionsRequest, QualityReportXlsxRequest, GetDistributionChangesRequest, GetSimilarClustersRequest, GetGridCountsRequest, GetAnimationRequest, GetErrorBarsRequest, GetRegionValuesRequest, SuggestRegionJoinRequest, LoadRequest, PreviewCleanRequest, KnnEvaluateRequest, KnnPlanRequest, PreviewSample, PreviewTransformRequest, RenameHeadersRequest, ResolveNullsAllRequest, SetFilterRequest, SetFiltersRequest, SetNullPolicyRequest, SetNumberLocaleRequest, SetTypeRequest, CheckKeyDuplicatesRequest, CheckPairRequest, EvaluateRulesRequest, SortRequest, SpecialKind, TransformRequest, TransformPreviewNote, WorkerRequest, WorkerResponse } from "./protocol.js";
+import type { CleanColumnsRequest, ClearExcludedRowsRequest, ColumnDetail, ColumnMeta, FileImportMeta, DropRowsRequest, FinalizeStatsRequest, CompareLoadRequest, CompareRunRequest, CompareRowsRequest, CompareDiffsRequest, CompareFindRequest, CompareSetupRequest, CompareSideInfo, GetRowsRequest, GetRowIdsRequest, FindRowRequest, GetOrderRequest, PreviewFormulaRequest, RowLimit, GetStatsRequest, GetChartBinsRequest, GetRelLineRequest, GetGroupedBinsRequest, GetMissingnessRequest, GetChartSeriesRequest, GetBoxStatsRequest, GetSliceBreakdownRequest, GetCrosstabRequest, GetCorrelationRequest, GetAggregateRequest, GetPivotRequest, GetCoMissingnessRequest, GetGroupAnomaliesRequest, GetOutlierAnalysisRequest, GetDependenciesRequest, GetRelationshipsRequest, GetTimeSeriesRequest, GetColumnNetworkRequest, GetTextProfileRequest, GetColumnSampleRequest, GetValueSuggestionsRequest, ScanSensitiveRequest, GetRowsAffectedRequest, GetExceptionsRequest, QualityReportXlsxRequest, GetDistributionChangesRequest, GetSimilarClustersRequest, GetGridCountsRequest, GetAnimationRequest, GetErrorBarsRequest, GetRegionValuesRequest, SuggestRegionJoinRequest, LoadRequest, PreviewCleanRequest, KnnEvaluateRequest, KnnPlanRequest, PreviewSample, PreviewTransformRequest, RenameHeadersRequest, ResolveNullsAllRequest, SetFilterRequest, SetFiltersRequest, SetNullPolicyRequest, SetNumberLocaleRequest, SetTypeRequest, CheckKeyDuplicatesRequest, CheckPairRequest, EvaluateRulesRequest, SortRequest, SpecialKind, TransformRequest, TransformPreviewNote, WorkerRequest, WorkerResponse } from "./protocol.js";
 
 const scope = self as unknown as {
   onmessage: ((event: MessageEvent<WorkerRequest>) => void) | null;
@@ -465,6 +466,9 @@ async function handle(message: WorkerRequest): Promise<void> {
       break;
     case "getChartBins":
       handleGetChartBins(message);
+      break;
+    case "getRelLine":
+      handleGetRelLine(message);
       break;
     case "getGroupedBins":
       handleGetGroupedBins(message);
@@ -1726,6 +1730,40 @@ function handleGetChartBins(message: GetChartBinsRequest): void {
     median: !numeric ? null : message.chartFilter === undefined ? column.medianSampled() : medianOf(column.numbers(), ids),
     ...bins,
   });
+}
+
+/** A seaborn-style line: y summarised at each x (numbers or categories), a band, one line per hue. */
+function handleGetRelLine(message: GetRelLineRequest): void {
+  const started = performance.now();
+  const { dataset } = state();
+  const xColumn = dataset.columns[message.xColumn];
+  if (xColumn === undefined) throw new Error("Unknown column");
+  const ids = chartScopedIds(message.respectFilters, message.chartFilter, message.chartExclude);
+  let x: ArrayLike<number>;
+  let xLabels: readonly string[] | null = null;
+  if (isNumericLikeType(xColumn.type)) {
+    x = xColumn.numbers();
+  } else {
+    const categories = xColumn.categories();
+    const codes = categoryCodes(categories.bits, dataset.rowCount);
+    x = Float64Array.from(codes, (code) => (code === 0xffff ? Number.NaN : code));
+    xLabels = categories.labels;
+  }
+  const yColumn = message.yColumn >= 0 ? dataset.columns[message.yColumn] : undefined;
+  const hueColumn = message.hueColumn >= 0 ? dataset.columns[message.hueColumn] : undefined;
+  const hueCategories = hueColumn !== undefined && isGroupableColumn(hueColumn.type, hueColumn.stats.distinct) ? hueColumn.categories() : null;
+  const result = computeRelLine({
+    ids,
+    x,
+    xLabels,
+    y: yColumn === undefined ? null : yColumn.numbers(),
+    hue: hueCategories === null ? null : categoryCodes(hueCategories.bits, dataset.rowCount),
+    hueLabels: hueCategories?.labels ?? [],
+    maxHues: message.maxHues,
+    stat: message.stat,
+    band: message.band,
+  });
+  post({ type: "relLine", requestId: message.requestId, ms: performance.now() - started, ...result });
 }
 
 /** Median of the finite values at these rows (null when there are none). */

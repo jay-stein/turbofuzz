@@ -14,7 +14,7 @@ import type { ColumnSuggestion } from "../data/suggestions.js";
 import type { TimeGrain, ViewDef } from "../data/aggregate.js";
 import { type FrameStep } from "../data/chart-frames.js";
 import type { ColumnFilter } from "../search/query-engine.js";
-import type { ErrorBarsMessage, ErrorBarsProgressMessage } from "../worker/protocol.js";
+import type { ErrorBarsMessage, ErrorBarsProgressMessage, GetRelLineRequest, RelLineMessage } from "../worker/protocol.js";
 import type { AggregateMessage, BoxStatsMessage, ChartBinsMessage, ChartSeriesMessage, PivotMessage, CorrelationMessage, CrosstabMessage, GroupedBinsMessage, GridCountsMessage, AnimationMessage, TextProfileMessage } from "../worker/protocol.js";
 import { type ChartCardKind } from "./chart-utils.js";
 import { type MapRegionsOptions } from "./map-regions.js";
@@ -268,6 +268,8 @@ export interface ChartCardOptions {
     filter?: { column: number; code: number },
   ): Promise<ChartBinsMessage>;
   requestSeries(input: SeriesRequestInput): Promise<ChartSeriesMessage>;
+  /** A seaborn-style line (y at each x with a band) for a Line whose x is not a date. */
+  requestRelLine?(input: Omit<GetRelLineRequest, "type" | "requestId">): Promise<RelLineMessage>;
   /** Map card rectangle brush: filter both coordinate columns to the area. */
   onMapBrush?(selection: MapBrushSelection): void;
   /** Shift+drag on a scatter, density, bubble, line or histogram: filter to the brushed ranges. */
@@ -575,6 +577,8 @@ export interface ChartCardConfig {
   fitR2?: boolean;
   /** The line's equation in the column names (on unless switched off). */
   fitEquation?: boolean;
+  /** A Line of numbers or categories: a dot at each point (unset: when there are few enough to read). */
+  lineMarkers?: boolean;
   /** A scatter split into small multiples, one panel per value of this column (-1 or absent: one plot). */
   facetColumn?: number;
   /** Card width in the grid: normal cell or the whole row. */

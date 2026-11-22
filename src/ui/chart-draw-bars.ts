@@ -18,6 +18,7 @@ import type { ChartCard } from "./chart-card.js";
 import type { Frame } from "./chart-card-types.js";
 import { refAxisRange, refAxisTop, setRefAxis } from "./chart-ref-lines.js";
 import { markColor } from "./chart-mark-colors.js";
+import { relLineAxisLabels, relLineOn } from "./chart-rel-line.js";
 import { BORDER_DARKER, BORDER_ALPHA, addMarkerPath, DEFAULT_BIN_COUNT, POINT_LIMIT, GROUP_LINE_LIMIT } from "./chart-card-types.js";
 
 /** Every category bar sorted by count; the bar window pans across this. */
@@ -493,7 +494,8 @@ export function refreshBox(card: ChartCard): void {
  * range so the grouped and ungrouped axes line up.
  */
 export function refreshGroupedBins(card: ChartCard): void {
-  const groupedKind = card.config.kind === "line" || card.config.kind === "histogram";
+  // A Line of numbers or categories splits by group in its own request.
+  const groupedKind = (card.config.kind === "line" && !relLineOn(card)) || card.config.kind === "histogram";
   if (!groupedKind || card.config.groupColumn < 0) {
     card.groupResult = null;
     return;
@@ -751,6 +753,7 @@ export function axisLabels(card: ChartCard): { x: string | null; y: string | nul
   }
   // Aggregate cards (bound views and own value lines) draw from the
   // aggregate; their own column picks do not describe those axes.
+  if (relLineOn(card)) return relLineAxisLabels(card);
   if (card.usesAggregate()) return { x: null, y: null };
   switch (card.config.kind) {
     case "histogram":

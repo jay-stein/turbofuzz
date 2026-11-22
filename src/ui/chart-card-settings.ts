@@ -17,6 +17,7 @@ import type { ChartCardConfig } from "./chart-card-types.js";
 import { MAX_VALUES, SHORT_PALETTES, MORE_PALETTES } from "./chart-card-types.js";
 import { panelsSupported } from "./chart-panels.js";
 import { bindTitleEdit } from "./chart-title-edit.js";
+import { lineAxisAllowed, relLineOn } from "./chart-rel-line.js";
 
 /**
  * The settings panel in three parts. What every chart needs stays in view: its type, its fields
@@ -302,8 +303,9 @@ export function syncFieldVisibility(card: ChartCard): void {
   const pair = isPairKind(kind);
   const groupable = card.columns.some((meta) => isGroupable(meta));
   const measureKinds = VALUE_AGGREGATE_KINDS.includes(kind) || kind === "treemap";
+  // A Line of numbers or categories has no periods to choose (chart-rel-line.ts).
   const grainKinds =
-    kind === "line" ||
+    (kind === "line" && !relLineOn(card)) ||
     kind === "smallmultiples" ||
     ((kind === "kpi" || kind === "slopegraph" || kind === "waterfall") &&
       card.isDateLike(card.meta(card.config.column)));
@@ -515,7 +517,8 @@ export function allowsPrimary(card: ChartCard, meta: ColumnMeta): boolean {
     case "histogram":
       return isNumericType(meta.type) || meta.type === "time" || meta.type === "duration";
     case "line":
-      return meta.type === "date" || meta.type === "datetime";
+      // Dates draw a time series; numbers and categories a seaborn-style line (chart-rel-line.ts).
+      return lineAxisAllowed(card, meta);
     case "kpi":
       // The primary column is the KPI's optional date axis.
       return meta.type === "date" || meta.type === "datetime";
@@ -819,7 +822,7 @@ export function renderControls(card: ChartCard): void {
     kind === "histogram"
       ? "Values"
       : kind === "line"
-        ? "Date"
+        ? relLineOn(card) ? "X" : "Date"
         : kind === "kpi"
           ? "Date (optional)"
           : kind === "treemap"

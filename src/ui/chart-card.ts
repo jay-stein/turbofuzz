@@ -7,6 +7,7 @@ import { importChartSpecFile, exportPng, openStats, chartExtract, drawnBins, his
 import { openKindPicker, selectRegion, drawSelection, queuePointer, showTooltipAtPointer, emitHighlight, setLinkedHighlight, cancelSliceFetch, sliceRegions, sliceEntries, scheduleSliceFetch, scheduleSlicePoints, drawSlicePoints, drawLinkedOverlay, drawSliceShare, handleCanvasClick, finishBrush, timeSlotBrush, drawBrushOverlay, onWheel, withoutExcludedBins, syncExclusions, handleCanvasContextMenu, dataPointAt, openExclusionMenu, excludeFromTable, applyHitAction } from "./chart-interaction.js";
 import { allCategoryBars, refreshSeries, refreshTreemap, drawTreemap, refreshText, drawTerms, refreshBox, refreshGroupedBins, widestYLabel, fillTopRounded, drawKpi, drawExtraKind, axisLabels, drawAxisTitles, drawBars, drawAxes, drawBox } from "./chart-draw-bars.js";
 import { disposePanels } from "./chart-panels.js";
+import { relLineOn } from "./chart-rel-line.js";
 import { refreshCrosstab, refreshBubble, refreshCorrelation, drawBubble, bubbleFraction, drawBubbleGrid, drawScatterLike, pointSizes, colorBuckets, drawColorBar, colorNote, drawPoints, drawDensity, paintDensityHeat, paintDensityBands, paintContourLines, drawCorrelationNote, pivotHeatmapData, drawPivotHeatmap, drawHeatmap, drawCorrelation } from "./chart-draw-points.js";
 import { syncAnimationOptions, frameWidths, syncFrameOptions, refreshAnimation, animationBlock, setAnimationTime, toggleAnimationSetup, toggleAnimation, setAnimationSpeed, promptAnimationSpeed, playAnimation, stopAnimation, syncAnimationBar, renderAnimationFrames, exportAnimationGif, exportAnimationVideo, drawAnimatedHistogram, drawAnimatedTreemap, drawAnimatedDensity, drawAnimatedBars } from "./chart-draw-animated.js";
 import { drawReferenceLines, syncRefLines, type RefAxis } from "./chart-ref-lines.js";
@@ -38,7 +39,7 @@ import { kindIcon } from "./chart-gallery.js";
 import type { ErrorBarsMessage, ErrorBarsProgressMessage } from "../worker/protocol.js";
 import { type LintNote } from "./chart-recommender.js";
 import { resolveColorDomain } from "./color-scale.js";
-import type { AggregateMessage, ColumnMeta, PivotMessage, GroupedBinsMessage, TextProfileMessage } from "../worker/protocol.js";
+import type { AggregateMessage, ColumnMeta, PivotMessage, GroupedBinsMessage, RelLineMessage, TextProfileMessage } from "../worker/protocol.js";
 import { type AxisFormat, type CategoryBar, CHART_KIND_LABELS, type ChartCardKind, DEFAULT_MAP_MODE, formatChartNumber, describeStep, isGroupable, isIdLikeColumn, isNumericType, isPairKind, looksLikeIdName, VALUE_AGGREGATE_KINDS } from "./chart-utils.js";
 import { el } from "./dom.js";
 import { openConfirm } from "./dialog.js";
@@ -125,6 +126,11 @@ export class ChartCard {
   seriesLabels: string[] | null = null;
   /** Panel names when a scatter is split into small multiples. */
   facetLabels: string[] | null = null;
+  /** A Line of numbers or categories (chart-rel-line.ts): its points, bands and groups. */
+  relLineResult: RelLineMessage | null = null;
+  relLineGeneration = 0;
+  lineMarkersInput!: HTMLInputElement;
+  lineMarkersWrap!: HTMLElement;
   /** Set on a panel copy (chart-panels.ts): its text scale, drawn small inside its card's grid. */
   panelUi: number | null = null;
   /** A panel copy's heading, drawn in place of the title and subtitle. */
@@ -661,7 +667,8 @@ export class ChartCard {
     const agg = this.config.valueAgg ?? "mean";
     return (
       this.config.source === "" &&
-      (kind === "line" || kind === "barplot") &&
+      // A Line of numbers or categories draws one statistic of one Value (per group).
+      ((kind === "line" && !relLineOn(this)) || kind === "barplot") &&
       (this.config.valueColumn ?? -1) >= 0 &&
       this.config.groupColumn < 0 &&
       agg !== "true" && agg !== "false" && agg !== "missing" && agg !== "truePct"

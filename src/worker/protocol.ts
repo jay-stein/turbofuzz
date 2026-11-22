@@ -32,6 +32,7 @@ import type { JoinSuggestion, RegionAgg, RegionShape, RegionValues } from "../da
 import type { GridCountsResult } from "../data/chart-stats.js";
 import type { TimeGrain } from "../data/aggregate.js";
 import type { ChartBinOptions, ChartBins } from "../data/chart-bins.js";
+import type { RelLineBand, RelLineResult, RelLineStat } from "../data/rel-line.js";
 import type { SeriesMode, SeriesResult } from "../data/chart-series.js";
 import type { BoxStatsResult, CorrelationResult, CrossTabResult } from "../data/chart-stats.js";
 import type { CleanOp } from "../data/clean-ops.js";
@@ -362,6 +363,29 @@ export type SetNumberLocaleRequest = {
 };
 
 export type GetStatsRequest = { type: "getStats"; requestId: number };
+
+/** A seaborn-style line: y summarised at each x, with an interval band and one line per hue. */
+export type GetRelLineRequest = {
+  type: "getRelLine";
+  requestId: number;
+  xColumn: number;
+  /** -1 counts rows. */
+  yColumn: number;
+  /** -1 for one line. */
+  hueColumn: number;
+  stat: RelLineStat;
+  band: RelLineBand;
+  maxHues: number;
+  chartFilter?: { column: number; code: number };
+  chartExclude?: ChartExclusion[];
+  respectFilters?: boolean;
+};
+
+export interface RelLineMessage extends RelLineResult {
+  type: "relLine";
+  requestId: number;
+  ms: number;
+}
 
 export type GetChartBinsRequest = {
   type: "getChartBins";
@@ -1635,6 +1659,7 @@ export type WorkerRequest =
   | SetNumberLocaleRequest
   | GetStatsRequest
   | GetChartBinsRequest
+  | GetRelLineRequest
   | GetGroupedBinsRequest
   | GetMissingnessRequest
   | GetChartSeriesRequest
@@ -1944,6 +1969,7 @@ export type WorkerResponse =
   | ColumnMetaMessage
   | StatsMessage
   | ChartBinsMessage
+  | RelLineMessage
   | GroupedBinsMessage
   | MissingnessMessage
   | ChartSeriesMessage

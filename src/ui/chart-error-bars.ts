@@ -10,6 +10,7 @@ import { num } from "../data/chart-extract.js";
 import type { ErrorBarsProgressMessage } from "../worker/protocol.js";
 import type { AggregateMessage } from "../worker/protocol.js";
 import { el } from "./dom.js";
+import { refreshRelLine, relLineMarkers, relLineOn } from "./chart-rel-line.js";
 import type { ChartCard } from "./chart-card.js";
 import type { Frame } from "./chart-card-types.js";
 import { ERROR_BAR_KINDS, ERROR_BARS_ASK_CERTAINTY, TIME_SERIES_WARNING } from "./chart-card-types.js";
@@ -62,7 +63,7 @@ export function errorBarBlock(card: ChartCard): string | null {
   const block = statisticBlock(card.config.valueAgg ?? "mean");
   if (block !== null) return block;
   if ((card.config.valueCalc ?? "") !== "") return "Turn off the calculation first: bars describe the plain statistic";
-  if ((card.config.groupColumn ?? -1) >= 0) return "Not available with Group by yet: Extract stats and the single-series chart have them";
+  if ((card.config.groupColumn ?? -1) >= 0 && !relLineOn(card)) return "Not available with Group by yet: Extract stats and the single-series chart have them";
   return null;
 }
 
@@ -73,12 +74,17 @@ export function syncErrorBarControls(card: ChartCard): void {
   const block = card.errorBarBlock();
   const agg = card.config.valueAgg ?? "mean";
   card.errorBarInput.disabled = block !== null;
-  card.errorBarInput.checked = card.config.errorBars === true && block === null;
+  // A Line of numbers or categories has its band on at first, as seaborn draws it; bootstrap is not offered there.
+  const rel = relLineOn(card);
+  card.errorBarInput.checked = (card.config.errorBars ?? rel) === true && block === null;
+  card.errorBarInput.parentElement!.lastChild!.textContent = rel ? "Band" : "Error bars";
+  card.lineMarkersWrap.classList.toggle("hidden", !rel);
+  if (rel) card.lineMarkersInput.checked = relLineMarkers(card);
   card.errorBarInput.parentElement!.title = block ?? "Show how uncertain or how varied each value is";
   const on = card.errorBarInput.checked;
   card.errorBarSelect.classList.toggle("hidden", !on);
   for (const option of card.errorBarSelect.options) {
-    const why = intervalBlock(option.value as IntervalKind, agg);
+    const why = rel && option.value === "bootstrap" ? "Lines of numbers or categories use the formula interval" : intervalBlock(option.value as IntervalKind, agg);
     option.disabled = why !== null;
     const entry = INTERVAL_KINDS.find((item) => item.id === option.value);
     option.title = why ?? entry?.asks ?? "";
@@ -91,6 +97,11 @@ export function syncErrorBarControls(card: ChartCard): void {
 
 /** Fetches the bars; only one job runs at a time, and a new one stops the last. */
 export function refreshErrorBars(card: ChartCard): void {
+  // A Line of numbers or categories draws its band with the line, in one request.
+  if (relLineOn(card)) {
+    refreshRelLine(card);
+    return;
+  }
   card.errorBarRun++;
   card.errorBarJob?.cancel();
   card.errorBarJob = null;

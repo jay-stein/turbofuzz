@@ -100,9 +100,17 @@ export function buildPart4(card: ChartCard, head: HTMLElement, more: HTMLButtonE
       card.render();
     });
     card.errorBarHint = el("span", { class: "chart-field-hint chart-error-hint" });
+    // A Line of numbers or categories: a dot at each point (chart-rel-line.ts).
+    card.lineMarkersInput = el("input", { type: "checkbox", "aria-label": "Dots at the points" }) as HTMLInputElement;
+    card.lineMarkersInput.addEventListener("change", () => {
+      card.config.lineMarkers = card.lineMarkersInput.checked;
+      card.render();
+    });
+    card.lineMarkersWrap = el("label", { class: "control check clean-check chart-check hidden", title: "A dot at each point of the line" }, [card.lineMarkersInput, "Dots"]);
     card.errorBarRow = el("div", { class: "chart-settings chart-error-row" }, [
       el("label", { class: "control check clean-check chart-check" }, [card.errorBarInput, "Error bars"]),
       card.errorBarSelect,
+      card.lineMarkersWrap,
       card.errorBarHint,
     ]);
     card.histogramSettings = el("div", { class: "chart-settings" }, [

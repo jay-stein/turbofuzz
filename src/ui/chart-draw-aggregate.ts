@@ -17,6 +17,7 @@ import { refAxisTop, setRefAxis, setRefX } from "./chart-ref-lines.js";
 import { barFill, markColor, markKey, markLabelled, openSeriesColours } from "./chart-mark-colors.js";
 import { RANKED_BARS_ABOVE, SPLIT_AXIS_LIMIT, GROUP_LINE_LIMIT, KDE_SIGMA_BINS } from "./chart-card-types.js";
 import { disposePanels, drawPanelGrid, panelsOn } from "./chart-panels.js";
+import { drawRelLine, relLineOn } from "./chart-rel-line.js";
 
 /** Wrapped message drawn inside the empty plot area. */
 export function drawPlotMessage(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, message: string): void {
@@ -211,6 +212,13 @@ export function drawChart(card: ChartCard, ctx: CanvasRenderingContext2D, width:
 
   if (card.config.kind === "pivotHeatmap") {
     card.drawPivotHeatmap(ctx, frame);
+    return;
+  }
+
+  // A Line of numbers or categories: seaborn's lineplot (chart-rel-line.ts).
+  if (relLineOn(card)) {
+    drawRelLine(card, ctx, frame);
+    if (!card.plotMessageDrawn && !panel) card.drawAxisTitles(ctx, frame, labels.x, labels.y);
     return;
   }
 
@@ -1592,7 +1600,7 @@ export function syncLegend(card: ChartCard): void {
             code: result.codes[index] ?? index,
           }))
         : null;
-  if (card.splitLegend !== null && card.usesAggregate()) {
+  if (card.splitLegend !== null && (card.usesAggregate() || relLineOn(card))) {
     card.legendEl.classList.remove("hidden");
     card.legendEl.replaceChildren();
     for (const { label, color } of card.splitLegend) {

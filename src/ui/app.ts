@@ -3155,6 +3155,7 @@ export class App {
     }
     this.chartsPanel = new ChartsPanel(this.chartHost, {
       datasetName: () => this.datasetName,
+      requestRelLine: (input) => this.client.getRelLine(input),
       requestBins: (column, options, exclude, filter) =>
         this.client.getChartBins(column, options, exclude, filter),
       requestSeries: (input) => this.client.getChartSeries(input),

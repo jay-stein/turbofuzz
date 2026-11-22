@@ -71,7 +71,7 @@ test("gallery tiles explain what a disabled chart needs", () => {
   const onlyText = [meta({ name: "notes", type: "string" })];
   assert.equal(fitChartKind("histogram", onlyText, 10).ok, false);
   assert.equal(fitChartKind("histogram", onlyText, 10).reason, "needs a numeric column");
-  assert.equal(fitChartKind("line", onlyText, 10).reason, "needs a date or datetime column");
+  assert.equal(fitChartKind("line", onlyText, 10).reason, "needs a date, or a number to plot along another column");
   assert.equal(fitChartKind("bar", onlyText, 10).reason, "needs a grouping column (few distinct values)");
   assert.equal(fitChartKind("heatmap", onlyText, 10).reason, "needs two grouping columns (few distinct values)");
   assert.equal(fitChartKind("correlation", onlyText, 10).reason, "needs two numeric columns");

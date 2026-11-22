@@ -14,6 +14,7 @@ import type { AggregateMessage, ColumnMeta } from "../worker/protocol.js";
 import { CHART_KIND_LABELS, type ChartCardKind, defaultChartTitle, autoShortStep, isGroupable, isNumericType, isPairKind, parseChartNumber, plainMeasureName, SPLIT_KINDS, GROUP_REQUIRED_KINDS, VALUE_AGGREGATE_KINDS, toRecColumn, suggestedBinRange } from "./chart-utils.js";
 import { clear, el } from "./dom.js";
 import { dismissedClusterCount } from "./similar-dismissals.js";
+import { lineAxisAllowed, refreshRelLine, relLineOn, relLineRows } from "./chart-rel-line.js";
 import { describeScope } from "./scope.js";
 import type { ChartCard } from "./chart-card.js";
 import type { ChartSeriesTarget, ChartCardConfig, ChartSource } from "./chart-card-types.js";
@@ -21,6 +22,7 @@ import { DEFAULT_BIN_COUNT } from "./chart-card-types.js";
 
 /** The chart's numbers as a table: a chart split into series reads across, one column per series. */
 export function dataDrawerRows(card: ChartCard): string[][] {
+  if (relLineOn(card)) return relLineRows(card);
   const aggregate = card.usesAggregate() && card.config.kind !== "pivotHeatmap" ? card.aggregateResult() : null;
   if (aggregate === null || aggregate.dimensions.length !== 2 || aggregate.groupCount === 0) return card.chartCsvRows();
   const [axis, series] = aggregate.dimensions as [string[], string[]];
@@ -332,6 +334,13 @@ export function valueViewDef(card: ChartCard): ViewDef | null {
 /** Fetches the card's own value-over-time aggregate (generation-guarded). */
 export function refreshValue(card: ChartCard): void {
   card.syncErrorBarControls();
+  // A Line of numbers or categories draws from its own request, not the time-series aggregate.
+  if (relLineOn(card)) {
+    card.valueGeneration++;
+    card.valueResult = null;
+    refreshRelLine(card);
+    return;
+  }
   const def = card.valueViewDef();
   if (def === null) {
     card.valueGeneration++;
@@ -408,7 +417,7 @@ export function lintNote(card: ChartCard): LintNote | null {
   const config = card.config;
   if (config.kind === "pivotHeatmap" || config.source !== "" || card.columns.length === 0) return null;
   const type =
-    config.kind === "barplot" ? "barplot" : config.kind === "bar" ? "countplot" : config.kind === "line" ? "timeseries" : null;
+    config.kind === "barplot" ? "barplot" : config.kind === "bar" ? "countplot" : config.kind === "line" && !relLineOn(card) ? "timeseries" : null;
   if (type === null) return null;
   const rec = (index: number): RecColumn | null => {
     const meta = card.meta(index);
@@ -738,7 +747,9 @@ export function setKind(card: ChartCard, kind: ChartCardKind): void {
     // A chart of one column plots the measure itself; one with a Value keeps the measure there
     // and is laid out by the date or category it had.
     const lead = kind === "histogram" ? [...measures, ...dimensions] : [...dimensions, ...measures];
-    const column = lead.find((index) => primary.includes(index));
+    // A Line runs over a date when the data has one (a time series); numbers or categories otherwise.
+    const dates = kind === "line" ? primary.filter((index) => card.isDateLike(card.meta(index))) : [];
+    const column = dates.length > 0 ? (lead.find((index) => dates.includes(index)) ?? dates[0]) : lead.find((index) => primary.includes(index));
     if (column !== undefined) card.config.column = column;
     if (!primary.includes(card.config.column)) card.config.column = primary[0] ?? -1;
     // A count plot counts rows; every other chart with a Value keeps the measure.
@@ -808,6 +819,7 @@ export function setPrimaryColumn(card: ChartCard, index: number): void {
   card.renderControls();
   card.refreshBins();
   card.refreshGroupedBins();
+  if (relLineOn(card)) refreshRelLine(card);
   card.refreshTreemap();
   card.refreshText();
   card.render();
@@ -1125,7 +1137,7 @@ export function canDraw(card: ChartCard): boolean {
       );
     }
     case "line":
-      return count((meta) => card.isDateLike(meta)) > 0;
+      return count((meta) => lineAxisAllowed(card, meta)) > 0;
     case "barplot": {
       const category = card.meta(card.config.column);
       const measure = card.meta(card.config.valueColumn ?? -1);
