@@ -89,3 +89,22 @@ test("sensitive values are masked in sampled exceptions unless raw values are as
   assert.equal(masked.length, 1);
   assert.notEqual(masked[0], "twelve thousand");
 });
+
+test("the Summary sets the raw load against the cleaned data when a step was applied", async () => {
+  const cleaning = {
+    before: { overall: 68.2, band: "poor", rows: 4, rowsAffected: 3, emptyCells: 2, duplicateRows: 1, issues: 4, dimensions: [{ dimension: "completeness", label: "Completeness", score: 70 }], columns: [] },
+    after: { overall: 82.4, band: "fair", rows: 4, rowsAffected: 1, emptyCells: 1, duplicateRows: 0, issues: 2, dimensions: [{ dimension: "completeness", label: "Completeness", score: 91.7 }], columns: [] },
+    steps: [{ label: "country: Fill with “Unknown”", overall: 82.4, points: 14.2 }],
+  };
+  const built = await qualityReportWorkbook({ ...INPUT, report: { ...REPORT, cleaning } }, []);
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(XLSX.read(built.bytes, { type: "array" }).Sheets["Summary"]!, { header: 1, blankrows: false }).map((row) => row.filter((cell) => cell !== undefined && cell !== null && cell !== "").map(String));
+  assert.ok(rows.some((row) => row[0] === "BEFORE AND AFTER CLEANING"));
+  assert.ok(rows.some((row) => row.join("|") === "Score|68.2|82.4|+14.2"));
+  assert.ok(rows.some((row) => row.join("|") === "Rows failing a check|3|1|−2"));
+  assert.ok(rows.some((row) => row.join("|") === "Completeness|70.0|91.7|+21.7"));
+  assert.ok(rows.some((row) => row.join("|") === "1|country: Fill with “Unknown”|82.4|+14.2"));
+  // Without a step the section is left out.
+  const plain = await qualityReportWorkbook({ ...INPUT, report: { ...REPORT, cleaning: { ...cleaning, steps: [] } } }, []);
+  const text = XLSX.utils.sheet_to_json<unknown[]>(XLSX.read(plain.bytes, { type: "array" }).Sheets["Summary"]!, { header: 1, blankrows: false }).flat().map(String);
+  assert.ok(!text.includes("BEFORE AND AFTER CLEANING"));
+});

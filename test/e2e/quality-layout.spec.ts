@@ -130,6 +130,13 @@ test("the report sets the raw load against the cleaned data, step by step", asyn
   await expect(section.locator(".qc-step").first()).toContainText("Raw load");
   await expect(section.locator(".qc-step").last()).toContainText("After cleaning");
   await expect(section.locator(".qc-table")).toContainText("status");
+  // The HTML report carries the same before and after.
+  const download = page.waitForEvent("download");
+  await page.locator('[data-qp="html-report"]').click();
+  const html = (await import("node:fs")).readFileSync((await (await download).path())!, "utf8");
+  expect(html).toContain("<h2>Before and after cleaning</h2>");
+  expect(html).toContain(`<small>Raw load</small><b>${before.toFixed(1)}</b>`);
+  expect(html).toContain("<th>Score at load</th>");
   // Undo everything: before and after are the same again.
   await page.locator(".nav-actions button", { hasText: /^Undo$/ }).click();
   while ((await page.locator(".nav-actions button", { hasText: /^Undo$/ }).isEnabled())) {

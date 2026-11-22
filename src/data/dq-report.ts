@@ -2,6 +2,7 @@ import type { DQScore } from "./score.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import { emitRules, type Rule } from "./rules.js";
 import { provenanceRows, type ReportProvenance } from "./provenance.js";
+import type { DQBaseline } from "./dq-baseline.js";
 
 export interface DQReport {
   dataset: string;
@@ -38,6 +39,29 @@ export interface DQReport {
   trend?: { at: string; overall: number | null }[];
   /** Where the numbers came from: the file and its SHA-256, how it was read, what changed since, the score settings, the build. */
   provenance?: ReportProvenance;
+  /** The raw load (the file as read, before any step) against the data now, and the score after each step. */
+  cleaning?: ReportCleaning;
+}
+
+/** One side of the before and after, rounded as the report shows it. */
+export interface ReportSnapshot {
+  overall: number | null;
+  band: string | null;
+  rows: number;
+  /** Rows failing at least one check; null when not counted. */
+  rowsAffected: number | null;
+  emptyCells: number;
+  duplicateRows: number;
+  issues: number;
+  dimensions: { dimension: string; label: string; score: number | null }[];
+  columns: { name: string; score: number | null; fill: number }[];
+}
+
+export interface ReportCleaning {
+  before: ReportSnapshot;
+  after: ReportSnapshot;
+  /** In the order applied; points are the difference from the step before, from the rounded scores. */
+  steps: { label: string; overall: number | null; points: number | null }[];
 }
 
 export interface ReportIssue {
@@ -70,6 +94,36 @@ export interface ReportExtras {
   /** Columns flagged as possibly sensitive: their example values are left out. */
   sensitiveColumns?: ReadonlySet<number>;
   provenance?: ReportProvenance;
+  cleaning?: { before: DQBaseline; after: DQBaseline; steps: readonly { label: string; overall: number | null }[] };
+}
+
+const round1 = (value: number | null): number | null => (value === null ? null : Math.round(value * 10) / 10);
+
+function snapshot(side: DQBaseline): ReportSnapshot {
+  return {
+    overall: round1(side.overall),
+    band: side.band,
+    rows: side.rowCount,
+    rowsAffected: side.rowsAffected,
+    emptyCells: side.emptyCells,
+    duplicateRows: side.duplicateRows,
+    issues: side.issues,
+    dimensions: side.dimensions.map((entry) => ({ dimension: entry.dimension, label: entry.label, score: round1(entry.score) })),
+    columns: side.columns.map((column) => ({ name: column.name, score: column.score === null ? null : Math.round(column.score), fill: column.fill })),
+  };
+}
+
+/** The report's before and after, with each step's points taken from the rounded scores so they add up. */
+export function reportCleaning(input: NonNullable<ReportExtras["cleaning"]>): ReportCleaning {
+  const before = snapshot(input.before);
+  let last = before.overall;
+  const steps = input.steps.map((step) => {
+    const overall = round1(step.overall);
+    const points = last === null || overall === null ? null : Math.round((overall - last) * 10) / 10;
+    last = overall ?? last;
+    return { label: step.label, overall, points };
+  });
+  return { before, after: snapshot(input.after), steps };
 }
 
 /** Report payload from the current score (pure; no data leaves the browser). */
@@ -98,6 +152,7 @@ export function buildDQReport(
     ...(extras.sensitive === undefined ? {} : { sensitive: extras.sensitive }),
     ...(extras.rules === undefined ? {} : { rules: extras.rules }),
     ...(extras.provenance === undefined ? {} : { provenance: extras.provenance }),
+    ...(extras.cleaning === undefined ? {} : { cleaning: reportCleaning(extras.cleaning) }),
     ...(extras.trend === undefined
       ? {}
       : { trend: extras.trend.map((point) => ({ at: new Date(point.at).toISOString(), overall: point.overall })) }),
@@ -148,6 +203,16 @@ export function dqReportMarkdown(report: DQReport): string {
   );
   lines.push(`- Generated: ${report.generatedAt} · by TurboFuzz (fully offline)`);
   lines.push("");
+  if (cleaned(report)) {
+    const table = (head: string[], rows: string[][]): void => {
+      lines.push(`| ${head.join(" | ")} |`, `|${head.map(() => "---").join("|")}|`, ...rows.map((row) => `| ${row.join(" | ")} |`), "");
+    };
+    lines.push("## Before and after cleaning", "", "Raw load is the file as read, before any step.", "");
+    table(["Measure", "Raw load", "After cleaning", "Change"], cleaningSummary(report.cleaning));
+    table(["Dimension", "Raw load", "After cleaning", "Change"], cleaningDimensions(report.cleaning));
+    lines.push("### Cleaning steps applied", "");
+    table(["#", "Step", "Score after", "Points"], cleaningSteps(report.cleaning));
+  }
   if (report.provenance !== undefined) {
     lines.push("## Provenance", "");
     for (const [label, value] of provenanceRows(report.provenance)) lines.push(`- ${label}: ${value}`);
@@ -176,6 +241,61 @@ export function dqReportMarkdown(report: DQReport): string {
   return lines.join("\n");
 }
 
+const BAND_WORDS: Record<string, string> = { good: "good", fair: "fair", poor: "needs work" };
+
+/** True when the report carries a before and after worth showing: at least one step since the raw load. */
+function cleaned(report: DQReport): report is DQReport & { cleaning: ReportCleaning } {
+  return report.cleaning !== undefined && report.cleaning.steps.length > 0;
+}
+
+/** Measure, raw load, after cleaning, change: the rows of the before-and-after table. */
+export function cleaningSummary(cleaning: ReportCleaning): string[][] {
+  const { before, after } = cleaning;
+  const count = (value: number | null): string => (value === null ? "n/a" : value.toLocaleString());
+  const score = (value: number | null): string => (value === null ? "n/a" : value.toFixed(1));
+  const change = (from: number | null, to: number | null, decimals = 0): string => {
+    if (from === null || to === null) return "";
+    const diff = Math.round((to - from) * 10 ** decimals) / 10 ** decimals;
+    return diff === 0 ? "0" : `${diff > 0 ? "+" : "−"}${Math.abs(diff).toFixed(decimals)}`;
+  };
+  return [
+    ["Score", score(before.overall), score(after.overall), change(before.overall, after.overall, 1)],
+    ["Band", BAND_WORDS[before.band ?? ""] ?? "not applicable", BAND_WORDS[after.band ?? ""] ?? "not applicable", ""],
+    ["Issues to fix or review", count(before.issues), count(after.issues), change(before.issues, after.issues)],
+    ["Rows failing a check", count(before.rowsAffected), count(after.rowsAffected), change(before.rowsAffected, after.rowsAffected)],
+    ["Empty cells", count(before.emptyCells), count(after.emptyCells), change(before.emptyCells, after.emptyCells)],
+    ["Duplicate rows", count(before.duplicateRows), count(after.duplicateRows), change(before.duplicateRows, after.duplicateRows)],
+    ["Rows", count(before.rows), count(after.rows), change(before.rows, after.rows)],
+    ["Columns", count(before.columns.length), count(after.columns.length), change(before.columns.length, after.columns.length)],
+  ];
+}
+
+/** Each dimension at load and now. */
+export function cleaningDimensions(cleaning: ReportCleaning): string[][] {
+  const score = (value: number | null | undefined): string => (value === null || value === undefined ? "n/a" : value.toFixed(1));
+  return cleaning.after.dimensions.map((dimension) => {
+    const was = cleaning.before.dimensions.find((entry) => entry.dimension === dimension.dimension)?.score ?? null;
+    const now = dimension.score;
+    const diff = was === null || now === null ? "" : `${now - was >= 0 ? "+" : "−"}${Math.abs(now - was).toFixed(1)}`;
+    return [dimension.label, score(was), score(now), diff];
+  });
+}
+
+/** Step, score after it, points it added. */
+export function cleaningSteps(cleaning: ReportCleaning): string[][] {
+  return cleaning.steps.map((step, index) => [
+    String(index + 1),
+    step.label,
+    step.overall === null ? "n/a" : step.overall.toFixed(1),
+    step.points === null ? "" : `${step.points >= 0 ? "+" : "−"}${Math.abs(step.points).toFixed(1)}`,
+  ]);
+}
+
+/** A column's filled share and score at load, by name; null for a column added since. */
+function atLoad(report: DQReport, name: string): { fill: number; score: number | null } | null {
+  return report.cleaning?.before.columns.find((column) => column.name === name) ?? null;
+}
+
 const esc = (value: string): string =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -195,7 +315,20 @@ export function dqReportHtml(report: DQReport): string {
           .join("")}</tbody></table>`;
   const issues = (report.issues ?? []).slice(0, 12);
   const trend = report.trend ?? [];
+  const withLoad = cleaned(report);
+  const pct = (fill: number): string => `${Math.round(fill * 100)}%`;
   const parts = [
+    withLoad
+      ? section(
+          "Before and after cleaning",
+          `<p class="meta">Raw load is the file as read, before any step. ${report.cleaning.steps.length.toLocaleString()} cleaning ${report.cleaning.steps.length === 1 ? "step" : "steps"} applied since.</p>` +
+            table(["Measure", "Raw load", "After cleaning", "Change"], cleaningSummary(report.cleaning)) +
+            "<h3>Dimensions</h3>" +
+            table(["Dimension", "Raw load", "After cleaning", "Change"], cleaningDimensions(report.cleaning)) +
+            "<h3>Cleaning steps applied</h3>" +
+            table(["#", "Step", "Score after", "Points"], cleaningSteps(report.cleaning)),
+        )
+      : "",
     section(
       "Provenance",
       report.provenance === undefined
@@ -220,10 +353,25 @@ export function dqReportHtml(report: DQReport): string {
     ),
     section(
       "Columns",
-      table(
-        ["Column", "Type", "Score", "Filled"],
-        (report.columnTable ?? []).map((c) => [c.name, c.type, c.score === null ? "n/a" : c.score.toFixed(0), `${Math.round(c.fill * 100)}%`]),
-      ),
+      withLoad
+        ? table(
+            ["Column", "Type", "Score at load", "Score", "Filled at load", "Filled"],
+            (report.columnTable ?? []).map((c) => {
+              const load = atLoad(report, c.name);
+              return [
+                c.name,
+                c.type,
+                load === null ? "added" : load.score === null ? "n/a" : String(load.score),
+                c.score === null ? "n/a" : c.score.toFixed(0),
+                load === null ? "added" : pct(load.fill),
+                pct(c.fill),
+              ];
+            }),
+          )
+        : table(
+            ["Column", "Type", "Score", "Filled"],
+            (report.columnTable ?? []).map((c) => [c.name, c.type, c.score === null ? "n/a" : c.score.toFixed(0), pct(c.fill)]),
+          ),
     ),
     section(
       "Possibly sensitive columns (names only)",
@@ -251,10 +399,15 @@ h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:24px 0 8px;border-bott
 .score{font-size:40px;font-weight:700;font-variant-numeric:tabular-nums}.band{font-weight:600;text-transform:capitalize}
 table{border-collapse:collapse;width:100%;font-size:13px}th,td{border:1px solid #d0d7de;padding:4px 8px;text-align:left;vertical-align:top}th{background:#f3f4f6}
 .meta{color:#57606a}.prov th{width:200px;font-weight:600}.prov code{font:12px ui-monospace,monospace;word-break:break-all}@media print{body{margin:0}section{break-inside:avoid}}
+h3{font-size:14px;margin:16px 0 6px}.cmp{display:flex;gap:16px;margin:16px 0 8px}.cmp div{flex:1;border:1px solid #d0d7de;border-radius:6px;padding:10px 14px}.cmp .after{border-color:#1a7f37}.cmp small{display:block;color:#57606a;text-transform:uppercase;letter-spacing:.05em;font-size:12px}.cmp b{font-size:30px;font-variant-numeric:tabular-nums}.up{color:#1a7f37;font-weight:600}
 </style></head><body>
 <h1>Data quality report: ${esc(report.dataset)}</h1>
 <p class="meta">${report.rows.toLocaleString()} rows &middot; ${report.columns.toLocaleString()} columns &middot; generated ${esc(report.generatedAt)} by TurboFuzz, computed in the browser</p>
-<p><span class="score">${esc(score)}</span> / 100 <span class="band">${esc(report.band ?? "not applicable")}</span>${report.bandReason ? ` &mdash; ${esc(report.bandReason)}` : ""}</p>
+${
+  withLoad
+    ? `<div class="cmp"><div><small>Raw load</small><b>${esc(cleaningSummary(report.cleaning)[0]![1]!)}</b> / 100 ${esc(cleaningSummary(report.cleaning)[1]![1]!)}</div><div class="after"><small>After cleaning (${report.cleaning.steps.length.toLocaleString()} ${report.cleaning.steps.length === 1 ? "step" : "steps"})</small><b>${esc(score)}</b> / 100 ${esc(BAND_WORDS[report.band ?? ""] ?? "not applicable")} <span class="${cleaningSummary(report.cleaning)[0]![3]!.startsWith("+") ? "up" : "meta"}">${esc(cleaningSummary(report.cleaning)[0]![3]!)}</span></div></div>${report.bandReason ? `<p class="meta">${esc(report.bandReason)}</p>` : ""}`
+    : `<p><span class="score">${esc(score)}</span> / 100 <span class="band">${esc(report.band ?? "not applicable")}</span>${report.bandReason ? ` &mdash; ${esc(report.bandReason)}` : ""}</p>`
+}
 ${parts}
 <p class="meta">Score version ${report.scoreVersion ?? SCORE_VERSION}. Flagged columns show counts only; no values from them appear in this file.</p>
 </body></html>

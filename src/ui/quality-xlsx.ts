@@ -1,5 +1,5 @@
 import type { ExceptionGroup } from "../data/dq-exceptions.js";
-import type { DQReport } from "../data/dq-report.js";
+import { cleaningDimensions, cleaningSteps, cleaningSummary, type DQReport } from "../data/dq-report.js";
 import { provenanceRows } from "../data/provenance.js";
 import type { ColumnType } from "../types.js";
 import { XLSX_DATETIME_FORMAT, XLSX_DATE_FORMAT, XLSX_DURATION_FORMAT, XLSX_TIME_FORMAT, serial } from "../worker/xlsx-export.js";
@@ -340,6 +340,8 @@ function writeSummary(book: XlsxBuilder, names: Names, input: QualityWorkbookInp
     p.merge(at, 0, p.width - 1);
   }
 
+  writeCleaning(p, report);
+
   // Dimensions: a score cell in its band colour and a bar.
   p.section("Quality dimensions", "2563EB", names.checks);
   p.header(["Dimension", "Score", "", "", "", "Weight", "Checks passed", "", "What it measures"], "1F2937");
@@ -418,6 +420,45 @@ function writeSummary(book: XlsxBuilder, names: Names, input: QualityWorkbookInp
     p.note(`The Exceptions sheet lists ${nf.format(exceptions.written)} of ${nf.format(exceptions.total)} failing cells: at most ${nf.format(EXCEPTIONS_PER_CHECK)} per check, so every check is represented. exceptions.csv on the Quality page has them all.`);
   p.note(`Scores are out of 100 and banded good / fair / poor at ${report.provenance?.scoring.bands.good ?? 90} and ${report.provenance?.scoring.bands.fair ?? 75}. ${input.rawValues ? "Sensitive values are shown unmasked, as requested." : "Values of possibly sensitive columns are masked throughout."} How each number is made is on the About sheet.`);
   p.end();
+}
+
+/**
+ * The raw load (the file as read, before any step) against the data now, each dimension both
+ * ways, and every cleaning step with the score after it and the points it added. Only when a
+ * step was applied: otherwise before and after are the same and the section would repeat the tiles.
+ */
+function writeCleaning(p: Page, report: DQReport): void {
+  const cleaning = report.cleaning;
+  if (cleaning === undefined || cleaning.steps.length === 0) return;
+  const table = (head: string[], rows: string[][], accent: string): void => {
+    p.header([head[0]!, null, head[1]!, null, head[2]!, null, head[3]!, null, ""], accent);
+    for (const col of [0, 2, 4, 6]) p.merge(p.r, col, col + 1);
+    rows.forEach((row, i) => {
+      const zebra = i % 2 === 1;
+      // Fewer issues, failing rows, empty cells and repeats is better; a higher score is better; rows and columns are just counts.
+      const better = row[3]!.startsWith("+") !== /fail|Issues|Empty|Duplicate/.test(row[0]!);
+      const neutral = row[3] === "" || row[3] === "0" || row[0] === "Rows" || row[0] === "Columns";
+      const change = neutral ? p.cell(zebra, { align: "right" }) : p.cell(zebra, { align: "right", bold: true, color: better ? "15803D" : "B91C1C" });
+      const at = p.line([row[0]!, null, row[1]!, null, row[2]!, null, row[3]!, null, ""], [p.cell(zebra, { bold: true }), p.cell(zebra), p.cell(zebra, { align: "right" }), p.cell(zebra), p.cell(zebra, { align: "right", bold: true }), p.cell(zebra), change, p.cell(zebra), p.cell(zebra)]);
+      for (const col of [0, 2, 4, 6]) p.merge(at, col, col + 1);
+    });
+  };
+  p.section("Before and after cleaning", "15803D");
+  p.note(`Raw load is the file as read, before any step. ${nf.format(cleaning.steps.length)} cleaning ${cleaning.steps.length === 1 ? "step" : "steps"} applied since; every one is in the Recipe and can be undone.`);
+  table(["Measure", "Raw load", "After cleaning", "Change"], cleaningSummary(cleaning), "14532D");
+  p.blank();
+  table(["Dimension", "Raw load", "After cleaning", "Change"], cleaningDimensions(cleaning), "14532D");
+  p.blank();
+  p.header(["#", "Step", null, null, null, null, "Score after", "Points", ""], "14532D");
+  p.merge(p.r, 1, 5);
+  cleaningSteps(cleaning).forEach(([index, label, after, points], i) => {
+    const zebra = i % 2 === 1;
+    const at = p.line(
+      [index!, label!, null, null, null, null, after!, points!, ""],
+      [p.cell(zebra, { align: "center" }), p.cell(zebra), p.cell(zebra), p.cell(zebra), p.cell(zebra), p.cell(zebra), p.cell(zebra, { align: "right" }), p.cell(zebra, { align: "right", bold: true, color: points!.startsWith("−") ? "B91C1C" : "15803D" }), p.cell(zebra)],
+    );
+    p.merge(at, 1, 5);
+  });
 }
 
 const DIMENSION_TEXT: Record<string, string> = {

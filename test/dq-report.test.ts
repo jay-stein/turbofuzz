@@ -140,3 +140,50 @@ test("the HTML report is self-contained, escapes text and hides values of flagge
   assert.doesNotMatch(html, /<script|<link|src=/);
   assert.equal(report.scoreVersion, 4);
 });
+
+test("the HTML and Markdown reports carry the raw load beside the cleaned data, and each step's points add up", async () => {
+  const { buildDQReport, dqReportHtml, dqReportMarkdown } = await import("../src/data/dq-report.js");
+  const side = (overall: number, extra: Record<string, unknown> = {}) => ({
+    overall,
+    band: overall >= 90 ? "good" : overall >= 75 ? "fair" : "poor",
+    rowCount: 100,
+    rowsAffected: 30,
+    emptyCells: 40,
+    duplicateRows: 5,
+    dimensions: [{ dimension: "completeness", label: "Completeness", score: 61.04 }],
+    columns: [{ name: "region", type: "category", score: 58.2, fill: 0.85 }],
+    groups: [],
+    issues: 6,
+    ...extra,
+  });
+  const score = { overall: 91.66, band: "good", dimensions: [] } as unknown as Parameters<typeof buildDQReport>[0];
+  const cleaning = {
+    before: side(68.21) as never,
+    after: side(91.66, { rowsAffected: 4, emptyCells: 2, duplicateRows: 0, rowCount: 95, issues: 1, dimensions: [{ dimension: "completeness", label: "Completeness", score: 93.8 }], columns: [{ name: "region", type: "category", score: 99, fill: 1 }] }) as never,
+    steps: [{ label: "Junk data", overall: 74.04 }, { label: "<Fill> region", overall: 91.66 }],
+  };
+  const report = buildDQReport(score, "people.csv", 95, 1, "2026-11-23T00:00:00.000Z", {
+    cleaning,
+    columnTable: [{ column: 0, name: "region", type: "category", score: 99, fill: 1 }],
+  });
+  assert.deepEqual(report.cleaning?.steps.map((step) => step.points), [5.8, 17.7]);
+  const total = report.cleaning!.steps.reduce((sum, step) => sum + (step.points ?? 0), 0);
+  assert.equal(Math.round(total * 10) / 10, Math.round((report.cleaning!.after.overall! - report.cleaning!.before.overall!) * 10) / 10);
+  const html = dqReportHtml(report);
+  assert.match(html, /<small>Raw load<\/small><b>68\.2<\/b>/);
+  assert.match(html, /After cleaning \(2 steps\)<\/small><b>91\.7<\/b> \/ 100 good <span class="up">\+23\.5<\/span>/);
+  assert.match(html, /<h2>Before and after cleaning<\/h2>/);
+  assert.match(html, /<td>Rows failing a check<\/td><td>30<\/td><td>4<\/td><td>−26<\/td>/);
+  assert.match(html, /<td>Completeness<\/td><td>61\.0<\/td><td>93\.8<\/td><td>\+32\.8<\/td>/);
+  assert.match(html, /<td>2<\/td><td>&lt;Fill&gt; region<\/td><td>91\.7<\/td><td>\+17\.7<\/td>/);
+  assert.match(html, /<th>Score at load<\/th>/);
+  assert.match(html, /<td>region<\/td><td>category<\/td><td>58<\/td><td>99<\/td><td>85%<\/td><td>100%<\/td>/);
+  const markdown = dqReportMarkdown(report);
+  assert.match(markdown, /## Before and after cleaning/);
+  assert.match(markdown, /\| Score \| 68\.2 \| 91\.7 \| \+23\.5 \|/);
+  assert.match(markdown, /\| 1 \| Junk data \| 74\.0 \| \+5\.8 \|/);
+  // No step yet: no before-and-after section, the single score as before.
+  const untouched = dqReportHtml(buildDQReport(score, "people.csv", 95, 1, "2026-11-23T00:00:00.000Z", { cleaning: { ...cleaning, steps: [] } }));
+  assert.doesNotMatch(untouched, /Before and after cleaning/);
+  assert.match(untouched, /<span class="score">91\.7<\/span>/);
+});

@@ -898,6 +898,8 @@ export class App {
   private dqBaseline: DQBaseline | null = null;
   /** The score after each step since the raw load. */
   private scoreTrail: TrailEntry[] = [];
+  /** The same measures as the baseline, for the data now. */
+  private dqCurrent: DQBaseline | null = null;
   private qualityPage: QualityPage | null = null;
   /** Engine output for the current data: one finding per possibly-sensitive column. */
   private sensitiveFindings: SensitiveFinding[] = [];
@@ -6270,6 +6272,7 @@ export class App {
     });
     const steps = this.stepEntries().map((entry) => entry.label);
     if (steps.length === 0) this.dqBaseline = current;
+    this.dqCurrent = current;
     this.scoreTrail = advanceTrail(this.scoreTrail, steps, score.overall);
     if (this.qualityPage === null && this.cleanPage === null) return; // Built on first open; the issues above still feed the table's nudge.
     const input = {
@@ -6504,6 +6507,11 @@ export class App {
   }
 
   /** The report with its extra sections; flagged columns contribute counts only. */
+  /** The raw load, the data now and the score after each step, for the reports. */
+  private cleaningForExport(before: DQBaseline, after: DQBaseline): { before: DQBaseline; after: DQBaseline; steps: { label: string; overall: number | null }[] } {
+    return { before, after, steps: this.scoreTrail.map((entry) => ({ label: trailLabel(entry), overall: entry.overall })) };
+  }
+
   private buildReport(score: DQScore, provenance?: ReportProvenance): DQReport {
     const stats = this.latestStats;
     const sensitiveCards = this.sensitiveCards().filter((card) => card.dismissed !== true);
@@ -6529,6 +6537,7 @@ export class App {
         bandReason: score.bandReason,
         sensitiveColumns: flagged,
         ...(provenance === undefined ? {} : { provenance }),
+        ...(this.dqBaseline === null || this.dqCurrent === null ? {} : { cleaning: this.cleaningForExport(this.dqBaseline, this.dqCurrent) }),
         issues: issues.map((issue) => ({
           severity: issue.severity,
           title: issue.title,
