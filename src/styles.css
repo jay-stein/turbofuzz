@@ -18958,3 +18958,95 @@ mark.cmp-ch {
 .row-number {
   font-size: 10.5px;
 }
+
+/* Row and File row headings share one line at the foot of the header; File row's sort chevron sits above it. */
+.table-header > .th.row-index-head,
+.table-header > .th.file-row-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 5px;
+  padding-bottom: 8px;
+}
+
+.th .th-index.gutter-label {
+  align-self: flex-end;
+  margin: 0;
+  line-height: 16px;
+}
+
+.th .th-index.gutter-label:not(.file-row-tag) {
+  border: 1px solid transparent;
+  padding: 0 1px;
+}
+
+/* One-click sort beside each column name: up ascending, down descending, the lit one again clears. */
+.th-sort {
+  display: inline-flex;
+  flex-direction: column;
+  flex: none;
+  gap: 1px;
+  margin: 0 1px 0 2px;
+}
+
+.th-sort-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  opacity: 0.5;
+  cursor: pointer;
+}
+
+.th-sort-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.6;
+}
+
+.th:hover .th-sort-btn {
+  opacity: 0.85;
+}
+
+.th-sort-btn:hover,
+.th:hover .th-sort-btn:hover {
+  opacity: 1;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.th-sort-btn.on,
+.th:hover .th-sort-btn.on {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.th-sort-btn:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+.th-sort-btn.file-order {
+  width: 22px;
+  height: 16px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  opacity: 0.85;
+}
+
+.th-sort-btn.file-order.on {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  cursor: default;
+}
+
+.th-sort-btn.on:not(.file-order) {
+  background: var(--accent-soft);
+}

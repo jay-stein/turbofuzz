@@ -1,5 +1,6 @@
 import { junkTextCount } from "./missing-views.js";
 import { inspectorWarm } from "./column-inspector.js";
+import { buildFileOrderSort, buildSortControl } from "./sort-control.js";
 import { clear, el, svgIcon } from "./dom.js";
 import { openMenu, type MenuItem } from "./menu.js";
 import { FilterPanel } from "./filters.js";
@@ -84,6 +85,8 @@ export type ColumnQaKind =
 
 export interface ResultTableOptions {
   onSort: (column: number, dir: 1 | -1 | 0) => void;
+  /** The chevron above File row: back to the file's own order. */
+  onFileOrder?: () => void;
   /** Clicking a column name opens the (read-only) inspector anchored to it; resting the pointer on it opens it as a hover. */
   onColumnInspect: (column: number, anchor: HTMLElement, hover?: boolean) => void;
   onTypeChange: (column: number, type: ColumnType) => boolean | Promise<boolean>;
@@ -189,6 +192,8 @@ export class ResultTable {
   private count = 0;
   private sortColumn = -1;
   private sortDir: 1 | -1 = 1;
+  /** The order around the sort: reversed flips what the chevrons show; file order lights the File row chevron. */
+  private orderState = { reversed: false, inFileOrder: true };
   private highlights: HighlightRule[] = [];
   /** Per-column fixed decimal display formats (display only, not the data). */
   private formats = new Map<number, number>();
@@ -378,6 +383,13 @@ export class ResultTable {
   setSort(column: number, dir: 1 | -1): void {
     this.sortColumn = column;
     this.sortDir = dir;
+    this.renderHeader();
+  }
+
+  /** Whether the rows are reversed and whether they are in the file's own order (no sort, reverse or shuffle). */
+  setOrderState(reversed: boolean, inFileOrder: boolean): void {
+    if (reversed === this.orderState.reversed && inFileOrder === this.orderState.inFileOrder) return;
+    this.orderState = { reversed, inFileOrder };
     this.renderHeader();
   }
 
@@ -634,11 +646,10 @@ export class ResultTable {
     indexHead.append(el("span", { class: "th-index gutter-label" }, ["Row"]));
     this.header.append(indexHead);
     if (this.showFileRow) {
-      this.header.append(
-        el("div", { class: "th file-row-head", style: `left: ${this.indexWidth()}px`, title: "The row's number in the loaded file: it stays with the row through sorting, filtering and shuffling" }, [
-          el("span", { class: "th-index gutter-label file-row-tag" }, ["File row"]),
-        ]),
-      );
+      const fileHead = el("div", { class: "th file-row-head", style: `left: ${this.indexWidth()}px`, title: "The row's number in the loaded file: it stays with the row through sorting, filtering and shuffling" });
+      if (this.options.onFileOrder !== undefined) fileHead.append(buildFileOrderSort(this.orderState.inFileOrder, this.options.onFileOrder));
+      fileHead.append(el("span", { class: "th-index gutter-label file-row-tag" }, ["File row"]));
+      this.header.append(fileHead);
     }
 
     this.columns.forEach((column, index) => {
@@ -663,9 +674,9 @@ export class ResultTable {
         { class: "th-label", type: "button", "aria-label": `Inspect “${name}”` },
         [name],
       );
-      if (index === this.sortColumn) {
-        label.classList.add(this.sortDir === 1 ? "sort-asc" : "sort-desc");
-      }
+      // The chevrons show the order on screen, so a reversed sort lights the other one.
+      const shownDir = index !== this.sortColumn ? 0 : this.orderState.reversed ? -this.sortDir as 1 | -1 : this.sortDir;
+      const sort = buildSortControl(name, column.type, shownDir, (dir) => this.options.onSort(index, dir));
       label.setAttribute("aria-haspopup", "dialog");
       label.addEventListener("click", () => this.options.onColumnInspect(index, label));
       // Resting a mouse on the name shows the same panel; a quick pass across the headers or a drag does not.
@@ -758,9 +769,9 @@ export class ResultTable {
           "aria-label": `Possibly sensitive: ${sensitiveNote}`,
           title: `Possibly sensitive — ${sensitiveNote}`,
         });
-        top.append(number, label, dot, grip, del);
+        top.append(number, label, dot, sort, grip, del);
       } else {
-        top.append(number, label, grip, del);
+        top.append(number, label, sort, grip, del);
       }
 
       const quickFilter = el("div", { class: "th-filter" });

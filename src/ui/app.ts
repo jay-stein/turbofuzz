@@ -3082,6 +3082,7 @@ export class App {
     });
     this.table = new ResultTable(this.tableHost, {
       onSort: (column, dir) => this.changeSort(column, dir),
+      onFileOrder: () => this.changeSort(-1, 0),
       onColumnInspect: (column, anchor, hover) => this.openColumnInspector(column, anchor, hover),
       onTypeChange: (column, type) => this.changeType(column, type),
       quickFilterFor: (column) => {
@@ -4352,6 +4353,7 @@ export class App {
         this.rowLimit = order.rowLimit;
         if (JSON.stringify(order.rowLimit) !== before) this.renderFilterChips();
         this.tableOrder = { column: order.column, dir: order.dir, reversed: order.reversed };
+        this.table?.setOrderState(order.reversed, order.column < 0 && !order.reversed && !order.shuffled);
         this.tableNav?.setRowLimit(order.rowLimit);
         this.tableNav?.setOrder({
           column: order.column >= 0 ? this.metas[order.column]?.name ?? null : null,
