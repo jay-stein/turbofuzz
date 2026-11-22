@@ -40,6 +40,7 @@ import {
   fitChartKind,
 } from "./chart-gallery.js";
 import { ChartAddPanel } from "./chart-add-panel.js";
+import { ChartPeek } from "./chart-peek.js";
 import { ChartFieldRail } from "./chart-field-rail.js";
 import { openMenu } from "./menu.js";
 import { openChartSetupDialog } from "./chart-setup.js";
@@ -454,6 +455,10 @@ type ChartEntry =
 export class ChartsPanel {
   private readonly grid: HTMLElement;
   private readonly addPanel: ChartAddPanel;
+  /** The rows (or the open chart's Pivot View) under the tabs, for a look before and while charting. */
+  private readonly peek: ChartPeek;
+  /** The rows changed while the Chart page was away: the peek fetches again when it is shown. */
+  private peekStale = true;
   /** The Guide drawer; its code and text load on first open. */
   private guide: import("./chart-guide.js").ChartGuide | null = null;
   private guideKey: ((event: KeyboardEvent) => void) | null = null;
@@ -505,6 +510,19 @@ export class ChartsPanel {
         if (this.body !== undefined) this.syncBody();
       },
     });
+    this.peek = new ChartPeek({
+      requestRows: this.options.requestRows,
+      requestViewPivot: this.options.requestViewPivot,
+      requestViewAggregate: this.options.requestViewAggregate === undefined ? undefined : (source) => this.options.requestViewAggregate!(source),
+      columns: () => this.columns,
+      rowCount: () => this.rowCount,
+      sources: () => this.sources,
+      activeCard: () => (this.addPanel.isOpen ? null : this.activeCard()),
+      context: () => (this.addPanel.isOpen || this.activeCard() === null ? "drafting" : "chart"),
+      onToggle: () => this.activeCard()?.scheduleRender(true),
+      onShowTable: this.options.onShowTable,
+      onOpenSource: this.options.onOpenSource,
+    });
     this.rail = new ChartFieldRail({
       activeCard: () => this.activeCard(),
       onNewChart: (kind, column) => this.addChart({ kind, column }),
@@ -553,10 +571,10 @@ export class ChartsPanel {
       el("cite", {}, ["Storytelling with Data: A Data Visualization Guide for Business Professionals"]),
       " by Cole Nussbaumer Knaflic.",
     ]);
-    toolbar.append(this.tabStrip, add, el("span", { class: "grow" }), guideButton);
+    toolbar.append(this.tabStrip, this.peek.toggle, add, el("span", { class: "grow" }), guideButton);
     const content = el("div", { class: "charts-content" }, [this.addPanel.root, this.grid, this.empty, credit]);
     this.body = el("div", { class: "charts-body" }, [this.rail.root, content]);
-    const main = el("div", { class: "charts-main" }, [toolbar, this.body]);
+    const main = el("div", { class: "charts-main" }, [toolbar, this.peek.root, this.body]);
     this.root.append(el("div", { class: "charts-layout" }, [main]));
     this.syncEmpty();
   }
@@ -595,6 +613,7 @@ export class ChartsPanel {
     for (const other of this.entries) this.entryRoot(other).classList.toggle("hidden", other !== entry);
     this.syncTabs();
     this.rail.sync();
+    this.refreshPeek();
     if (entry?.type === "card") {
       this.bringUpToDate(entry.card);
       entry.card.repaint();
@@ -684,12 +703,17 @@ export class ChartsPanel {
     this.rail.root.classList.toggle("hidden", drafting || this.entries.length === 0);
     this.syncTabs();
     this.rail.sync();
+    this.refreshPeek();
     if (!drafting) this.activeCard()?.repaint();
   }
 
   /** Keeps a tab's text in step with its chart's title. */
   private syncTabLabel(card: ChartCard): void {
-    if (card === this.activeCard()) this.rail.sync();
+    if (card === this.activeCard()) {
+      this.rail.sync();
+      // The chart's columns may have changed: the peek marks the new ones (no fetch unless they did).
+      this.refreshPeek();
+    }
     const index = this.entries.findIndex((entry) => entry.type === "card" && entry.card === card);
     if (index < 0) return;
     const label = this.tabStrip.querySelector(`.charts-tab[data-index="${index}"] .charts-tab-label`);
@@ -890,7 +914,6 @@ export class ChartsPanel {
         requestViewAggregate: this.options.requestViewAggregate,
         onOpenSource: this.options.onOpenSource,
         requestViewPivot: this.options.requestViewPivot,
-        requestRows: this.options.requestRows,
         requestAggregate: this.options.requestAggregate,
         requestTextProfile: this.options.requestTextProfile,
         requestGridCounts: this.options.requestGridCounts,
@@ -1072,6 +1095,8 @@ export class ChartsPanel {
     this.rail.setColumns(this.columns);
     for (const card of this.liveCards()) card.setColumns(this.columns);
     this.syncEmpty();
+    this.peekStale = true;
+    this.refreshPeek();
   }
 
   /** Column name → value list, kept across metadata refreshes until the data changes shape. */
@@ -1240,6 +1265,15 @@ export class ChartsPanel {
       if (this.onScreen(card)) card.setFiltered(facets, histograms);
       else this.stale.add(card);
     }
+    this.peekStale = true;
+    this.refreshPeek();
+  }
+
+  /** The peek shows the rows as they are now; while the page is away it waits to be shown. */
+  private refreshPeek(): void {
+    if (this.root.classList.contains("hidden")) return;
+    this.peek.refresh(this.peekStale);
+    this.peekStale = false;
   }
 
   /**
@@ -1291,6 +1325,7 @@ export class ChartsPanel {
    * rows changed while the page was away. Hidden tabs do the same when opened.
    */
   repaint(): void {
+    this.refreshPeek();
     const card = this.activeCard();
     if (card !== null) {
       this.bringUpToDate(card);

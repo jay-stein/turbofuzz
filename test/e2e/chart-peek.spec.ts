@@ -21,42 +21,47 @@ async function load(page: Page): Promise<void> {
   await page.keyboard.press("Escape");
 }
 
-const card = (page: Page) => page.locator(".chart-card:not(.hidden)");
+const shot = (name: string): string => `C:/Users/mrjay/AppData/Local/Temp/claude/688ca4fe6de39c2d/42bb0c6d-cd3e-48b3-aa09-4b9ce8d81094/scratchpad/${name}.png`;
 
-test("Peek shows the table's first rows over a chart of the table, and puts itself away", async ({ page }) => {
+test("Peek shows the table's first 100 rows under the chart tabs, before any chart is made, and folds away", async ({ page }) => {
   await load(page);
   await page.locator(".view-tabs button", { hasText: "Chart" }).click();
-  await page.locator(".chart-add-type", { hasText: /^Histogram$/ }).first().click();
-  const dialog = page.locator(".modal-overlay");
-  if (await dialog.count()) await dialog.getByRole("button", { name: /^(Add|Create|OK)/ }).last().click();
-  await card(page).locator(".chart-peek-btn").click();
-  const peek = page.locator(".chart-peek");
-  await expect(peek.locator(".chart-peek-title")).toHaveText("Table · first 10 of 180 rows");
-  await expect(peek.locator("tbody tr")).toHaveCount(10);
+  const peek = page.locator(".charts-peek");
+  await expect(peek.locator(".charts-peek-summary")).toHaveText("Table · first 100 of 180 rows");
+  await expect(peek.locator("tbody tr")).toHaveCount(100);
   await expect(peek.locator("th", { hasText: "region" })).toBeVisible();
-  // The chart's own column is marked.
-  await expect(peek.locator("th.used")).toHaveCount(1);
+  // The eye sits in the tab row; the rows open below it. Short: it scrolls inside itself.
+  await expect(page.locator(".charts-toolbar .charts-peek-toggle")).toBeVisible();
+  const body = peek.locator(".charts-peek-body");
+  expect((await body.boundingBox())!.height).toBeLessThan(200);
+  await page.screenshot({ path: shot("peek-strip") });
+  // Folds away (no room taken), and stays folded next time.
+  await page.locator(".charts-peek-toggle").click();
+  await expect(peek).toBeHidden();
+  await expect(page.locator(".charts-peek-toggle")).toHaveAttribute("aria-expanded", "false");
+  await page.reload();
+  await page.locator('input[type="file"]').setInputFiles({ name: "sales.csv", mimeType: "text/csv", buffer: Buffer.from(sales()) });
+  await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
-  await expect(peek).toHaveCount(0);
-  // The button toggles it, and a click elsewhere closes it.
-  await card(page).locator(".chart-peek-btn").click();
-  await expect(peek).toHaveCount(1);
-  await page.mouse.click(5, 500);
-  await expect(peek).toHaveCount(0);
+  await page.locator(".view-tabs button", { hasText: "Chart" }).click();
+  await expect(page.locator(".charts-peek")).toBeHidden();
+  await page.locator(".charts-peek-toggle").click();
+  await expect(page.locator(".charts-peek tbody tr")).toHaveCount(100);
 });
 
-test("Peek over a chart of a Pivot View shows that pivot, scrollable", async ({ page }) => {
+test("With a chart of a Pivot View open, Peek shows that pivot", async ({ page }) => {
   await load(page);
   await page.getByRole("tab", { name: "Pivot View", exact: true }).click();
   await page.locator(".views-host").getByLabel("Add a column field").first().click();
   await page.locator(".menu, [role=menu]").last().getByText("product", { exact: false }).first().click();
   await page.locator(".views-chart-this").first().click();
   await expect(page.getByRole("tab", { name: "Chart", exact: true })).toHaveAttribute("aria-selected", "true");
-  await card(page).locator(".chart-peek-btn").click();
-  const peek = page.locator(".chart-peek");
-  await expect(peek.locator(".chart-peek-title")).toContainText("Pivot View");
+  // Looking at a chart, the peek starts folded so the chart has the room; the eye opens it.
+  const peek = page.locator(".charts-peek");
+  await expect(peek).toBeHidden();
+  await page.locator(".charts-peek-toggle").click();
+  await expect(peek.locator(".charts-peek-summary")).toContainText("Pivot View");
   await expect(peek.locator("th", { hasText: "Coffee" })).toBeVisible();
-  await expect(peek.locator("th", { hasText: "Tea" })).toBeVisible();
-  await expect(peek.locator(".chart-peek-open")).toHaveText("Open Pivot View");
-  await page.screenshot({ path: "C:/Users/mrjay/AppData/Local/Temp/claude/688ca4fe6de39c2d/42bb0c6d-cd3e-48b3-aa09-4b9ce8d81094/scratchpad/peek-pivot.png" });
+  await expect(peek.locator(".charts-peek-open")).toHaveText("Open Pivot View");
+  await page.screenshot({ path: shot("peek-pivot") });
 });

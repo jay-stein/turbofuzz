@@ -14,7 +14,7 @@ import type { ColumnSuggestion } from "../data/suggestions.js";
 import type { TimeGrain, ViewDef } from "../data/aggregate.js";
 import { type FrameStep } from "../data/chart-frames.js";
 import type { ColumnFilter } from "../search/query-engine.js";
-import type { ErrorBarsMessage, ErrorBarsProgressMessage, RowsMessage } from "../worker/protocol.js";
+import type { ErrorBarsMessage, ErrorBarsProgressMessage } from "../worker/protocol.js";
 import type { AggregateMessage, BoxStatsMessage, ChartBinsMessage, ChartSeriesMessage, PivotMessage, CorrelationMessage, CrosstabMessage, GroupedBinsMessage, GridCountsMessage, AnimationMessage, TextProfileMessage } from "../worker/protocol.js";
 import { type ChartCardKind } from "./chart-utils.js";
 import { type MapRegionsOptions } from "./map-regions.js";
@@ -325,8 +325,6 @@ export interface ChartCardOptions {
   sectionedSettings?: boolean;
   /** Worker pivot result for a pivot-bound heatmap card. */
   requestViewPivot?(source: string): Promise<PivotMessage | null>;
-  /** Rows of the table as it stands (filtered, in its order), for the Peek popover. */
-  requestRows?(start: number, end: number): Promise<RowsMessage>;
   /** Ad-hoc aggregation for the treemap measure (sum of a numeric column). */
   requestAggregate(view: ViewDef): Promise<AggregateMessage>;
   /** Token frequencies and shapes for the top-terms chart. */

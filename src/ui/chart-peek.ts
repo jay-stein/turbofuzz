@@ -1,139 +1,212 @@
 /**
- * Peek: a quick look at the data a chart is drawn from, without leaving the Chart page. For a
- * chart of the table it shows the table's first rows as the table has them (filtered and in its
- * order); for a chart of a Pivot View it shows that pivot, scrollable. It is a popover: Escape,
- * a click elsewhere or the button again puts it away.
+ * Peek: a look at the data, on the Chart page between the chart tabs and the charts, so the rows
+ * can be checked before a chart is made and while it is worked on. It shows the table's first 100
+ * rows as the table has them (filtered, in its order), or the Pivot View the open chart draws. It
+ * stays short and scrolls inside itself, and folds down to one line. Open or folded is remembered
+ * apart for making a chart (open at first: look before choosing) and for looking at one (folded at
+ * first: the chart gets the room).
  */
 import type { ChartCard } from "./chart-card.js";
 import { fieldsInUse } from "./chart-card-data.js";
 import { formatChartNumber, isNumericType } from "./chart-utils.js";
 import { el, svgIcon } from "./dom.js";
-import type { AggregateMessage, PivotMessage } from "../worker/protocol.js";
+import type { AggregateMessage, ColumnMeta, PivotMessage, RowsMessage } from "../worker/protocol.js";
+import type { ChartSource } from "./chart-card-types.js";
 
 /** The table peek shows this many rows. */
-export const PEEK_ROWS = 10;
+export const PEEK_ROWS = 100;
 /** A view peek stops here; the view itself has the rest. */
 const VIEW_ROWS = 500;
 const VIEW_COLUMNS = 60;
+const OPEN_KEY = "turbofuzz.charts.peekOpen";
 
-/** A small grid with an eye-like lens: look at the rows under the chart. */
-function peekIcon(): SVGElement {
-  return svgIcon(
-    '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M9 9.5V20"/>',
-    "chart-peek-icon",
-  );
+/** An eye: look at the data. */
+function eyeIcon(): SVGElement {
+  return svgIcon('<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', "chart-peek-icon");
 }
 
-let open: { close: () => void } | null = null;
+export type PeekContext = "drafting" | "chart";
 
-/** The Peek button for a card's header. */
-export function buildPeekButton(card: ChartCard): HTMLButtonElement {
-  const button = el(
-    "button",
-    {
-      class: "ghost small chart-peek-btn",
-      type: "button",
-      "aria-haspopup": "dialog",
-      "aria-expanded": "false",
-      title: "Peek at the data this chart is drawn from: the table's first rows, or the Pivot View it charts",
-    },
-    [],
-  ) as HTMLButtonElement;
-  button.append(peekIcon(), el("span", {}, ["Peek"]));
-  button.addEventListener("click", () => {
-    const mine = button.getAttribute("aria-expanded") === "true";
-    open?.close();
-    if (!mine) openPeek(card, button);
-  });
-  return button;
+function readOpen(context: PeekContext): boolean {
+  try {
+    const saved = localStorage.getItem(`${OPEN_KEY}.${context}`);
+    return saved === null ? context === "drafting" : saved === "1";
+  } catch {
+    return context === "drafting";
+  }
 }
 
-function openPeek(card: ChartCard, anchor: HTMLButtonElement): void {
-  const body = el("div", { class: "chart-peek-body" }, [el("div", { class: "chart-peek-wait" }, ["Loading…"])]);
-  const title = el("span", { class: "chart-peek-title" });
-  const action = el("button", { class: "link small chart-peek-open", type: "button" }) as HTMLButtonElement;
-  const closeButton = el("button", { class: "icon-btn chart-peek-close", type: "button", title: "Close", "aria-label": "Close the peek" }, ["×"]) as HTMLButtonElement;
-  const pop = el("div", { class: "chart-peek", role: "dialog", "aria-label": "Peek at the chart's data" }, [
-    el("div", { class: "chart-peek-head" }, [title, el("span", { class: "grow" }), action, closeButton]),
-    body,
-  ]);
-  document.body.append(pop);
-  place(pop, anchor);
-  anchor.setAttribute("aria-expanded", "true");
+function writeOpen(context: PeekContext, open: boolean): void {
+  try {
+    localStorage.setItem(`${OPEN_KEY}.${context}`, open ? "1" : "0");
+  } catch {
+    // Not remembered: it starts as it does at first next time.
+  }
+}
 
-  const onKey = (event: KeyboardEvent): void => {
-    if (event.key !== "Escape") return;
-    event.stopPropagation();
-    close();
-    anchor.focus();
-  };
-  const onDown = (event: PointerEvent): void => {
-    const target = event.target as Node | null;
-    if (target !== null && (pop.contains(target) || anchor.contains(target))) return;
-    close();
-  };
-  const onResize = (): void => place(pop, anchor);
-  const close = (): void => {
-    pop.remove();
-    anchor.setAttribute("aria-expanded", "false");
-    document.removeEventListener("keydown", onKey, true);
-    document.removeEventListener("pointerdown", onDown, true);
-    window.removeEventListener("resize", onResize);
-    if (open === handle) open = null;
-  };
-  const handle = { close };
-  open = handle;
-  document.addEventListener("keydown", onKey, true);
-  document.addEventListener("pointerdown", onDown, true);
-  window.addEventListener("resize", onResize);
-  closeButton.addEventListener("click", close);
+export interface PeekOptions {
+  requestRows?(start: number, end: number): Promise<RowsMessage>;
+  requestViewPivot?(source: string): Promise<PivotMessage | null>;
+  requestViewAggregate?(source: string): Promise<AggregateMessage | null>;
+  columns(): ColumnMeta[];
+  rowCount(): number;
+  sources(): ChartSource[];
+  /** The chart on screen, or null while one is being made. */
+  activeCard(): ChartCard | null;
+  /** Making a chart (the Add panel, or no charts yet) or looking at one. */
+  context(): PeekContext;
+  /** Opened or folded: what is under it moves, and a chart sizes itself to the room. */
+  onToggle?(): void;
+  onShowTable?(): void;
+  onOpenSource?(source: string): void;
+}
 
-  const source = card.config.source;
-  const fill = (content: HTMLElement): void => {
-    if (open !== handle) return;
-    body.replaceChildren(content);
-    place(pop, anchor);
-  };
-  const fail = (): void => fill(el("div", { class: "chart-peek-wait" }, ["Could not load the data."]));
-  if (source === "") {
-    const shown = Math.min(PEEK_ROWS, card.rowCount);
-    title.textContent = `Table · first ${shown.toLocaleString()} of ${card.rowCount.toLocaleString()} ${card.rowCount === 1 ? "row" : "rows"}`;
-    action.textContent = "Open Table";
-    action.classList.toggle("hidden", card.options.onShowTable === undefined);
-    action.addEventListener("click", () => {
-      close();
-      card.options.onShowTable?.();
+export class ChartPeek {
+  /** The rows, under the tab row; hidden while folded. */
+  readonly root: HTMLElement;
+  /** The eye in the tab row, between the chart tabs and Add chart. */
+  readonly toggle: HTMLButtonElement;
+  private readonly summary: HTMLElement;
+  private readonly action: HTMLButtonElement;
+  private readonly body: HTMLElement;
+  private context: PeekContext;
+  private open: boolean;
+  /** What the body shows now; the same again is not fetched again. */
+  private key = "";
+  private ticket = 0;
+  private actionRun: () => void = () => undefined;
+
+  constructor(private readonly options: PeekOptions) {
+    this.summary = el("span", { class: "charts-peek-summary" });
+    this.toggle = el(
+      "button",
+      { class: "small charts-peek-toggle", type: "button", title: "Peek at the data: the table's first rows, or the Pivot View the open chart draws", "aria-controls": "charts-peek" },
+      [eyeIcon(), el("span", { class: "charts-peek-label" }, ["Peek"]), el("span", { class: "charts-peek-chevron", "aria-hidden": "true" })],
+    ) as HTMLButtonElement;
+    this.toggle.addEventListener("click", () => {
+      this.setOpen(!this.open, true);
+      this.options.onToggle?.();
     });
-    const request = card.options.requestRows;
-    if (request === undefined) return fail();
-    void request(0, PEEK_ROWS).then((message) => fill(tableRows(card, message.rows)), fail);
-    return;
+    this.action = el("button", { class: "link small charts-peek-open", type: "button" }) as HTMLButtonElement;
+    this.action.addEventListener("click", () => this.actionRun());
+    this.body = el("div", { class: "charts-peek-body" });
+    const close = el("button", { class: "icon-btn charts-peek-close", type: "button", title: "Fold the peek away", "aria-label": "Fold the peek away" }, ["×"]) as HTMLButtonElement;
+    close.addEventListener("click", () => {
+      this.setOpen(false, true);
+      this.options.onToggle?.();
+      this.toggle.focus();
+    });
+    this.root = el("section", { class: "charts-peek", id: "charts-peek", "aria-label": "Peek at the data" }, [
+      el("div", { class: "charts-peek-head" }, [this.summary, el("span", { class: "grow" }), this.action, close]),
+      this.body,
+    ]);
+    this.context = options.context();
+    this.open = readOpen(this.context);
+    this.setOpen(this.open, false);
   }
-  const view = card.sources.find((entry) => entry.id === source);
-  title.textContent = view === undefined ? "View" : `${view.kind === "pivot" ? "Pivot View" : "View"} · ${view.name}`;
-  action.textContent = view?.kind === "pivot" ? "Open Pivot View" : "Open View";
-  action.classList.toggle("hidden", card.options.onOpenSource === undefined);
-  action.addEventListener("click", () => {
-    close();
-    card.options.onOpenSource?.(source);
-  });
-  if (view?.kind === "pivot" && card.options.requestViewPivot !== undefined) {
-    void card.options.requestViewPivot(source).then((message) => (message === null ? fail() : fill(pivotTable(message))), fail);
-  } else if (card.options.requestViewAggregate !== undefined) {
-    void card.options.requestViewAggregate(source).then((message) => (message === null ? fail() : fill(aggregateTable(message))), fail);
-  } else {
-    fail();
+
+  private setOpen(open: boolean, remember: boolean): void {
+    this.open = open;
+    if (remember) writeOpen(this.context, open);
+    this.toggle.classList.toggle("open", open);
+    this.toggle.setAttribute("aria-expanded", String(open));
+    this.root.hidden = !open;
+    this.key = "";
+    this.refresh();
+  }
+
+  /** New table results, another chart on screen, or new columns: show what is there now. */
+  refresh(force = false): void {
+    if (force) this.key = "";
+    const context = this.options.context();
+    if (context !== this.context) {
+      this.context = context;
+      const open = readOpen(context);
+      if (open !== this.open) return this.setOpen(open, false);
+    }
+    const card = this.options.activeCard();
+    const source = card?.config.source ?? "";
+    const view = source === "" ? undefined : this.options.sources().find((entry) => entry.id === source);
+    if (view === undefined) this.showTable(card);
+    else this.showView(view);
+  }
+
+  private showTable(card: ChartCard | null): void {
+    const total = this.options.rowCount();
+    const shown = Math.min(PEEK_ROWS, total);
+    this.summary.textContent = `Table · first ${shown.toLocaleString()} of ${total.toLocaleString()} ${total === 1 ? "row" : "rows"}`;
+    this.setAction(this.options.onShowTable === undefined ? null : "Open Table", () => this.options.onShowTable?.());
+    if (!this.open) return;
+    if (this.options.columns().length === 0) {
+      this.key = "";
+      return this.fill(wait("Load data to peek at it."));
+    }
+    const used = card === null ? new Set<number>() : usedColumns(card);
+    const key = `table|${total}|${[...used].join(",")}|${this.options.columns().length}`;
+    if (key === this.key) return;
+    this.key = key;
+    const request = this.options.requestRows;
+    if (request === undefined) return this.fill(wait("The rows are not available here."));
+    const ticket = ++this.ticket;
+    void request(0, PEEK_ROWS).then(
+      (message) => {
+        if (ticket === this.ticket) this.fill(tableRows(this.options.columns(), message.rows, used));
+      },
+      () => {
+        if (ticket === this.ticket) this.fill(wait("Could not load the rows."));
+      },
+    );
+  }
+
+  private showView(view: ChartSource): void {
+    const pivot = view.kind === "pivot";
+    this.summary.textContent = `${pivot ? "Pivot View" : "View"} · ${view.name}`;
+    this.setAction(this.options.onOpenSource === undefined ? null : pivot ? "Open Pivot View" : "Open View", () => this.options.onOpenSource?.(view.id));
+    if (!this.open) return;
+    // A view follows the table's filters: fetch again whenever the table moves.
+    const key = `view|${view.id}|${this.options.rowCount()}`;
+    if (key === this.key) return;
+    this.key = key;
+    const ticket = ++this.ticket;
+    const fail = (): void => {
+      if (ticket === this.ticket) this.fill(wait("Could not load the view."));
+    };
+    if (pivot && this.options.requestViewPivot !== undefined) {
+      void this.options.requestViewPivot(view.id).then((message) => {
+        if (ticket === this.ticket) this.fill(message === null ? wait("This view is gone.") : pivotTable(message));
+      }, fail);
+    } else if (this.options.requestViewAggregate !== undefined) {
+      void this.options.requestViewAggregate(view.id).then((message) => {
+        if (ticket === this.ticket) this.fill(message === null ? wait("This view is gone.") : aggregateTable(message));
+      }, fail);
+    } else {
+      fail();
+    }
+  }
+
+  private setAction(label: string | null, run: () => void): void {
+    this.action.classList.toggle("hidden", label === null);
+    this.action.textContent = label ?? "";
+    this.actionRun = run;
+  }
+
+  private fill(content: HTMLElement): void {
+    // Keep the reader's place when the same data comes back with new values.
+    const left = this.body.scrollLeft;
+    this.body.replaceChildren(content);
+    this.body.scrollLeft = left;
   }
 }
 
-/** Under the button, kept inside the window. */
-function place(pop: HTMLElement, anchor: HTMLElement): void {
-  const box = anchor.getBoundingClientRect();
-  const width = Math.min(pop.offsetWidth || 720, window.innerWidth - 32);
-  const left = Math.max(16, Math.min(box.right - width, window.innerWidth - width - 16));
-  pop.style.left = `${left}px`;
-  pop.style.top = `${Math.round(box.bottom + 6)}px`;
-  pop.style.maxHeight = `${Math.max(200, window.innerHeight - box.bottom - 24)}px`;
+function wait(text: string): HTMLElement {
+  return el("div", { class: "charts-peek-wait" }, [text]);
+}
+
+/** The columns a chart draws, marked in the peek. */
+function usedColumns(card: ChartCard): Set<number> {
+  const { measures, dimensions } = fieldsInUse(card);
+  const facet = card.config.facetColumn ?? -1;
+  return new Set([...measures, ...dimensions, ...(facet >= 0 ? [facet] : [])]);
 }
 
 /** `numeric(index)`: the column holds numbers, so it lines up on the right. */
@@ -150,18 +223,21 @@ function grid(head: (string | HTMLElement)[], rows: (string | HTMLElement)[][], 
     tbody.append(tr);
   }
   table.append(tbody);
-  return el("div", { class: "chart-peek-scroll" }, [table]);
+  return table;
 }
 
 /** The table's first rows, every column, the chart's own columns marked. */
-function tableRows(card: ChartCard, rows: string[][]): HTMLElement {
-  if (rows.length === 0) return el("div", { class: "chart-peek-wait" }, ["No rows match the table's filters."]);
-  const { measures, dimensions } = fieldsInUse(card);
-  const used = new Set([...measures, ...dimensions, ...(card.config.facetColumn ?? -1) >= 0 ? [card.config.facetColumn ?? -1] : []]);
-  return grid(card.columns.map((meta) => meta.name), rows.map((row) => row.map((cell) => (cell === "" ? el("span", { class: "chart-peek-empty" }, ["empty"]) : cell))), (index) => {
-    const meta = card.columns[index];
-    return meta !== undefined && isNumericType(meta.type);
-  }, used);
+function tableRows(columns: ColumnMeta[], rows: string[][], used: ReadonlySet<number>): HTMLElement {
+  if (rows.length === 0) return wait("No rows match the table's filters.");
+  return grid(
+    columns.map((meta) => meta.name),
+    rows.map((row) => row.map((cell) => (cell === "" ? el("span", { class: "chart-peek-empty" }, ["empty"]) : cell))),
+    (index) => {
+      const meta = columns[index];
+      return meta !== undefined && isNumericType(meta.type);
+    },
+    used,
+  );
 }
 
 const number = (value: number | undefined): string => (value === undefined || !Number.isFinite(value) ? "" : formatChartNumber(value));
@@ -194,5 +270,5 @@ function aggregateTable(result: AggregateMessage): HTMLElement {
 }
 
 function withNote(content: HTMLElement, note: string): HTMLElement {
-  return note === "" ? content : el("div", {}, [content, el("div", { class: "chart-peek-note" }, [note])]);
+  return note === "" ? content : el("div", {}, [content, el("div", { class: "charts-peek-note" }, [note])]);
 }
