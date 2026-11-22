@@ -18935,7 +18935,7 @@ mark.cmp-ch {
 .th .th-index.gutter-label {
   display: inline-flex;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--text-dim);
 }
@@ -18950,13 +18950,13 @@ mark.cmp-ch {
   background: var(--panel-2);
   color: var(--text-dim);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .row-number {
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 /* Row and File row headings share one line at the foot of the header; File row's sort chevron sits above it. */
