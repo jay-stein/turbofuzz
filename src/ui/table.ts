@@ -622,16 +622,17 @@ export class ResultTable {
     this.header.style.gridTemplateColumns = this.headerTemplate();
     this.header.style.width = `${this.headerWidth()}px`;
 
+    // The row-number columns sit on a shaded gutter with headings that always show, so they never read as data.
     const indexHead = el("div", {
       class: "th row-index-head",
-      title: "Row number (current order) / column number",
+      title: "Where the row sits in the table as it is now: sorting and filtering renumber it",
     });
-    indexHead.append(el("span", { class: "th-index" }, ["#"]));
+    indexHead.append(el("span", { class: "th-index gutter-label" }, ["Row"]));
     this.header.append(indexHead);
     if (this.showFileRow) {
       this.header.append(
-        el("div", { class: "th file-row-head", style: `left: ${this.indexWidth()}px`, title: "The row's number in the loaded data: it stays with the row through sorting, filtering and shuffling" }, [
-          el("span", { class: "th-index" }, ["File row"]),
+        el("div", { class: "th file-row-head", style: `left: ${this.indexWidth()}px`, title: "The row's number in the loaded file: it stays with the row through sorting, filtering and shuffling" }, [
+          el("span", { class: "th-index gutter-label file-row-tag" }, ["File row"]),
         ]),
       );
     }
@@ -1533,7 +1534,7 @@ export class ResultTable {
     tr.append(indexCell);
     if (this.showFileRow) {
       const id = this.ids.get(index);
-      const fileCell = el("div", { class: "td file-row" }, [id === undefined ? "" : String(id + 1)]);
+      const fileCell = el("div", { class: "td file-row" }, id === undefined ? [] : [el("span", { class: "file-row-tag" }, [String(id + 1)])]);
       fileCell.style.left = `${this.indexWidth()}px`;
       tr.append(fileCell);
     }

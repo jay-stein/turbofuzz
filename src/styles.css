@@ -18912,3 +18912,49 @@ mark.cmp-ch {
   width: 72px;
   accent-color: var(--accent, currentColor);
 }
+
+/* Row numbers sit on a shaded gutter, like a spreadsheet's row headers, so they never read as data.
+   "Row" is the place in the table as it is now; File row numbers are small tags that stay with the row. */
+.table-header > .th.row-index-head,
+.table-header > .th.file-row-head {
+  background: color-mix(in srgb, var(--text) 7%, var(--panel-2));
+}
+
+.tr > .td.row-index,
+.tr > .td.file-row {
+  background: color-mix(in srgb, var(--text) 6%, var(--panel));
+}
+
+.table-header:not(:has(> .th.file-row-head)) > .th.row-index-head,
+.table-header > .th.file-row-head,
+.tr:not(:has(> .td.file-row)) > .td.row-index,
+.tr > .td.file-row {
+  border-right: 2px solid var(--border);
+}
+
+.th .th-index.gutter-label {
+  display: inline-flex;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.file-row-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  line-height: 16px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.row-number {
+  font-size: 10.5px;
+}
