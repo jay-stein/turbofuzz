@@ -1,6 +1,7 @@
 import { n, percentLabel, plural, pointsLabel } from "../data/dq-copy.js";
 import type { ColumnHealth, IssueKind, PageIssue } from "../data/dq-issues.js";
 import type { Finding } from "../data/findings.js";
+import type { CleanStep } from "../data/dq-baseline.js";
 import { clear, el } from "./dom.js";
 import { renderDistCompare } from "./dist-compare.js";
 
@@ -63,6 +64,8 @@ type IssueGroup = (typeof ISSUE_GROUPS)[number];
 
 /** Groups opened this session: the page re-renders after every fix, and an open group stays open. */
 const openGroups = new Set<string>();
+/** Groups the analyst closed: the step to do now opens by itself, unless they closed it. */
+const closedGroups = new Set<string>();
 
 /** Issues in their groups, the groups ordered by the most urgent issue in each, then by rows. */
 export function groupIssues(issues: readonly PageIssue[]): { group: IssueGroup; issues: PageIssue[] }[] {
@@ -212,10 +215,12 @@ export interface CleanHeroInput {
   fixCount: number;
   reviewCount: number;
   safeCount: number;
-  /** Kinds of work found at load and how many are now clear; null without a load to compare with. */
-  progress: { done: number; total: number } | null;
-  /** The group whose fixes add the most points. */
+  /** The kinds of work as numbered steps, in order (done, now, to come). */
+  steps: readonly (CleanStep & { title: string })[];
+  /** The step to do now: what it adds and how to start it. */
   next: { id: string; title: string; points: number; dimension: string | null; safe: number } | null;
+  /** "Junk data done": the step finished most recently, said once it lands. */
+  finished: string | null;
 }
 
 /**
@@ -225,7 +230,7 @@ export interface CleanHeroInput {
  */
 export function buildCleanHero(
   input: CleanHeroInput,
-  actions: { fixAllSafe: () => void; fixNext: () => void; openNext: () => void; openReport: () => void },
+  actions: { fixAllSafe: () => void; fixNext: () => void; openNext: () => void; openStep: (id: string) => void; openReport: () => void },
 ): HTMLElement {
   const root = el("section", { class: "cl-hero", "aria-label": "Cleaning progress" });
   const now = input.overall;
@@ -282,20 +287,50 @@ export function buildCleanHero(
   }
   root.append(intro, meter);
 
-  const row = el("div", { class: "cl-progress" });
-  if (input.progress !== null && input.progress.total > 0) {
-    const dots = el("span", { class: "cl-dots", "aria-hidden": "true" });
-    for (let index = 0; index < input.progress.total; index++) {
-      dots.append(el("i", { class: index < input.progress.done ? "done" : "" }));
-    }
-    row.append(dots, el("span", { class: "cl-progress-text" }, [`${n(input.progress.done)} of ${n(input.progress.total)} kinds of work cleaned`]));
+  const steps = input.steps;
+  const doneCount = steps.filter((step) => step.state === "done").length;
+  const allDone = steps.length > 0 && doneCount === steps.length;
+  if (steps.length > 0) {
+    // The kinds of work as numbered steps that hold still: done ones tick off, the one to do now is lit.
+    const list = el("ol", { class: "cl-steps", "aria-label": `${n(doneCount)} of ${n(steps.length)} steps done` });
+    steps.forEach((step, index) => {
+      const sub = step.state === "done" ? (step.total > 0 ? `${n(step.total)} of ${n(step.total)} cleared` : "Cleared") : step.total > step.left ? `${n(step.total - step.left)} of ${n(step.total)} cleared` : `${n(step.left)} to do`;
+      const button = el("button", { class: "cl-step-btn", type: "button", "aria-current": step.state === "current" ? "step" : "false" }, [
+        el("span", { class: "cl-step-mark", "aria-hidden": "true" }, [step.state === "done" ? "✓" : String(index + 1)]),
+        el("span", { class: "cl-step-text" }, [el("span", { class: "cl-step-title" }, [step.title]), el("span", { class: "cl-step-sub" }, [sub])]),
+      ]);
+      button.addEventListener("click", () => actions.openStep(step.id));
+      list.append(el("li", { class: `cl-step ${step.state}`, "data-step": step.id }, [button]));
+    });
+    root.append(list);
   }
+  if (input.finished !== null && !allDone) {
+    const on = steps.findIndex((step) => step.state === "current");
+    const then = on < 0 ? "" : ` Next: ${steps[on]!.title}.`;
+    root.append(el("p", { class: "cl-flash", role: "status", "data-qp": "clean-flash" }, [`✓ ${input.finished} done.${then}`]));
+  }
+  if (allDone) {
+    const gained = raw === null || now === null ? "" : ` Score ${fmt(raw)} at load, ${fmt(now)} now (${now - raw >= 0 ? "+" : ""}${fmt(now - raw)}).`;
+    const report = el("button", { class: "primary", type: "button", "data-qp": "open-report" }, ["See the before and after report"]);
+    report.addEventListener("click", actions.openReport);
+    root.append(
+      el("div", { class: "cl-done", role: "status", "data-qp": "clean-done" }, [
+        el("span", { class: "cl-done-mark", "aria-hidden": "true" }, ["✓"]),
+        el("span", { class: "cl-done-text" }, [el("b", {}, [`All ${n(steps.length)} ${plural(steps.length, "step", "steps")} done. Nice work.`]), gained]),
+        report,
+      ]),
+    );
+    return root;
+  }
+
+  const row = el("div", { class: "cl-progress" });
+  if (steps.length > 0) row.append(el("span", { class: "cl-progress-text" }, [`${n(doneCount)} of ${n(steps.length)} ${plural(steps.length, "step", "steps")} done`]));
   row.append(el("span", { class: "cl-spacer" }));
   const report = el("button", { class: "ghost small", type: "button", "data-qp": "open-report" }, ["Before and after report"]);
   report.addEventListener("click", actions.openReport);
   row.append(report);
   if (input.safeCount > 0) {
-    const all = el("button", { class: "primary", type: "button", "data-qp": "fix-all-safe" }, [`Fix all safe (${n(input.safeCount)})…`]);
+    const all = el("button", { class: "primary fix-btn", type: "button", "data-qp": "fix-all-safe" }, [`Fix all safe (${n(input.safeCount)})…`]);
     all.title = "Whitespace, case, placeholders and standard formats only. One combined preview; each fix stays its own undoable step.";
     all.addEventListener("click", actions.fixAllSafe);
     row.append(all);
@@ -303,17 +338,18 @@ export function buildCleanHero(
   root.append(row);
 
   const next = input.next;
-  if (next !== null && next.points >= 0.1) {
-    const button = el("button", { class: next.safe > 0 ? "primary" : "ghost outlined", type: "button", "data-qp": "fix-next" }, [
+  if (next !== null) {
+    const button = el("button", { class: next.safe > 0 ? "primary fix-btn" : "ghost outlined", type: "button", "data-qp": "fix-next" }, [
       next.safe > 0 ? `Fix ${n(next.safe)} safe…` : "Open",
     ]);
     button.addEventListener("click", next.safe > 0 ? actions.fixNext : actions.openNext);
+    const at = steps.findIndex((step) => step.id === next.id);
     root.append(
       el("div", { class: "cl-next", "data-group": next.id }, [
-        el("span", { class: "cl-next-label" }, ["Biggest win next"]),
+        el("span", { class: "cl-next-label" }, [at < 0 ? "Next" : `Step ${n(at + 1)} of ${n(steps.length)}`]),
         el("span", { class: "cl-next-title" }, [next.title]),
-        next.dimension === null ? "" : el("span", { class: "cl-next-dim" }, [`lifts ${next.dimension}`]),
-        el("span", { class: "cl-next-pts" }, [pointsLabel(next.points)]),
+        next.dimension === null || next.points < 0.1 ? "" : el("span", { class: "cl-next-dim" }, [`lifts ${next.dimension}`]),
+        next.points < 0.1 ? "" : el("span", { class: "cl-next-pts" }, [pointsLabel(next.points)]),
         button,
       ]),
     );
@@ -357,6 +393,7 @@ export function buildAdvancedSection(loading: boolean, findings: readonly Findin
 
 /** Opens one group on the Clean page (it stays open across re-renders). */
 export function openIssueGroup(id: string): void {
+  closedGroups.delete(id);
   openGroups.add(id);
 }
 
@@ -542,6 +579,8 @@ export function buildIssueCard(
     /** The ways to fill an empty-cells issue's column, and filling it one of them. */
     fillChoices?: (issue: PageIssue) => { id: string; label: string; note?: string }[];
     fill?: (issue: PageIssue, choice: string) => void;
+    /** Exact points these issues add once their rows pass. */
+    groupGain?: (issues: readonly PageIssue[]) => { points: number; dimension: string | null };
   },
 ): HTMLElement {
   const card = el("article", { class: `issue-card sev-${issue.severity}`, "data-issue": issue.id });
@@ -565,7 +604,7 @@ export function buildIssueCard(
   if (choices.length > 0) main.append(buildFillRow(issue, choices, (choice) => actions.fill?.(issue, choice)));
   const buttons = el("div", { class: "issue-actions" });
   if (issue.fixes.length > 0 && issue.fixLabel !== null) {
-    const fix = el("button", { class: options.primary ? "primary btn-primary" : "ghost outlined", type: "button" }, [
+    const fix = el("button", { class: `${options.primary ? "primary btn-primary" : "ghost outlined"} fix-btn`, type: "button" }, [
       issue.fixLabel,
     ]);
     fix.addEventListener("click", () => actions.fix(issue));
@@ -596,8 +635,11 @@ export function buildIssueCard(
     buttons.append(showSide);
   }
   if (issue.check !== undefined && issue.kind !== "empty" && actions.dismiss !== undefined) {
-    const ok = el("button", { class: "link", type: "button", "data-qp": "dismiss" }, ["Not a problem"]);
-    ok.title = "I have looked at these rows and they are fine. Set this aside and leave it out of the score; it comes back if more rows are affected.";
+    // Fine rows are not a defect: the score counts them as passing, and the link says by how much.
+    // Only on a review item: a fixable card already shows what its fix adds.
+    const lift = issue.severity === "review" ? (actions.groupGain?.([issue]).points ?? 0) : 0;
+    const ok = el("button", { class: "link", type: "button", "data-qp": "dismiss" }, [lift >= 0.1 ? `Not a problem (${pointsLabel(lift)})` : "Not a problem"]);
+    ok.title = "I have looked at these rows and they are fine. They count as passing, so the score goes up; it comes back if more rows are affected.";
     ok.addEventListener("click", () => actions.dismiss?.(issue));
     buttons.append(ok);
   }
@@ -627,7 +669,7 @@ function buildFillRow(issue: PageIssue, choices: readonly { id: string; label: s
   };
   select.addEventListener("change", sync);
   sync();
-  const go = el("button", { class: "ghost outlined", type: "button", "data-qp": "fill" }, ["Fill…"]);
+  const go = el("button", { class: "ghost outlined fix-btn", type: "button", "data-qp": "fill" }, ["Fill…"]);
   go.title = "Preview the fill first; it lands in the Recipe as a step you can undo, and filled cells are marked in the Table";
   go.addEventListener("click", () => fill(select.value));
   return el("div", { class: "issue-fill" }, [el("label", { for: id, class: "issue-fill-label" }, ["Fill empty cells with"]), select, go, note]);
@@ -636,7 +678,7 @@ function buildFillRow(issue: PageIssue, choices: readonly { id: string; label: s
 export function buildIssuesTab(
   issues: readonly PageIssue[],
   fixed: readonly FixedEntry[],
-  state: { showAll: boolean; checkCount: number },
+  state: { showAll: boolean; checkCount: number; steps?: readonly CleanStep[] },
   sensitiveBanner: HTMLElement | null,
   actions: {
     fix: (issue: PageIssue) => void;
@@ -684,20 +726,53 @@ export function buildIssuesTab(
     root.append(empty);
   }
   // One card per kind of work; each opens to its issues. A lone group is open from the start.
-  const groups = groupIssues(issues);
+  // With steps, groups keep their step order, finished steps stay as a ticked row, and the step to do now is open.
+  const steps = state.steps ?? [];
+  const place = (id: string): number => {
+    const at = steps.findIndex((step) => step.id === id);
+    return at < 0 ? steps.length : at;
+  };
+  const groups = steps.length === 0 ? groupIssues(issues) : groupIssues(issues).sort((a, b) => place(a.group.id) - place(b.group.id));
+  const current = steps.find((step) => step.state === "current")?.id;
   if (groups.length > 1) {
     const all = el("button", { class: "ghost small qp-expand-all", type: "button" }, [state.showAll ? "Collapse all" : "Expand all"]);
     all.addEventListener("click", () => {
       openGroups.clear();
+      if (state.showAll) for (const entry of groups) closedGroups.add(entry.group.id);
+      else closedGroups.clear();
       actions.toggleAll();
     });
     root.append(all);
   }
   // The first fixable issue on the page gets its one solid button.
   const firstFixable = groups.flatMap((entry) => entry.issues).find((issue) => issue.fixes.length > 0 && issue.fixLabel !== null)?.id;
+  const shown = new Set(groups.map((entry) => entry.group.id));
+  const doneRow = (step: CleanStep): HTMLElement | null => {
+    const group = ISSUE_GROUPS.find((entry) => entry.id === step.id);
+    if (group === undefined || shown.has(step.id)) return null;
+    return el("section", { class: "qp-group qp-group-done", "data-group": step.id, "aria-label": `${group.title}: done` }, [
+      el("div", { class: "qp-group-done-row" }, [
+        el("span", { class: "qp-fixed-check", "aria-hidden": "true" }, ["✓"]),
+        el("span", { class: "qp-group-title" }, [group.title]),
+        el("span", { class: "qp-group-about" }, [step.total > 0 ? `Done: ${n(step.total)} of ${n(step.total)} cleared` : "Done"]),
+      ]),
+    ]);
+  };
+  let stepAt = 0;
   for (const { group, issues: list } of groups) {
-    const open = state.showAll || groups.length === 1 || openGroups.has(group.id);
-    root.append(buildIssueGroup(group, list, open, firstFixable, actions));
+    // Finished steps that come before this group, in step order.
+    for (; stepAt < steps.length && place(steps[stepAt]!.id) < place(group.id); stepAt++) {
+      const row = doneRow(steps[stepAt]!);
+      if (row !== null) root.append(row);
+    }
+    const auto = group.id === current && !closedGroups.has(group.id);
+    const open = state.showAll || groups.length === 1 || openGroups.has(group.id) || auto;
+    const step = steps.find((entry) => entry.id === group.id);
+    root.append(buildIssueGroup(group, list, open, firstFixable, actions, step));
+  }
+  for (; stepAt < steps.length; stepAt++) {
+    const row = doneRow(steps[stepAt]!);
+    if (row !== null) root.append(row);
   }
   if (fixed.length > 0) {
     const group = el("section", { class: "qp-fixed", "aria-label": "Fixed this session" }, [
@@ -738,7 +813,7 @@ export function buildIssuesTab(
   return root;
 }
 
-function buildIssueGroup(group: IssueGroup, issues: readonly PageIssue[], open: boolean, firstFixable: string | undefined, actions: Parameters<typeof buildIssuesTab>[4]): HTMLElement {
+function buildIssueGroup(group: IssueGroup, issues: readonly PageIssue[], open: boolean, firstFixable: string | undefined, actions: Parameters<typeof buildIssuesTab>[4], step?: CleanStep): HTMLElement {
   const count = (severity: PageIssue["severity"]): number => issues.filter((issue) => issue.severity === severity).length;
   const parts = [
     count("fix") > 0 ? `${count("fix")} to fix` : "",
@@ -760,6 +835,9 @@ function buildIssueGroup(group: IssueGroup, issues: readonly PageIssue[], open: 
         el("span", { class: "qp-group-about" }, [group.about]),
       ]),
       el("span", { class: "qp-group-facts" }, [
+        step !== undefined && step.total > step.left
+          ? el("span", { class: "qp-group-cleared", "data-qp": "group-cleared" }, [`\u2713 ${n(step.total - step.left)} of ${n(step.total)} cleared`])
+          : "",
         el("span", { class: `qp-group-sev sev-${worst}` }, [parts.join(" \u00b7 ")]),
         columns > 0 ? el("span", {}, [`${n(columns)} ${plural(columns, "column", "columns")}`]) : "",
         points >= 0.1
@@ -794,8 +872,10 @@ function buildIssueGroup(group: IssueGroup, issues: readonly PageIssue[], open: 
     if (opening) {
       fill();
       openGroups.add(group.id);
+      closedGroups.delete(group.id);
     } else {
       openGroups.delete(group.id);
+      closedGroups.add(group.id);
     }
     body.hidden = !opening;
     section.classList.toggle("open", opening);

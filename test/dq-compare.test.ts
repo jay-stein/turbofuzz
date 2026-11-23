@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import { advanceTrail, compareColumns, trailLabel, type DQBaseline } from "../src/data/dq-baseline.js";
+import { advanceTrail, cleanSteps, compareColumns, trailLabel, type DQBaseline } from "../src/data/dq-baseline.js";
 import { buildCompareSection } from "../src/ui/quality-compare.js";
 
 function setupDom(): Window {
@@ -48,6 +48,24 @@ const base = (overall: number, extra: Partial<DQBaseline> = {}): DQBaseline => (
   groups: ["junk", "empty"],
   issues: 6,
   ...extra,
+});
+
+test("Clean's steps hold their order: a finished one stays done, the first unfinished is current, a late one joins the end", () => {
+  const at = base(70, { groups: ["junk", "standardise", "empty"], groupIssues: { junk: ["p.1", "p.2"], standardise: ["v.0"], empty: ["e.1", "e.2", "e.3"] } });
+  // Nothing done yet: step 1 is current.
+  let steps = cleanSteps(at, [{ id: "junk", issues: ["p.1", "p.2"] }, { id: "standardise", issues: ["v.0"] }, { id: "empty", issues: ["e.1", "e.2", "e.3"] }]);
+  assert.deepEqual(steps.map((s) => [s.id, s.state, s.total, s.left]), [["junk", "current", 2, 2], ["standardise", "todo", 1, 1], ["empty", "todo", 3, 3]]);
+  // One junk issue cleared: still step 1, now 1 of 2 cleared.
+  steps = cleanSteps(at, [{ id: "junk", issues: ["p.2"] }, { id: "standardise", issues: ["v.0"] }, { id: "empty", issues: ["e.1", "e.2", "e.3"] }]);
+  assert.deepEqual(steps[0], { id: "junk", state: "current", total: 2, left: 1 });
+  // Junk done, and the group regrouping (fewest rows first) never reorders the steps; a duplicates issue turns up.
+  steps = cleanSteps(at, [{ id: "empty", issues: ["e.1"] }, { id: "duplicates", issues: ["d"] }, { id: "standardise", issues: ["v.0"] }]);
+  assert.deepEqual(steps.map((s) => [s.id, s.state]), [["junk", "done"], ["standardise", "current"], ["empty", "todo"], ["duplicates", "todo"]]);
+  assert.deepEqual(steps[2], { id: "empty", state: "todo", total: 3, left: 1 });
+  // Everything cleared: every step done.
+  assert.ok(cleanSteps(at, []).every((s) => s.state === "done"));
+  // With no load to compare with, the groups on the page are the steps.
+  assert.deepEqual(cleanSteps(null, [{ id: "dates", issues: ["x"] }]).map((s) => s.state), ["current"]);
 });
 
 test("columns are matched by name, the most changed first, a dropped column last", () => {

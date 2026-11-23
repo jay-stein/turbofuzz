@@ -502,16 +502,17 @@ export function computeDQScore(
     });
   }
 
+  // Checks the analyst reviewed ("not a problem") pass in full until more rows fail. That holds
+  // for user-run checks too: a suggested pair (end latitude above start latitude) is set aside the same way.
   const reviewed = config.reviewed ?? {};
   const setAside: string[] = [];
-  for (let i = 0; i < checks.length; i++) {
-    const check = checks[i]!;
+  const aside = (check: ScoreCheck): ScoreCheck => {
     const seen = reviewed[check.id];
-    if (seen !== undefined && check.fail > 0 && check.fail <= seen) {
-      setAside.push(check.id);
-      checks[i] = { ...check, pass: check.pass + check.fail, fail: 0, detail: `${check.detail} · reviewed and set aside` };
-    }
-  }
+    if (seen === undefined || check.fail === 0 || check.fail > seen) return check;
+    setAside.push(check.id);
+    return { ...check, pass: check.pass + check.fail, fail: 0, detail: `${check.detail} · reviewed and set aside` };
+  };
+  for (let i = 0; i < checks.length; i++) checks[i] = aside(checks[i]!);
   const byDimension = new Map<ScoreDimension, ScoreCheck[]>();
   for (const check of checks) {
     const list = byDimension.get(check.dimension);
@@ -520,7 +521,7 @@ export function computeDQScore(
   }
   // User-run checks (pair comparisons, key duplicates, freshness rules) score
   // Consistency/Timeliness/Uniqueness once they exist.
-  for (const check of userChecks) {
+  for (const check of userChecks.map(aside)) {
     const list = byDimension.get(check.dimension);
     if (list === undefined) byDimension.set(check.dimension, [check]);
     else list.push(check);

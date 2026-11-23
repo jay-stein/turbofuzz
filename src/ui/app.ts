@@ -5362,18 +5362,18 @@ export class App {
       return;
     }
     const previous = baselineReset ? null : (this.dqScore?.overall ?? null);
-    const score = computeDQScore(
-      this.metas,
-      stats,
-      this.rowCount,
-      { ...this.dqConfig, optional: getOptionalMarks(), reviewed: this.reviewedRows(), rowsAffected: this.rowsAffected, nearDuplicates: this.nearDuplicateCount },
-      this.dqUserChecks,
-    );
+    const score = this.scoreWith(stats, this.reviewedRows());
     this.dqScore = score;
     this.syncScoreTile(
       previous === null || score.overall === null ? null : score.overall - previous,
     );
     this.renderQualityPage();
+  }
+
+  /** The score with these reviewed marks set aside ({} for the data as loaded). */
+  private scoreWith(stats: DatasetStats, reviewed: Record<string, number>): DQScore {
+    const config = { ...this.dqConfig, optional: getOptionalMarks(), reviewed, rowsAffected: this.rowsAffected, nearDuplicates: this.nearDuplicateCount };
+    return computeDQScore(this.metas, stats, this.rowCount, config, this.dqUserChecks);
   }
 
   /** Score tile: number + band colour + delta versus the previous step. */
@@ -5654,10 +5654,13 @@ export class App {
   /** "Not a problem": the analyst looked at the rows and they are fine (a Roman emperor's birth year). */
   private dismissIssue(issue: PageIssue): void {
     if (issue.check === undefined) return;
+    const before = this.dqScore?.overall ?? null;
     setReviewed(this.datasetName, issue.check.id, { rows: issue.check.fail, title: issue.title });
     this.refreshScore();
     this.updateStepsButton();
-    this.setAction(`Set aside: ${issue.title}. It stays out of the score unless more rows are affected.`);
+    const after = this.dqScore?.overall ?? null;
+    const lift = before === null || after === null ? "" : ` Score ${before.toFixed(1)} → ${after.toFixed(1)}.`;
+    this.setAction(`Not a problem: ${issue.title}. Those rows count as fine now.${lift} Put it back under “Reviewed and set aside”.`);
   }
 
   /** The table drill-down behind an issue: its check's rows, or its finding's action. */
@@ -6266,17 +6269,20 @@ export class App {
     });
     if (score.overall !== null) this.qaNudge.update({ key: `${this.datasetName}:${this.generation}`, score: score.overall, fix: issues.filter((i) => i.severity === "fix").length, review: issues.filter((i) => i.severity === "review").length });
     // Before any step the data is the raw load: keep its quality as the "before" (late counts refine it).
-    const current = captureBaseline({
-      score,
-      metas: this.metas,
-      rowCount: this.rowCount,
-      rowsAffected: this.rowsAffected?.count ?? null,
-      duplicateRows: stats.duplicateRows,
-      groups: groupIssues(issues.filter((issue) => issue.severity !== "info")).map((entry) => entry.group.id),
-      issues: issues.filter((issue) => issue.severity !== "info").length,
-    });
-    const steps = this.stepEntries().map((entry) => entry.label);
-    if (steps.length === 0) this.dqBaseline = current;
+    // Issues marked "not a problem" are progress too: the raw load leaves them in, and each is a step.
+    const capture = (at: DQScore, list: readonly PageIssue[]): DQBaseline => {
+      const open = list.filter((issue) => issue.severity !== "info");
+      const byGroup = groupIssues(open);
+      return captureBaseline({ score: at, metas: this.metas, rowCount: this.rowCount, rowsAffected: this.rowsAffected?.count ?? null, duplicateRows: stats.duplicateRows, groups: byGroup.map((entry) => entry.group.id), groupIssues: Object.fromEntries(byGroup.map((entry) => [entry.group.id, entry.issues.map((issue) => issue.id)])), issues: open.length });
+    };
+    const current = capture(score, issues);
+    const marks = Object.values(getReviewed(this.datasetName));
+    const recipe = this.stepEntries().map((entry) => entry.label);
+    const steps = [...recipe, ...marks.map((mark) => `Not a problem: ${mark.title}`)];
+    if (recipe.length === 0) {
+      const raw = marks.length === 0 ? score : this.scoreWith(stats, {});
+      this.dqBaseline = marks.length === 0 ? current : capture(raw, buildIssues({ score: raw, metas: this.metas, rowCount: this.rowCount, review: this.reviewList(stats), sensitiveColumns }));
+    }
     this.dqCurrent = current;
     this.scoreTrail = advanceTrail(this.scoreTrail, steps, score.overall);
     if (this.qualityPage === null && this.cleanPage === null) return; // Built on first open; the issues above still feed the table's nudge.

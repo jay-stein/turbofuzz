@@ -248,6 +248,17 @@ test("a range check the analyst reviewed stops counting, and comes back when mor
   assert.equal(rangeCheck({ reviewed: { "validity.range.0": 9 } }, 12)?.fail, 12);
 });
 
+test("a suggested pair check marked not a problem passes, and the score rises", () => {
+  const pair = { id: "consistency.suggested.1.0", dimension: "consistency" as const, label: "end_lat ≥ start_lat (suggested)", detail: "", pass: 60, fail: 40, na: 0, column: null, filter: null, fixLabel: null, suggested: true };
+  const columns = [meta({ name: "start_lat" }), meta({ name: "end_lat" })];
+  const plain = computeDQScore(columns, stats({ totalCells: 200 }), 100, {}, [pair]);
+  const reviewed = computeDQScore(columns, stats({ totalCells: 200 }), 100, { reviewed: { [pair.id]: 40 } }, [pair]);
+  const check = reviewed.dimensions.flatMap((d) => d.checks).find((c) => c.id === pair.id);
+  assert.equal(check?.fail, 0);
+  assert.deepEqual(reviewed.setAside, [pair.id]);
+  assert.ok((reviewed.overall ?? 0) > (plain.overall ?? 0));
+});
+
 // A 100,000-row table whose cells are almost all fine (weighted dimensions near 99) but 10% of rows fail a check.
 function orders(): { columns: ColumnMeta[]; rows: number } {
   const rows = 100000;

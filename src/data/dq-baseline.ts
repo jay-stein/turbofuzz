@@ -16,8 +16,10 @@ export interface DQBaseline {
   duplicateRows: number;
   dimensions: { dimension: ScoreDimension; label: string; score: number | null }[];
   columns: BaselineColumn[];
-  /** The kinds of work (Clean page groups) found at load. */
+  /** The kinds of work (Clean page groups) found at load, in the order Clean works through them. */
   groups: string[];
+  /** The issues each kind of work had at load, by group id: Clean counts off how many are cleared. */
+  groupIssues?: Record<string, string[]>;
   /** Issues to fix or review at load. */
   issues: number;
 }
@@ -37,6 +39,7 @@ export interface BaselineInputs {
   rowsAffected: number | null;
   duplicateRows: number;
   groups: readonly string[];
+  groupIssues?: Record<string, readonly string[]>;
   issues: number;
 }
 
@@ -57,8 +60,40 @@ export function captureBaseline(input: BaselineInputs): DQBaseline {
       fill: rowCount === 0 ? 0 : 1 - meta.stats.nulls / rowCount,
     })),
     groups: [...input.groups],
+    groupIssues: Object.fromEntries(Object.entries(input.groupIssues ?? {}).map(([id, list]) => [id, [...list]])),
     issues: input.issues,
   };
+}
+
+/** One kind of work on the Clean page as a step: done, the one to do now, or still to come. */
+export interface CleanStep {
+  id: string;
+  state: "done" | "current" | "todo";
+  /** Issues it had at load plus any that turned up since. */
+  total: number;
+  /** Issues still to fix or review. */
+  left: number;
+}
+
+/**
+ * Clean's kinds of work as numbered steps, in the order found at load, so they hold still while
+ * the analyst works: a finished group stays as a done step instead of vanishing, and the first
+ * unfinished one is the step to do now. A group that turns up later joins the end.
+ */
+export function cleanSteps(baseline: DQBaseline | null, now: readonly { id: string; issues: readonly string[] }[]): CleanStep[] {
+  const left = new Map(now.map((group) => [group.id, group.issues]));
+  const order = [...(baseline?.groups ?? [])];
+  for (const group of now) if (!order.includes(group.id)) order.push(group.id);
+  let current = false;
+  return order.map((id) => {
+    const open = left.get(id) ?? [];
+    const still = new Set(open);
+    const cleared = (baseline?.groupIssues?.[id] ?? []).filter((issue) => !still.has(issue)).length;
+    const done = open.length === 0;
+    const state = done ? "done" : current ? "todo" : "current";
+    if (!done) current = true;
+    return { id, state, total: cleared + open.length, left: open.length };
+  });
 }
 
 /** Steps that landed together, and the score once they had. */

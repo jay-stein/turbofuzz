@@ -60,15 +60,18 @@ test("the report: hero, four tiles, tabs from Columns, and a way to the Clean pa
   expect(errors).toEqual([]);
 });
 
-test("the Clean page: the score bar, the biggest win next, and the issues in their groups", async ({ page }) => {
+test("the Clean page: the score bar, numbered steps with the one to do now, and the issues in their groups", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await openClean(page);
 
   await expect(page.locator(".cl-title")).toHaveText("Clean");
   await expect(page.locator(".cl-bar")).toHaveAttribute("aria-label", /^Score \d+\.\d, raw load \d+\.\d, up to \d+\.\d if all cleaned$/);
-  await expect(page.locator(".cl-next")).toContainText("Biggest win next");
+  // The kinds of work as numbered steps: the first is the one to do now, and its group is open.
+  await expect(page.locator(".cl-step").first()).toHaveClass(/current/);
+  await expect(page.locator(".cl-next")).toContainText(/Step 1 of \d+/);
   await expect(page.locator(".cl-next .cl-next-pts")).toContainText("pts");
+  await expect(page.locator(".qp-group").first()).toHaveClass(/open/);
   await expect(page.locator("[data-qp='fix-all-safe']")).toHaveText(/^Fix all safe \(\d+\)…$/);
   await expect(page.locator(".qp-group").first().locator(".qp-group-gain")).toContainText("pts");
 
@@ -102,6 +105,8 @@ test("Fix all safe previews first, applies as undoable steps, raises the score f
   const after = Number(await page.locator("[data-qp='clean-score']").textContent());
   expect(after).toBeGreaterThan(before);
   await expect(page.locator(".cl-legend")).toContainText(/Gained by cleaning \+\d+\.\d/);
+  // Progress shows where the work landed: a step ticked off, or part of one cleared.
+  await expect(page.locator(".cl-step.done, [data-qp='group-cleared']").first()).toBeVisible();
 
   // The Table shows the standardised values.
   await page.getByRole("tab", { name: "Table" }).click();

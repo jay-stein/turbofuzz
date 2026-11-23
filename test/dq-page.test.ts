@@ -325,12 +325,14 @@ test("issues are grouped by the kind of work, each group a card that opens; the 
   const groups = [...host.querySelectorAll(".qp-group")].map((node) => node.getAttribute("data-group"));
   // The groups with something to fix first (by rows), then review, then info.
   assert.deepEqual(groups, ["standardise", "junk", "duplicates", "empty", "review"]);
-  assert.equal(host.querySelectorAll(".issue-card").length, 0, "every group starts closed");
+  // Step 1 (the first kind of work) is open; the rest wait their turn.
+  assert.equal(host.querySelectorAll(".issue-card").length, 2, "only the step to do now starts open");
+  assert.equal(host.querySelector(".qp-group[data-group='standardise'] .qp-group-head")?.getAttribute("aria-expanded"), "true");
   const empty = host.querySelector(".qp-group[data-group='empty']")!;
   assert.match(empty.textContent ?? "", /Fill the gaps3/);
   assert.match(empty.textContent ?? "", /3 to review/);
   (empty.querySelector(".qp-group-head") as unknown as HTMLButtonElement).click();
-  assert.equal(host.querySelectorAll(".issue-card").length, 3);
+  assert.equal(host.querySelectorAll(".issue-card").length, 5);
   assert.equal(empty.querySelector(".qp-group-head")?.getAttribute("aria-expanded"), "true");
   (host.querySelector(".qp-expand-all") as unknown as HTMLButtonElement).click();
   assert.equal(host.querySelectorAll(".issue-card").length, 8);
@@ -390,11 +392,34 @@ test("the Clean page sets the score against the raw load and counts the kinds of
   quality.render(input(metas, issues, { baseline: { ...baseline, overall: (score.overall ?? 0) - 5 } }) as never);
   assert.match(host.querySelector(".cl-score-facts")?.textContent ?? "", /Raw load \d+\.\d/);
   assert.match(host.querySelector(".cl-legend")?.textContent ?? "", /Gained by cleaning \+5\.0/);
-  // Duplicates and dates were found at load and are no longer on the page: two kinds of work done.
-  assert.equal(host.querySelector(".cl-progress-text")?.textContent, `2 of ${present.length + 2} kinds of work cleaned`);
-  assert.equal(host.querySelectorAll(".cl-dots i.done").length, 2);
-  assert.match(host.querySelector(".cl-next")?.textContent ?? "", /Biggest win next/);
+  // Duplicates and dates were found at load and are no longer on the page: two steps done.
+  assert.equal(host.querySelector(".cl-progress-text")?.textContent, `2 of ${present.length + 2} steps done`);
+  assert.deepEqual([...host.querySelectorAll(".cl-step")].map((node) => node.className.replace("cl-step ", "")), [...present.map((_, i) => (i === 0 ? "current" : "todo")), "done", "done"]);
+  // A finished step stays on the page as a ticked row instead of vanishing.
+  assert.deepEqual([...host.querySelectorAll(".qp-group-done")].map((node) => node.getAttribute("data-group")), ["duplicates", "dates"]);
+  assert.match(host.querySelector(".cl-next")?.textContent ?? "", new RegExp(`Step 1 of ${present.length + 2}`));
   assert.ok(host.querySelector(".cl-bar")?.getAttribute("aria-label")?.startsWith("Score "));
+});
+
+test("finishing a step says so and names the next; finishing the last says all done with the score gained", () => {
+  const metas = messy();
+  const issue = (id: string, kind: PageIssue["kind"]): PageIssue => ({ id, severity: "fix", kind, column: 0, columnName: "c", title: id, evidence: "e", impact: null, points: null, examples: [], dist: null, fixes: [], fixLabel: null, batchSafe: false, rows: 5 });
+  const junk = issue("p.0", "placeholders");
+  const dates = issue("d.0", "dateFormat");
+  const baseline = { ...captureBaseline({ score: computeDQScore(metas, stats(400), 400), metas, rowCount: 400, rowsAffected: 10, duplicateRows: 0, groups: ["junk", "dates"], groupIssues: { junk: ["p.0"], dates: ["d.0"] }, issues: 2 }), overall: 60 };
+  const { host, quality } = page({ mode: "clean", onOpenReport: () => undefined });
+  quality.render(input(metas, [junk, dates], { baseline }) as never);
+  assert.equal(host.querySelector("[data-qp='clean-flash']"), null, "nothing finished yet");
+  assert.equal(host.querySelector(".cl-step.current")?.getAttribute("data-step"), "junk");
+  quality.render(input(metas, [dates], { baseline }) as never);
+  assert.equal(host.querySelector("[data-qp='clean-flash']")?.textContent, "✓ Junk data done. Next: Dates.");
+  assert.equal(host.querySelector(".cl-step.current")?.getAttribute("data-step"), "dates");
+  assert.equal(host.querySelector(".qp-group[data-group='dates'] .qp-group-head")?.getAttribute("aria-expanded"), "true", "the next step opens");
+  quality.render(input(metas, [], { baseline }) as never);
+  const done = host.querySelector("[data-qp='clean-done']")?.textContent ?? "";
+  assert.match(done, /All 2 steps done/);
+  assert.match(done, /Score 60\.0 at load, \d+\.\d now \(\+\d+\.\d\)/);
+  assert.equal(host.querySelector("[data-qp='fix-next']"), null);
 });
 
 test("Fill the gaps offers the fills that suit each column, says what the chosen one does, and fills on request", () => {

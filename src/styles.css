@@ -19617,9 +19617,45 @@ select.chart-add-agg {
 .cl-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 .cl-bands { margin-left: auto; }
 .cl-progress { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.cl-dots { display: inline-flex; gap: 5px; }
-.cl-dots i { width: 24px; height: 6px; border-radius: 3px; background: var(--border); }
-.cl-dots i.done { background: var(--ok); }
+/* Clean steps: numbered, done ones ticked green, the one to do now lit. */
+.cl-steps { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; counter-reset: none; }
+.cl-step { flex: 1 1 140px; min-width: 0; }
+.cl-step-btn {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; text-align: left;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--panel); color: var(--text); cursor: pointer;
+}
+.cl-step-btn:hover { border-color: var(--accent); }
+.cl-step-mark {
+  flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  font-size: var(--fs-xs); font-weight: 700; background: var(--border); color: var(--text);
+}
+.cl-step-text { display: flex; flex-direction: column; min-width: 0; }
+.cl-step-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cl-step-sub { font-size: var(--fs-xs); color: var(--text-dim); }
+.cl-step.done .cl-step-btn { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); background: color-mix(in srgb, var(--ok) 9%, var(--panel)); }
+.cl-step.done .cl-step-mark { background: var(--ok); color: var(--panel); }
+.cl-step.done .cl-step-sub { color: var(--ok-text); }
+.cl-step.current .cl-step-btn { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.cl-step.current .cl-step-mark { background: var(--accent); color: var(--panel); }
+.cl-flash { grid-column: 1 / -1; margin: 0; font-weight: 600; color: var(--ok-text); }
+.cl-done {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--ok) 50%, var(--border)); border-radius: 10px;
+  background: color-mix(in srgb, var(--ok) 12%, var(--panel));
+}
+.cl-done-mark { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--ok); color: var(--panel); font-weight: 700; }
+.cl-done-text { flex: 1 1 240px; }
+.qp-group-done-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 14px; }
+.qp-group-done { opacity: 0.85; }
+.qp-group-done .qp-group-about { color: var(--ok-text); }
+.qp-group-cleared { color: var(--ok-text); font-weight: 600; }
+/* Fix actions read as a go: green with a tick (text in --panel so it holds contrast in dark mode). */
+.fix-btn::before { content: "✓"; font-weight: 700; margin-right: 6px; }
+.primary.fix-btn,
+.issue-actions .primary.fix-btn { background: var(--ok); border-color: var(--ok); color: var(--panel); }
+.ghost.fix-btn,
+.issue-actions .outlined.fix-btn { border-color: var(--ok); color: var(--ok-text); background: var(--ok-soft); font-weight: 600; }
+.ghost.fix-btn:hover { background: color-mix(in srgb, var(--ok) 22%, var(--panel)); }
 .cl-progress-text { font-weight: 600; font-size: var(--fs-md); }
 .cl-spacer { flex: 1 1 0; }
 .cl-next {

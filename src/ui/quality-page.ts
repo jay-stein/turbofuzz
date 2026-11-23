@@ -9,7 +9,7 @@ import {
   type SensitiveLabel,
 } from "../data/sensitivity.js";
 import type { DatasetStats } from "../data/stats.js";
-import type { DQBaseline } from "../data/dq-baseline.js";
+import { cleanSteps, type DQBaseline } from "../data/dq-baseline.js";
 import { buildCompareSection, type ScoreStep } from "./quality-compare.js";
 import type { ColumnHealth, PageIssue } from "../data/dq-issues.js";
 import {
@@ -17,6 +17,7 @@ import {
   buildHero,
   buildIssuesTab,
   groupIssues,
+  ISSUE_GROUPS,
   openIssueGroup,
   buildSensitiveBanner,
   buildSkeleton,
@@ -202,6 +203,9 @@ export class QualityPage {
   private tab: QualityTab = "columns";
   private showAllIssues = false;
   private fixed: FixedEntry[] = [];
+  /** Clean steps done at the last render (null before the first), to say when one finishes. */
+  private stepsDone: Set<string> | null = null;
+  private finished: string | null = null;
   /** True while a fix run is in progress. */
   private fixing = false;
   /** Dataset-level advisory signals from the app, shown under the issue list. */
@@ -262,6 +266,8 @@ export class QualityPage {
     if (input.datasetKey !== undefined && input.datasetKey !== this.datasetKey) {
       this.datasetKey = input.datasetKey;
       this.fixed = [];
+      this.stepsDone = null;
+      this.finished = null;
       this.showAllIssues = false;
     }
     this.scopeLabel = describeScope({ total: rowCount });
@@ -485,6 +491,13 @@ export class QualityPage {
     return { points: pointsIfPassed(score, ids), dimension };
   }
 
+  /** Opens one step's group on the Clean page and brings it into view. */
+  private openStep(id: string): void {
+    openIssueGroup(id);
+    this.render(this.lastInput);
+    this.root.querySelector(`[data-group="${id}"].qp-group`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+
   /**
    * The Clean page: the score from the raw load to now and what is still on the table, the
    * biggest win next, then every issue in its group of work with the points the group adds.
@@ -498,16 +511,21 @@ export class QualityPage {
   ): void {
     const { score } = input;
     const groups = groupIssues(issues).map((entry) => ({ ...entry, gain: this.groupGain(score, entry.issues) }));
-    const ranked = groups.filter((entry) => entry.gain.points >= 0.1).sort((a, b) => b.gain.points - a.gain.points);
-    const top = ranked[0] ?? null;
-    const topSafe = top === null ? [] : top.issues.filter((issue) => issue.batchSafe && issue.fixes.length > 0);
     const potential = overallIfPassed(score, this.scoredChecks(issues));
     const baseline = input.baseline ?? null;
-    const present = new Set(groups.filter((entry) => entry.issues.some((issue) => issue.severity !== "info")).map((entry) => entry.group.id));
-    const progress =
-      baseline === null || baseline.groups.length === 0
-        ? null
-        : { done: baseline.groups.filter((id) => !present.has(id)).length, total: baseline.groups.length };
+    // The kinds of work as numbered steps; the one to do now leads, whatever its points.
+    const open = groups
+      .map((entry) => ({ id: entry.group.id, issues: entry.issues.filter((issue) => issue.severity !== "info").map((issue) => issue.id) }))
+      .filter((entry) => entry.issues.length > 0);
+    const steps = cleanSteps(baseline, open).map((step) => ({ ...step, title: ISSUE_GROUPS.find((group) => group.id === step.id)?.title ?? step.id }));
+    const doneNow = new Set(steps.filter((step) => step.state === "done").map((step) => step.id));
+    const justDone = steps.find((step) => doneNow.has(step.id) && this.stepsDone !== null && !this.stepsDone.has(step.id));
+    if (justDone !== undefined) this.finished = justDone.title;
+    else if (this.finished !== null && !steps.some((step) => step.title === this.finished && step.state === "done")) this.finished = null;
+    this.stepsDone = doneNow;
+    const currentId = steps.find((step) => step.state === "current")?.id;
+    const top = groups.find((entry) => entry.group.id === currentId) ?? null;
+    const topSafe = top === null ? [] : top.issues.filter((issue) => issue.batchSafe && issue.fixes.length > 0);
     this.root.append(
       buildCleanHero(
         {
@@ -521,18 +539,17 @@ export class QualityPage {
           fixCount: issues.filter((issue) => issue.severity === "fix").length,
           reviewCount: issues.filter((issue) => issue.severity === "review").length,
           safeCount: safe.length,
-          progress,
+          steps,
+          finished: this.finished,
           next: top === null ? null : { id: top.group.id, title: top.group.title, points: top.gain.points, dimension: top.gain.dimension, safe: topSafe.length },
         },
         {
           fixAllSafe: () => void this.fix(safe),
           fixNext: () => void this.fix(topSafe),
           openNext: () => {
-            if (top === null) return;
-            openIssueGroup(top.group.id);
-            this.render(this.lastInput);
-            this.root.querySelector(`[data-group="${top.group.id}"].qp-group`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+            if (top !== null) this.openStep(top.group.id);
           },
+          openStep: (id) => this.openStep(id),
           openReport: () => this.callbacks.onOpenReport?.(),
         },
       ),
@@ -542,7 +559,7 @@ export class QualityPage {
       buildIssuesTab(
         issues,
         this.fixed,
-        { showAll: this.showAllIssues, checkCount },
+        { showAll: this.showAllIssues, checkCount, steps },
         buildSensitiveBanner(sensitiveNames, () => this.callbacks.onOpenReport?.("sensitive")),
         {
           fixGroup: (group) => void this.fix(group),
