@@ -55,7 +55,7 @@ export const ISSUE_GROUPS: readonly { id: string; title: string; about: string; 
   { id: "junk", title: "Junk data", about: "Text where a value should be (N/A, -, ?), values that do not read, and columns with nothing in them", kinds: ["placeholders", "unreadable", "emptyColumn"] },
   { id: "dates", title: "Dates", about: "Mixed date formats, day and month swapped, dates in the wrong order", kinds: ["dateFormat", "dateConflict", "pairOrder"] },
   { id: "empty", title: "Fill the gaps", about: "Empty cells, filled the way you choose for each column", kinds: ["empty"] },
-  { id: "duplicates", title: "Duplicates", about: "Repeated rows and ids that should be unique", kinds: ["duplicates", "keyDuplicates"] },
+  { id: "duplicates", title: "Duplicates", about: "Repeated rows, the same record under two ids, and ids that should be unique", kinds: ["smartDuplicates", "duplicates", "keyDuplicates"] },
   { id: "unusual", title: "Unusual values", about: "Values outside the range the rest suggest", kinds: ["outOfRange"] },
   { id: "review", title: "To review", about: "Checks that need a judgement call", kinds: ["review", "other"] },
 ];
@@ -221,6 +221,8 @@ export interface CleanHeroInput {
   next: { id: string; title: string; points: number; dimension: string | null; safe: number } | null;
   /** "Junk data done": the step finished most recently, said once it lands. */
   finished: string | null;
+  /** Smart Deduplicate's find, spotlit at the top: rows that repeat once the id is ignored. */
+  smart?: { rows: number; ignoredNames: string; points: number | null } | null;
 }
 
 /**
@@ -321,6 +323,23 @@ export function buildCleanHero(
       ]),
     );
     return root;
+  }
+
+  const smart = input.smart ?? null;
+  if (smart !== null && smart.rows > 0) {
+    const look = el("button", { class: "ghost outlined", type: "button", "data-qp": "smart-open" }, ["Review and remove…"]);
+    look.addEventListener("click", () => actions.openStep("duplicates"));
+    root.append(
+      el("div", { class: "cl-smart", "data-qp": "smart-spotlight" }, [
+        el("span", { class: "smart-badge" }, ["Smart Deduplicate"]),
+        el("span", { class: "cl-smart-text" }, [
+          el("b", {}, [`${n(smart.rows)} ${plural(smart.rows, "row is", "rows are")} the same record twice.`]),
+          ` They match another row on every column except ${smart.ignoredNames}, so an exact-duplicate check never sees them.`,
+        ]),
+        smart.points !== null && smart.points >= 0.1 ? el("span", { class: "cl-next-pts" }, [pointsLabel(smart.points)]) : "",
+        look,
+      ]),
+    );
   }
 
   const row = el("div", { class: "cl-progress" });
@@ -581,10 +600,16 @@ export function buildIssueCard(
     fill?: (issue: PageIssue, choice: string) => void;
     /** Exact points these issues add once their rows pass. */
     groupGain?: (issues: readonly PageIssue[]) => { points: number; dimension: string | null };
+    /** Removes an issue's repeated rows, keeping the first or last copy. */
+    dedupe?: (issue: PageIssue, keep: "first" | "last") => void;
   },
 ): HTMLElement {
-  const card = el("article", { class: `issue-card sev-${issue.severity}`, "data-issue": issue.id });
-  const head = el("div", { class: "issue-head" }, [el("h4", { class: "issue-title" }, [issue.title])]);
+  const smart = issue.kind === "smartDuplicates";
+  const card = el("article", { class: `issue-card sev-${issue.severity}${smart ? " issue-smart" : ""}`, "data-issue": issue.id });
+  const head = el("div", { class: "issue-head" }, [
+    ...(smart ? [el("span", { class: "smart-badge", title: "Found by comparing every column except the id" }, ["Smart Deduplicate"])] : []),
+    el("h4", { class: "issue-title" }, [issue.title]),
+  ]);
   if (issue.severity === "fix" && issue.points !== null && issue.points >= 0.1) {
     head.append(el("span", { class: "pts-pill" }, [pointsLabel(issue.points)]));
   }
@@ -603,6 +628,23 @@ export function buildIssueCard(
   const choices = issue.kind === "empty" && actions.fill !== undefined ? (actions.fillChoices?.(issue) ?? []) : [];
   if (choices.length > 0) main.append(buildFillRow(issue, choices, (choice) => actions.fill?.(issue, choice)));
   const buttons = el("div", { class: "issue-actions" });
+  const dedupe = issue.dedupe;
+  if (dedupe !== undefined && dedupe.rows > 0 && actions.dedupe !== undefined) {
+    // Remove the repeats as one undoable step, keeping the first or the last copy of each record.
+    const keep = el("select", { class: "issue-keep-select", "data-qp": "dedupe-keep", "aria-label": "Which copy to keep" }, [
+      el("option", { value: "first" }, ["Keep the first copy"]),
+      el("option", { value: "last" }, ["Keep the last copy"]),
+    ]) as HTMLSelectElement;
+    const go = el("button", { class: `${options.primary ? "primary btn-primary" : "ghost outlined"} fix-btn`, type: "button", "data-qp": "dedupe" }, [
+      `Remove ${n(dedupe.rows)} ${plural(dedupe.rows, "repeat", "repeats")}…`,
+    ]);
+    go.title = dedupe.ignore.length > 0 ? `Rows are compared on every column except ${dedupe.ignoredNames}. Shows the duplicates first; a Recipe step you can undo.` : "Rows identical in every column. Shows the duplicates first; a Recipe step you can undo.";
+    go.addEventListener("click", () => actions.dedupe?.(issue, keep.value as "first" | "last"));
+    // The same preview, for looking: each group's copies one after the other, not a filtered table.
+    const look = el("button", { class: "ghost outlined", type: "button", "data-qp": "dedupe-look" }, ["See the duplicates"]);
+    look.addEventListener("click", () => actions.dedupe?.(issue, keep.value as "first" | "last"));
+    buttons.append(go, keep, look);
+  }
   if (issue.fixes.length > 0 && issue.fixLabel !== null) {
     const fix = el("button", { class: `${options.primary ? "primary btn-primary" : "ghost outlined"} fix-btn`, type: "button" }, [
       issue.fixLabel,
@@ -617,7 +659,8 @@ export function buildIssueCard(
     review.addEventListener("click", () => actions.review?.(issue));
     buttons.append(review);
   }
-  const showable = issue.check !== undefined || issue.finding !== undefined;
+  // A dedupe card's preview already shows the rows (and links to all of them in the Table).
+  const showable = (issue.check !== undefined || issue.finding !== undefined) && !(dedupe !== undefined && dedupe.rows > 0 && actions.dedupe !== undefined);
   if (showable) {
     const label =
       issue.fixes.length > 0 ? "Show rows" : (issue.fixLabel ?? "Show rows");
@@ -703,6 +746,7 @@ export function buildIssuesTab(
     groupGain?: (issues: readonly PageIssue[]) => { points: number; dimension: string | null };
     fillChoices?: (issue: PageIssue) => { id: string; label: string; note?: string }[];
     fill?: (issue: PageIssue, choice: string) => void;
+    dedupe?: (issue: PageIssue, keep: "first" | "last") => void;
   },
 ): HTMLElement {
   const root = el("div", { class: "qp-issues" });
@@ -745,7 +789,7 @@ export function buildIssuesTab(
     root.append(all);
   }
   // The first fixable issue on the page gets its one solid button.
-  const firstFixable = groups.flatMap((entry) => entry.issues).find((issue) => issue.fixes.length > 0 && issue.fixLabel !== null)?.id;
+  const firstFixable = groups.flatMap((entry) => entry.issues).find((issue) => (issue.fixes.length > 0 && issue.fixLabel !== null) || (issue.dedupe !== undefined && actions.dedupe !== undefined))?.id;
   const shown = new Set(groups.map((entry) => entry.group.id));
   const doneRow = (step: CleanStep): HTMLElement | null => {
     const group = ISSUE_GROUPS.find((entry) => entry.id === step.id);

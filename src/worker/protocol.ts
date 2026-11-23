@@ -1277,6 +1277,8 @@ export type CountKeyDuplicatesRequest = {
   columns: number[];
   /** The columns are a whole row minus its id: blank matches blank instead of skipping the row. */
   blanksMatch?: boolean;
+  /** Also return up to this many example groups with their rows' cells. */
+  samples?: number;
 };
 
 export interface KeyDuplicateCountMessage {
@@ -1285,6 +1287,8 @@ export interface KeyDuplicateCountMessage {
   duplicateRows: number;
   duplicateGroups: number;
   counted: number;
+  /** With `samples`: example groups, each its row numbers (0-based, file order) and every cell of those rows. */
+  groups?: { rows: number[]; cells: string[][] }[];
 }
 
 export type CheckKeyDuplicatesRequest = {

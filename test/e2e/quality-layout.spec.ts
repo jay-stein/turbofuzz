@@ -256,15 +256,46 @@ test("the Overview issue count is the Quality page's own count", async ({ page }
   await expect(page.locator(".cl-sub")).toContainText(`${fix} issue${fix === 1 ? "" : "s"} to fix and ${review} to review`);
 });
 
-test("rows that repeat once the id is ignored appear as a review item", async ({ page }) => {
+test("Smart Deduplicate: rows that repeat once the id is ignored are spotlit and removed as one undoable step", async ({ page }) => {
   const lines = ["id,name,city"];
   for (let i = 0; i < 60; i++) lines.push(`${i + 1},Person ${i % 40},City ${i % 4}`);
   await openCsv(page, "dupes.csv", lines.join(String.fromCharCode(10)));
   await page.getByRole("tab", { name: "Clean" }).click();
   await expect(page.locator(".cl-hero")).toBeVisible();
-  // A lone group starts open; with more, open them all.
-  if ((await page.locator(".qp-expand-all").count()) > 0) await page.locator(".qp-expand-all").click();
-  await expect(page.locator(".issue-card", { hasText: "is ignored" })).toBeVisible({ timeout: 15_000 });
+  // Spotlit at the top of Clean, not buried at the bottom.
+  const spotlight = page.locator("[data-qp='smart-spotlight']");
+  await expect(spotlight).toContainText("Smart Deduplicate", { timeout: 15_000 });
+  await expect(spotlight).toContainText("20 rows are the same record twice");
+  await expect(spotlight).toContainText("“id”");
+  await spotlight.locator("[data-qp='smart-open']").click();
+  const card = page.locator(".issue-card.issue-smart");
+  await expect(card).toBeVisible();
+  await expect(card.locator(".smart-badge")).toHaveText("Smart Deduplicate");
+  await expect(card.locator(".pts-pill")).toContainText("pts");
+  // The fix reads as a go: green with a tick.
+  const remove = card.locator("[data-qp='dedupe']");
+  await expect(remove).toHaveClass(/fix-btn/);
+  expect(await remove.evaluate((button) => getComputedStyle(button, "::before").content)).toContain("✓");
+  // Remove the repeats, keeping the last copy: the copies side by side first, then 40 rows.
+  await card.locator("[data-qp='dedupe-keep']").selectOption("last");
+  await remove.click();
+  const preview = page.locator("[data-qp='dedupe-preview']");
+  await expect(preview).toBeVisible();
+  await expect(preview).toContainText("Showing 8 of 20 groups");
+  await expect(preview.locator("thead th.dd-ignored")).toContainText("id");
+  // Group 1 is rows 1 and 41, one after the other: same name and city, different id; the last copy stays.
+  const first = preview.locator("tr.dd-row").nth(0);
+  const second = preview.locator("tr.dd-row").nth(1);
+  await expect(first).toContainText("Person 0");
+  await expect(second).toContainText("Person 0");
+  await expect(first.locator("td.dd-ignored")).toHaveText("1");
+  await expect(second.locator("td.dd-ignored")).toHaveText("41");
+  await expect(first.locator(".dd-status")).toHaveText("Remove");
+  await expect(second.locator(".dd-status")).toHaveText("Keep");
+  await preview.locator("[data-qp='dedupe-confirm']").click();
+  await expect(page.locator("[data-qp='smart-spotlight']")).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.locator(".cl-step[data-step='duplicates']")).toHaveClass(/done/);
+  await expect(page.getByText(/^40 rows/).first()).toBeVisible();
 });
 
 test("a start/end column pair gets a suggested consistency check that can be turned off", async ({ page }) => {

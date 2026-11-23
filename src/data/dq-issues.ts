@@ -33,6 +33,8 @@ export type IssueKind =
   | "duplicates"
   /** A column that looks like the record key but repeats (different rows, same id). */
   | "keyDuplicates"
+  /** Smart Deduplicate: rows equal on every column but the id (one record entered twice under two ids). */
+  | "smartDuplicates"
   /** Two date columns whose order the names imply (ship after order) disagree in some rows. */
   | "pairOrder"
   | "review"
@@ -104,6 +106,8 @@ export interface PageIssue {
   rows: number;
   /** An empty-cells issue on a column treated as optional (shown as info, never ranked). */
   optional?: boolean;
+  /** Repeated rows the card can remove as one step: compared ignoring these columns (none: exact repeats). */
+  dedupe?: { ignore: number[]; ignoredNames: string; rows: number };
 }
 
 export interface ColumnHealth {
@@ -747,6 +751,34 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
     // An impossible value (age 999) is already a fix item; do not list the sentinel twice.
     if (finding.id.startsWith("sentinel.") && column !== null && rangeColumns.has(column)) continue;
     const keyRepeat = finding.id.startsWith("keyrepeat.");
+    // Smart Deduplicate: the same record under two ids. Scored (Uniqueness), so a fix item with points and a remove action.
+    if (finding.id === "dupkey.ignoring-id") {
+      const check = score.dimensions.flatMap((d) => d.checks).find((c) => c.id === "uniqueness.rowsIgnoringId");
+      if (check === undefined || check.fail === 0) continue;
+      const ids = finding.impact.columns;
+      const ignoredNames = ids.map((id) => `“${metas[id]?.name ?? "?"}”`).join(", ");
+      issues.push({
+        id: "smart-duplicates",
+        severity: "fix",
+        kind: "smartDuplicates",
+        column: null,
+        columnName: null,
+        title: `${n(check.fail)} ${plural(check.fail, "row is", "rows are")} the same record as another row under a different ${ignoredNames}`,
+        evidence: `Every other column matches another row, in ${n(finding.evidence[1]?.n ?? 0)} ${plural(finding.evidence[1]?.n ?? 0, "group", "groups")}. Exact-duplicate checks miss these because ${ignoredNames} differs.`,
+        impact: `Counts, sums and averages count each of these records ${check.fail === 1 ? "twice" : "more than once"}`,
+        points: gain(score, check, weights.get("uniqueness") ?? 0, total),
+        examples: [],
+        dist: null,
+        fixes: [],
+        fixLabel: "Show duplicates",
+        batchSafe: false,
+        check,
+        finding,
+        rows: check.fail,
+        dedupe: { ignore: [...ids], ignoredNames, rows: check.fail },
+      });
+      continue;
+    }
     issues.push({
       id: `review.${finding.id}`,
       severity: finding.severity === "fix" ? "fix" : "review",
@@ -789,6 +821,7 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
       batchSafe: false,
       check: duplicates,
       rows: duplicates.fail,
+      dedupe: { ignore: [], ignoredNames: "", rows: duplicates.fail },
     });
   }
 

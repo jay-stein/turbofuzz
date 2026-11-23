@@ -45,7 +45,8 @@ export const SPREAD_AGGREGATES: readonly SpreadAggregate[] = ["first", "sum", "m
 export const MAX_SPREAD_COLUMNS = 500;
 
 export type TransformOp =
-  | { kind: "dedupe"; keep: DedupeKeep }
+  /** With `ignore`, rows are compared leaving those columns (ids) out, and blank meets blank. */
+  | { kind: "dedupe"; keep: DedupeKeep; ignore?: number[] }
   | { kind: "drop"; column: number }
   | { kind: "round"; column: number; decimals: number }
   | { kind: "groupBy"; dimension: number; measure: number | null; aggregate: Aggregate }
@@ -168,7 +169,7 @@ export function applyTransformOps(
   for (const op of ops) {
     switch (op.kind) {
       case "dedupe":
-        current = dedupeColumns(current, op.keep);
+        current = dedupeColumns(current, op.keep, op.ignore);
         break;
       case "drop":
         current = current.filter((_, index) => index !== op.column);
@@ -298,10 +299,42 @@ function rowGroups(columns: readonly ColumnData[], rowCount: number): number[][]
   return groups;
 }
 
-function dedupeColumns(columns: readonly ColumnData[], keep: DedupeKeep): ColumnData[] {
+/**
+ * Groups rows that match on every column but the ignored ones (Smart Deduplicate: the same
+ * record entered twice under two ids). Any blank matches any blank, as the count that found them does.
+ */
+function rowGroupsIgnoring(columns: readonly ColumnData[], ignore: ReadonlySet<number>, rowCount: number): number[][] {
+  const compared = columns.filter((_, index) => !ignore.has(index));
+  const cell = (column: ColumnData, row: number): string => (column.isNull(column.raw[row]) ? "" : column.raw[row]!);
+  const hashes = new Uint32Array(rowCount).fill(0x811c9dc5);
+  for (const column of compared) {
+    for (let row = 0; row < rowCount; row++) {
+      const value = cell(column, row);
+      let hash = hashes[row]!;
+      for (let i = 0; i < value.length; i++) hash = Math.imul(hash ^ value.charCodeAt(i), 0x01000193);
+      hashes[row] = Math.imul(hash ^ 0x2f, 0x01000193);
+    }
+  }
+  const buckets = new Map<number, { id: number; rep: number }[]>();
+  const groups: number[][] = [];
+  for (let row = 0; row < rowCount; row++) {
+    const bucket = buckets.get(hashes[row]!) ?? [];
+    if (bucket.length === 0) buckets.set(hashes[row]!, bucket);
+    const match = bucket.find((entry) => compared.every((column) => cell(column, row) === cell(column, entry.rep)));
+    if (match !== undefined) {
+      groups[match.id]!.push(row);
+      continue;
+    }
+    bucket.push({ id: groups.length, rep: row });
+    groups.push([row]);
+  }
+  return groups;
+}
+
+function dedupeColumns(columns: readonly ColumnData[], keep: DedupeKeep, ignore?: readonly number[]): ColumnData[] {
   const rowCount = columns.length > 0 ? columns[0].raw.length : 0;
   if (rowCount === 0) return columns.slice();
-  const groups = rowGroups(columns, rowCount);
+  const groups = ignore !== undefined && ignore.length > 0 ? rowGroupsIgnoring(columns, new Set(ignore), rowCount) : rowGroups(columns, rowCount);
   const mask = new Uint8Array(rowCount);
   for (const group of groups) {
     if (keep === "none") {
@@ -938,7 +971,9 @@ export function describeTransformOp(op: TransformOp, headers: readonly string[])
   const nameAt = (index: number): string => headers[index] ?? `#${index + 1}`;
   switch (op.kind) {
     case "dedupe":
-      return `Remove duplicate rows (${DEDUPE_LABELS[op.keep].toLowerCase()})`;
+      return op.ignore !== undefined && op.ignore.length > 0
+        ? `Smart Deduplicate: remove rows that repeat ignoring ${op.ignore.map((column) => quoted(nameAt(column))).join(", ")} (${DEDUPE_LABELS[op.keep].toLowerCase()})`
+        : `Remove duplicate rows (${DEDUPE_LABELS[op.keep].toLowerCase()})`;
     case "drop":
       return `Drop column ${quoted(nameAt(op.column))}`;
     case "round":
@@ -1033,7 +1068,7 @@ export function describeTransformOpDetail(op: TransformOp, headers: readonly str
   const nameAt = (index: number): string => JSON.stringify(headers[index] ?? `#${index + 1}`);
   switch (op.kind) {
     case "dedupe":
-      return `dedupe(keep=${op.keep})`;
+      return op.ignore !== undefined && op.ignore.length > 0 ? `dedupe(keep=${op.keep}, ignore=[${op.ignore.map(nameAt).join(", ")}])` : `dedupe(keep=${op.keep})`;
     case "drop":
       return `drop(column=${nameAt(op.column)})`;
     case "round":

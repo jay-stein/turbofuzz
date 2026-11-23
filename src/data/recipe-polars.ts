@@ -849,7 +849,10 @@ function polarsTransformLines(
     switch (op.kind) {
       case "dedupe": {
         const keep = op.keep === "none" ? "None" : py(op.keep);
-        lines.push(`df = df.unique(keep=${keep}, maintain_order=True)`);
+        // Smart Deduplicate compares every column but the ignored ids.
+        const ignored = new Set(op.ignore ?? []);
+        const subset = ignored.size === 0 ? "" : `subset=[${names.filter((_, index) => !ignored.has(index)).map(py).join(", ")}], `;
+        lines.push(`df = df.unique(${subset}keep=${keep}, maintain_order=True)`);
         break;
       }
       case "drop": {

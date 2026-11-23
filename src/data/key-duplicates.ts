@@ -10,7 +10,12 @@ export interface KeyDuplicateResult {
   duplicateGroups: number;
   /** Rows whose key is fully populated (null key parts are N.A. and skipped). */
   counted: number;
+  /** With `sampleGroups`: the first groups found, each its rows in file order (first copy first). */
+  groups?: number[][];
 }
+
+/** At most this many rows of one group are kept as an example. */
+const SAMPLE_GROUP_ROWS = 6;
 
 /**
  * Composite-key uniqueness: hashes the selected columns per row and flags
@@ -27,6 +32,7 @@ export function computeKeyDuplicates(
   keyColumns: readonly number[],
   rowCount: number,
   blanksMatch = false,
+  sampleGroups = 0,
 ): KeyDuplicateResult {
   const duplicateBits = new BitSet(rowCount);
   const keys = keyColumns.filter(
@@ -74,6 +80,8 @@ export function computeKeyDuplicates(
 
   const buckets = new Map<number, number[]>();
   const duplicateBuckets = new Set<number>();
+  // Example groups keyed by their first row, kept in the order they are found.
+  const samples = new Map<number, number[]>();
   let duplicateRows = 0;
   for (let row = 0; row < rowCount; row++) {
     if (populated[row] === 0) continue;
@@ -90,6 +98,12 @@ export function computeKeyDuplicates(
         duplicateBits.set(row);
         duplicateBits.set(other);
         isDuplicate = true;
+        const group = samples.get(other);
+        if (group !== undefined) {
+          if (group.length < SAMPLE_GROUP_ROWS) group.push(row);
+        } else if (samples.size < sampleGroups) {
+          samples.set(other, [other, row]);
+        }
         break;
       }
     }
@@ -106,6 +120,7 @@ export function computeKeyDuplicates(
     duplicateRows,
     duplicateGroups: duplicateBuckets.size,
     counted,
+    ...(sampleGroups > 0 ? { groups: [...samples.values()] } : {}),
   };
 }
 

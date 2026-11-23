@@ -796,7 +796,10 @@ function transformLines(
     switch (op.kind) {
       case "dedupe": {
         const keep = op.keep === "none" ? "False" : py(op.keep);
-        lines.push(`df = df.drop_duplicates(keep=${keep})`);
+        // Smart Deduplicate compares every column but the ignored ids.
+        const ignored = new Set(op.ignore ?? []);
+        const subset = ignored.size === 0 ? "" : `subset=[${names.filter((_, index) => !ignored.has(index)).map(py).join(", ")}], `;
+        lines.push(`df = df.drop_duplicates(${subset}keep=${keep})`);
         break;
       }
       case "drop": {

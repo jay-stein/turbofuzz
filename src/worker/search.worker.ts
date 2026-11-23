@@ -430,13 +430,17 @@ async function handle(message: WorkerRequest): Promise<void> {
       handleSetType(message);
       break;
     case "countKeyDuplicates": {
-      const result = computeKeyDuplicates(state().dataset.columns, message.columns, state().dataset.rowCount, message.blanksMatch === true);
+      const columns = state().dataset.columns;
+      const result = computeKeyDuplicates(columns, message.columns, state().dataset.rowCount, message.blanksMatch === true, message.samples ?? 0);
       post({
         type: "keyDuplicateCount",
         requestId: message.requestId,
         duplicateRows: result.duplicateRows,
         duplicateGroups: result.duplicateGroups,
         counted: result.counted,
+        ...(result.groups === undefined
+          ? {}
+          : { groups: result.groups.map((rows) => ({ rows, cells: rows.map((row) => columns.map((column) => column.raw[row] ?? "")) })) }),
       });
       break;
     }
@@ -3853,7 +3857,10 @@ function transformPreviewNotes(
         const removed = running.rowCount - after.rowCount;
         notes.push({
           op: index,
-          text: `Removes ${removed.toLocaleString()} identical row${removed === 1 ? "" : "s"} — every column is the key`,
+          text:
+            op.ignore !== undefined && op.ignore.length > 0
+              ? `Removes ${removed.toLocaleString()} row${removed === 1 ? "" : "s"} that repeat another once ${op.ignore.map((column) => `“${running.columns[column]?.name ?? "?"}”`).join(", ")} is ignored`
+              : `Removes ${removed.toLocaleString()} identical row${removed === 1 ? "" : "s"} — every column is the key`,
         });
         break;
       }

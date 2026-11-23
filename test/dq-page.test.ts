@@ -6,6 +6,7 @@ import { IMPACT, TITLES, maskToWords, percentLabel, plural, pointsLabel } from "
 import { buildColumnHealth, buildIssues, type PageIssue } from "../src/data/dq-issues.js";
 import { computeDQScore, overallIfPassed, pointsIfPassed } from "../src/data/score.js";
 import { captureBaseline } from "../src/data/dq-baseline.js";
+import { nearDuplicateFinding } from "../src/data/near-duplicates.js";
 import type { DatasetStats } from "../src/data/stats.js";
 import { QualityPage } from "../src/ui/quality-page.js";
 import { groupIssues } from "../src/ui/quality-layout.js";
@@ -399,6 +400,29 @@ test("the Clean page sets the score against the raw load and counts the kinds of
   assert.deepEqual([...host.querySelectorAll(".qp-group-done")].map((node) => node.getAttribute("data-group")), ["duplicates", "dates"]);
   assert.match(host.querySelector(".cl-next")?.textContent ?? "", new RegExp(`Step 1 of ${present.length + 2}`));
   assert.ok(host.querySelector(".cl-bar")?.getAttribute("aria-label")?.startsWith("Score "));
+});
+
+test("Smart Deduplicate: the same record under two ids is a scored fix, spotlit on Clean, with a remove action", () => {
+  const metas = messy();
+  const score = computeDQScore(metas, stats(400), 400, { nearDuplicates: { rows: 16, groups: 8, ignored: "“id”" } });
+  const finding = nearDuplicateFinding(metas, [0], [1, 2], 16, 8)!;
+  const issues = buildIssues({ score, metas, rowCount: 400, review: [finding], sensitiveColumns: new Set() });
+  const smart = issues.find((issue) => issue.kind === "smartDuplicates");
+  assert.ok(smart !== undefined);
+  assert.equal(smart.severity, "fix");
+  assert.ok((smart.points ?? 0) > 0);
+  assert.deepEqual(smart.dedupe?.ignore, [0]);
+  assert.equal(issues.filter((issue) => issue.finding?.id === finding.id).length, 1, "listed once, not again under To review");
+  assert.equal(groupIssues([smart])[0]?.group.id, "duplicates");
+  const removed: [number[], string, number][] = [];
+  const { host, quality } = page({ mode: "clean", onDedupe: (ignore, keep, rows) => removed.push([ignore, keep, rows]) });
+  quality.render(input(metas, issues, { score }) as never);
+  assert.match(host.querySelector("[data-qp='smart-spotlight']")?.textContent ?? "", /16 rows are the same record twice/);
+  (host.querySelector("[data-qp='smart-open']") as unknown as HTMLButtonElement).click();
+  const card = host.querySelector(".issue-card.issue-smart")!;
+  (card.querySelector("[data-qp='dedupe-keep']") as unknown as HTMLSelectElement).value = "last";
+  (card.querySelector("[data-qp='dedupe']") as unknown as HTMLButtonElement).click();
+  assert.deepEqual(removed, [[[0], "last", 16]]);
 });
 
 test("finishing a step says so and names the next; finishing the last says all done with the score gained", () => {

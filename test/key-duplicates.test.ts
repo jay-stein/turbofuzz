@@ -38,6 +38,17 @@ test("with blanks matching, rows with empty cells are still compared, and blank 
   assert.equal(matched.duplicateBits.get(5), false, "different country");
 });
 
+test("example groups list each record's copies together, first copy first, up to the limit", () => {
+  // Rows 0, 3 and 5 are one record; rows 1 and 4 another; row 2 is unique.
+  const name = column("name", ["Ann", "Bob", "Cy", "Ann", "Bob", "Ann"]);
+  const city = column("city", ["Leeds", "York", "Hull", "Leeds", "York", "Leeds"]);
+  const all = computeKeyDuplicates([name, city], [0, 1], 6, true, 8);
+  assert.deepEqual(all.groups, [[0, 3, 5], [1, 4]]);
+  assert.equal(all.duplicateRows, 3, "the count is unchanged by sampling");
+  assert.deepEqual(computeKeyDuplicates([name, city], [0, 1], 6, true, 1).groups, [[0, 3, 5]], "only the first group");
+  assert.equal(computeKeyDuplicates([name, city], [0, 1], 6, true).groups, undefined, "no samples unless asked");
+});
+
 test("with blanks matching, a blank never matches a value", () => {
   const a = column("a", ["x", "", "x"]);
   const b = column("b", ["", "y", ""]);

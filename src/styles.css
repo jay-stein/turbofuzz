@@ -19649,6 +19649,24 @@ select.chart-add-agg {
 .qp-group-done { opacity: 0.85; }
 .qp-group-done .qp-group-about { color: var(--ok-text); }
 .qp-group-cleared { color: var(--ok-text); font-weight: 600; }
+/* Smart Deduplicate: spotlit at the top of Clean and badged on its card. */
+.smart-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.03em;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+.smart-badge::before { content: "\2728"; }
+.cl-smart {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--border)); border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+}
+.cl-smart-text { flex: 1 1 320px; }
+.issue-smart { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.issue-smart .issue-head { flex-wrap: wrap; }
+.issue-keep-select { font-size: var(--fs-sm); padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); }
+
 /* Fix actions read as a go: green with a tick (text in --panel so it holds contrast in dark mode). */
 .fix-btn::before { content: "✓"; font-weight: 700; margin-right: 6px; }
 .primary.fix-btn,
@@ -19656,6 +19674,24 @@ select.chart-add-agg {
 .ghost.fix-btn,
 .issue-actions .outlined.fix-btn { border-color: var(--ok); color: var(--ok-text); background: var(--ok-soft); font-weight: 600; }
 .ghost.fix-btn:hover { background: color-mix(in srgb, var(--ok) 22%, var(--panel)); }
+
+/* Smart Deduplicate preview: each group's copies one after the other. */
+.dd-modal { width: min(1100px, calc(100vw - 32px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column; gap: 10px; }
+.dd-intro, .dd-note { margin: 0; color: var(--text-dim); font-size: var(--fs-sm); }
+.dd-keep { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); }
+.dd-scroll { overflow: auto; border: 1px solid var(--border); border-radius: 8px; min-height: 0; flex: 1 1 auto; }
+.dd-table { border-collapse: collapse; font-size: var(--fs-sm); width: max-content; min-width: 100%; }
+.dd-table th, .dd-table td { padding: 4px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.dd-table thead th { position: sticky; top: 0; background: var(--panel); z-index: 1; font-weight: 600; }
+.dd-table th.dd-ignored, .dd-table td.dd-ignored { background: var(--qa-warn-soft); color: var(--qa-warn-text); font-style: italic; }
+.dd-table thead th.dd-ignored::after { content: " (ignored)"; font-weight: 400; }
+.dd-group-head td { background: color-mix(in srgb, var(--text) 6%, var(--panel)); font-weight: 600; padding-top: 8px; }
+.dd-row-col { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.dd-status { font-weight: 700; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.03em; }
+.dd-kept { color: var(--ok-text); }
+.dd-removed { color: var(--danger); }
+.dd-gone td:not(.dd-status) { opacity: 0.6; text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--text) 40%, transparent); }
+.dd-blank { color: var(--text-dim); font-style: italic; }
 .cl-progress-text { font-weight: 600; font-size: var(--fs-md); }
 .cl-spacer { flex: 1 1 0; }
 .cl-next {

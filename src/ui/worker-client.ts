@@ -496,8 +496,8 @@ export class SearchWorkerClient {
   }
 
   /** `blanksMatch`: the columns are a whole row minus its id, so blank matches blank. */
-  countKeyDuplicates(columns: number[], blanksMatch = false): Promise<KeyDuplicateCountMessage> {
-    return this.request<KeyDuplicateCountMessage>({ type: "countKeyDuplicates", columns, blanksMatch });
+  countKeyDuplicates(columns: number[], blanksMatch = false, samples = 0): Promise<KeyDuplicateCountMessage> {
+    return this.request<KeyDuplicateCountMessage>({ type: "countKeyDuplicates", columns, blanksMatch, ...(samples > 0 ? { samples } : {}) });
   }
 
   checkKeyDuplicates(columns: number[], blanksMatch = false): Promise<KeyDuplicatesMessage> {

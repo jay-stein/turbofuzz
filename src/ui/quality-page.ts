@@ -98,6 +98,11 @@ export interface QualityPageCallbacks {
   /** Show the rows behind an issue (filters the table or runs its finding action). */
   onShowIssue?(issue: PageIssue): void;
   onShowIssueSide?(issue: PageIssue, special: "dateDayFirst" | "dateMonthFirst"): void;
+  /**
+   * Remove repeated rows as one Recipe step, comparing every column but `ignore` (none: exact repeats).
+   * Opens a preview of example groups first; `showAll` lists every one in the Table instead.
+   */
+  onDedupe?(ignore: number[], keep: "first" | "last", rows: number, showAll?: () => void): void;
   /** The user reviewed an issue and set it aside ("not a problem"). */
   onDismissIssue?(issue: PageIssue): void;
   /** Issues set aside earlier for this file. */
@@ -526,6 +531,7 @@ export class QualityPage {
     const currentId = steps.find((step) => step.state === "current")?.id;
     const top = groups.find((entry) => entry.group.id === currentId) ?? null;
     const topSafe = top === null ? [] : top.issues.filter((issue) => issue.batchSafe && issue.fixes.length > 0);
+    const smartIssue = issues.find((issue) => issue.kind === "smartDuplicates");
     this.root.append(
       buildCleanHero(
         {
@@ -541,6 +547,7 @@ export class QualityPage {
           safeCount: safe.length,
           steps,
           finished: this.finished,
+          smart: smartIssue?.dedupe === undefined || this.callbacks.onDedupe === undefined ? null : { rows: smartIssue.dedupe.rows, ignoredNames: smartIssue.dedupe.ignoredNames, points: smartIssue.points },
           next: top === null ? null : { id: top.group.id, title: top.group.title, points: top.gain.points, dimension: top.gain.dimension, safe: topSafe.length },
         },
         {
@@ -584,6 +591,13 @@ export class QualityPage {
                 fillChoices: (issue: PageIssue) => (issue.column === null ? [] : (this.callbacks.fillChoices?.(issue.column) ?? [])),
                 fill: (issue: PageIssue, choice: string) => {
                   if (issue.column !== null) this.callbacks.onFill?.(issue.column, choice);
+                },
+              }),
+          ...(this.callbacks.onDedupe === undefined
+            ? {}
+            : {
+                dedupe: (issue: PageIssue, keep: "first" | "last") => {
+                  if (issue.dedupe !== undefined) this.callbacks.onDedupe?.(issue.dedupe.ignore, keep, issue.dedupe.rows, () => this.callbacks.onShowIssue?.(issue));
                 },
               }),
           toggleAll: () => {

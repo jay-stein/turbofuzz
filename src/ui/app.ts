@@ -125,6 +125,7 @@ import { LoadCancelledError, SearchWorkerClient } from "./worker-client.js";
 import { formatWait, PrepareNote } from "./wait-time.js";
 import { openCleanPanel } from "./clean-panel.js";
 import { openConfirm, openPrompt } from "./dialog.js";
+import { openDedupePreview } from "./dedupe-preview.js";
 import {
   estimateFromBuffer,
   estimateFromText,
@@ -5500,6 +5501,7 @@ export class App {
       onShowIssueSide: (issue, special) => this.showIssueSide(issue, special),
       onReviewIssue: (issue) => this.reviewIssue(issue),
       onDismissIssue: (issue) => this.dismissIssue(issue),
+      onDedupe: (ignore, keep, rows, showAll) => void this.previewDuplicates(keep, ignore, rows, showAll),
       reviewedList: () => Object.entries(getReviewed(this.datasetName)).map(([id, mark]) => ({ id, title: mark.title, rows: mark.rows })),
       onRestoreReviewed: (id) => {
         clearReviewed(this.datasetName, id);
@@ -9511,23 +9513,47 @@ export class App {
     this.table?.flashColumn(column);
   }
 
-  /** Quick action from the Duplicates QA control: drop duplicate rows. */
-  private dropDuplicates(keep: DedupeKeep): void {
+  /** The duplicate groups side by side (the ignored id shaded) before any are removed; falls back to the plain confirm. */
+  private async previewDuplicates(keep: DedupeKeep, ignore: number[], rows: number, showAll?: () => void): Promise<void> {
+    const compared = columnsIgnoring(this.metas, ignore);
+    const message = compared.length === 0 ? null : await this.client.countKeyDuplicates(compared, true, 8).catch(() => null);
+    const groups = message?.groups ?? [];
+    if (message === null || groups.length === 0) return this.dropDuplicates(keep, ignore, rows);
+    const chosen = await openDedupePreview({
+      title: ignore.length === 0 ? "Remove duplicate rows" : "Smart Deduplicate: the same record twice",
+      names: this.metas.map((meta) => meta.name),
+      ignore,
+      groups,
+      removeRows: rows,
+      totalGroups: message.duplicateGroups,
+      keep: keep === "last" ? "last" : "first",
+      ...(showAll === undefined ? {} : { showAll }),
+    });
+    if (chosen === null) return;
+    const label = chosen === "first" ? "kept first copy" : "kept last copy";
+    const ids = ignore.map((column) => `“${this.metas[column]?.name ?? "?"}”`).join(", ");
+    void this.applyTransform(
+      [...this.transformOps, { kind: "dedupe", keep: chosen, ...(ignore.length === 0 ? {} : { ignore }) }],
+      ignore.length === 0 ? `Removed duplicate rows (${label})` : `Smart Deduplicate: removed ${rows.toLocaleString()} repeated record${rows === 1 ? "" : "s"} ignoring ${ids} (${label})`,
+    );
+  }
+
+  /** Drop duplicate rows; with `ignore`, Smart Deduplicate: rows that match once those id columns are left out. */
+  private dropDuplicates(keep: DedupeKeep, ignore: number[] = [], rows?: number): void {
     const label =
       keep === "first" ? "kept first copy" : keep === "last" ? "kept last copy" : "removed all copies";
     const stats = this.latestStats;
-    const removed =
-      keep === "none" ? (stats?.rowsInDuplicateGroups ?? 0) : (stats?.duplicateRows ?? 0);
+    const removed = rows ?? (keep === "none" ? (stats?.rowsInDuplicateGroups ?? 0) : (stats?.duplicateRows ?? 0));
+    const ids = ignore.map((column) => `“${this.metas[column]?.name ?? "?"}”`).join(", ");
+    const why = ignore.length === 0 ? "" : ` They match another row on every column except ${ids}.`;
     this.confirmFix(
-      "Remove duplicate rows?",
-      `${removed.toLocaleString()} redundant row${
-        removed === 1 ? "" : "s"
-      } will be removed (${label}). This is recorded in the Recipe and can be undone.`,
+      ignore.length === 0 ? "Remove duplicate rows?" : "Smart Deduplicate: remove repeated records?",
+      `${removed.toLocaleString()} redundant row${removed === 1 ? "" : "s"} will be removed (${label}).${why} This is recorded in the Recipe and can be undone.`,
       "Remove duplicates",
       () =>
         this.applyTransform(
-          [...this.transformOps, { kind: "dedupe", keep }],
-          `Removed duplicate rows (${label})`,
+          [...this.transformOps, { kind: "dedupe", keep, ...(ignore.length === 0 ? {} : { ignore }) }],
+          ignore.length === 0 ? `Removed duplicate rows (${label})` : `Smart Deduplicate: removed ${removed.toLocaleString()} repeated record${removed === 1 ? "" : "s"} ignoring ${ids} (${label})`,
         ),
     );
   }

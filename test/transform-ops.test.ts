@@ -39,6 +39,27 @@ test("dedupe removes every copy of a duplicated row", () => {
   assert.deepEqual(out.columns[0].raw, ["b", "c"]);
 });
 
+test("Smart Deduplicate removes rows that repeat once the id is ignored, blank meeting blank, and says so", () => {
+  const ds = buildDataset("t", ["id", "name", "city"], [
+    ["1", "Ann", "Perth"],
+    ["2", "Bob", ""],
+    ["3", "Ann", "Perth"],
+    ["4", "Bob", "N/A"],
+    ["5", "Cy", "Perth"],
+  ]);
+  const first = applyTransformOps("t", ds.columns, [{ kind: "dedupe", keep: "first", ignore: [0] }]);
+  assert.deepEqual(first.columns[0]!.raw, ["1", "2", "5"]);
+  const last = applyTransformOps("t", ds.columns, [{ kind: "dedupe", keep: "last", ignore: [0] }]);
+  assert.deepEqual(last.columns[0]!.raw, ["3", "4", "5"]);
+  // Without the id left out, no two rows match.
+  assert.equal(applyTransformOps("t", ds.columns, [{ kind: "dedupe", keep: "first" }]).rowCount, 5);
+  const op = { kind: "dedupe" as const, keep: "first" as const, ignore: [0] };
+  assert.match(describeTransformOp(op, ["id", "name", "city"]), /^Smart Deduplicate: remove rows that repeat ignoring “id”/);
+  assert.equal(describeTransformOpDetail(op, ["id", "name", "city"]), 'dedupe(keep=first, ignore=["id"])');
+  const script = pandasRecipe({ cleans: [], transforms: [op], schema: [{ name: "id", numeric: true }, { name: "name", numeric: false }, { name: "city", numeric: false }] });
+  assert.match(script, /df = df\.drop_duplicates\(subset=\["name", "city"\], keep="first"\)/);
+});
+
 test("drop removes a column and shifts later indexes", () => {
   const ds = buildDataset("t", ["a", "b", "c"], [
     ["1", "2", "3"],
