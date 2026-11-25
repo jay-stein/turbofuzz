@@ -7,7 +7,8 @@
 import { missingOrTokens } from "./chart-card-parts.js";
 import { sanitizeExclusions, type ChartExclusion } from "../data/chart-exclusions.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
-import type { Aggregate, MeasureSpec, TimeGrain, ViewDef } from "../data/aggregate.js";
+import type { Aggregate, DatePart, MeasureSpec, TimeGrain, ViewDef } from "../data/aggregate.js";
+import { REPEATING_PARTS } from "./chart-card-build-1.js";
 import { chartConfigWithDefaults } from "./chart-builder.js";
 import { lint, type LintNote, type RecColumn } from "./chart-recommender.js";
 import type { AggregateMessage, ColumnMeta } from "../worker/protocol.js";
@@ -333,6 +334,16 @@ export function valueViewDef(card: ChartCard): ViewDef | null {
   };
 }
 
+/** The engine names a part "date (dow)"; the chart's note, subtitle and export say "date (day of week)". */
+export function readablePartName(message: AggregateMessage, part: DatePart | undefined): AggregateMessage {
+  const label = REPEATING_PARTS.find(([key]) => key === part)?.[1];
+  const first = message.dimensionNames[0];
+  const suffix = ` (${part})`;
+  if (label === undefined || first === undefined || !first.endsWith(suffix)) return message;
+  const name = `${first.slice(0, -suffix.length)} (${label.toLowerCase()})`;
+  return { ...message, dimensionNames: [name, ...message.dimensionNames.slice(1)] };
+}
+
 /** Fetches the card's own value-over-time aggregate (generation-guarded). */
 export function refreshValue(card: ChartCard): void {
   card.syncErrorBarControls();
@@ -357,7 +368,7 @@ export function refreshValue(card: ChartCard): void {
     .requestAggregate(def)
     .then((message) => {
       if (generation !== card.valueGeneration || card.disposed || !card.usesValueAggregate()) return;
-      card.valueResult = message;
+      card.valueResult = readablePartName(message, card.config.valuePart);
       card.refreshErrorBars();
       card.render();
     })

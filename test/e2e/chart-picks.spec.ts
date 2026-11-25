@@ -98,6 +98,8 @@ test("bars of a date group by period or by a repeating part (every weekday toget
   // A line asked for a weekday becomes bars of weekdays.
   await make(page, ["date", "sales"], "Line");
   await grain.selectOption("part:month");
+  // The note names the part in words, not the engine's code.
+  await expect(page.locator(".chart-card:not(.hidden) .chart-note")).toContainText("date (day of week)");
   await expect(grain).toHaveValue("part:month");
   expect(await used(page)).toEqual(["date=Category", "sales=Value"]);
 });
