@@ -37,6 +37,8 @@ export type IssueKind =
   | "smartDuplicates"
   /** Two date columns whose order the names imply (ship after order) disagree in some rows. */
   | "pairOrder"
+  /** Two number columns whose order the names imply (max at least min) disagree in some rows. */
+  | "pairRange"
   | "review"
   | "other";
 
@@ -217,7 +219,8 @@ function pairOrderIssue(
   return {
     id: `pairorder.${pair.a}.${pair.b}`,
     severity: "review",
-    kind: "pairOrder",
+    // Dates in the wrong order belong with the date work; a max below its min is a judgement call.
+    kind: later.type === "date" || later.type === "datetime" ? "pairOrder" : "pairRange",
     column: pair.a,
     columnName: later.name,
     title: `“${later.name}” is ${later.type === "date" || later.type === "datetime" ? "before" : "below"} “${earlier.name}” in ${n(check.fail)} ${plural(check.fail, "row", "rows")}`,

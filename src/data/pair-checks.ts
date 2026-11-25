@@ -106,6 +106,16 @@ const words = (name: string): string[] =>
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
 
+/**
+ * Words that make a number a label or a position, not an amount: "end station id" below "start
+ * station id" says nothing (station 12 is not "less" than station 40), nor does an end latitude
+ * south of the start. Names carrying one of these never pair.
+ */
+const NOT_AN_AMOUNT = new Set([
+  "id", "ids", "code", "key", "no", "num", "number", "ref", "uuid", "guid", "zip", "postcode", "phone",
+  "lat", "latitude", "lng", "lon", "long", "longitude",
+]);
+
 const FAMILY: Record<string, string> = {
   date: "time",
   datetime: "time",
@@ -126,6 +136,7 @@ export function suggestPairs(metas: readonly ColumnMeta[]): SuggestedPair[] {
     metas.forEach((hi, a) => {
       const wa = split[a];
       if (wa === undefined || !wa.includes(later) || FAMILY[hi.type] === undefined) return;
+      if (wa.some((w) => NOT_AN_AMOUNT.has(w))) return;
       const rest = wa.filter((w) => w !== later).join(" ");
       metas.forEach((lo, b) => {
         if (a === b || FAMILY[lo.type] !== FAMILY[hi.type]) return;
