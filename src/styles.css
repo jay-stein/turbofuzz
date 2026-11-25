@@ -8470,6 +8470,16 @@ select.chart-number {
   min-height: 0;
 }
 
+.chart-rail-group {
+  margin: 8px 0 2px;
+  padding: 0 4px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.chart-rail-group:first-child { margin-top: 2px; }
+.chart-rail-none { margin: 6px 4px; font-size: var(--fs-sm); color: var(--text-dim); }
+
 .chart-rail-field {
   display: flex;
   align-items: center;
@@ -12277,6 +12287,17 @@ body:has(.th-filter-popover) .hint-callout {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-2);
+}
+
+/* Fields by kind: a label on the left, that kind's fields wrapping beside it. */
+.chart-add-fields { flex-direction: column; flex-wrap: nowrap; gap: 6px; }
+.chart-add-field-group { display: grid; grid-template-columns: 118px 1fr; gap: var(--sp-2); align-items: start; }
+.chart-add-field-group-title { padding-top: 6px; font-size: var(--fs-xs); font-weight: 600; color: var(--text-dim); }
+.chart-add-field-list { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.chart-add-find { width: min(360px, 100%); min-height: 28px; margin-bottom: 8px; font-size: var(--fs-sm); }
+@media (max-width: 640px) {
+  .chart-add-field-group { grid-template-columns: 1fr; gap: 4px; }
+  .chart-add-field-group-title { padding-top: 0; }
 }
 
 .chart-add-quick-btn,

@@ -3,6 +3,7 @@ import { TYPE_LABELS } from "../types.js";
 import type { ChartCard } from "./chart-card.js";
 import { chartKindFor, type ChartCardKind } from "./chart-utils.js";
 import { el } from "./dom.js";
+import { fuzzyRank } from "../search/fuzzy-match.js";
 import { openMenu, type MenuItem } from "./menu.js";
 
 export interface FieldRailOptions {
@@ -26,7 +27,16 @@ const GLYPHS: Partial<Record<ColumnMeta["type"], string>> = {
 };
 
 /** Long enough that scanning stops working and a search earns its place. */
-const SEARCH_ABOVE = 12;
+const SEARCH_ABOVE = 8;
+
+/** The field list's groups, in the order a chart is usually built: when, what, how much. */
+const RAIL_GROUPS: readonly { title: string; types: readonly ColumnMeta["type"][] }[] = [
+  { title: "Dates and times", types: ["date", "datetime", "time"] },
+  { title: "Categories", types: ["category", "boolean"] },
+  { title: "Numbers", types: ["integer", "number", "duration"] },
+  { title: "Text", types: ["string"] },
+  { title: "Identifiers", types: ["identifier"] },
+];
 
 type FieldSlot = ReturnType<ChartCard["fieldSlots"]>[number];
 
@@ -123,8 +133,14 @@ export class ChartFieldRail {
     if (key === this.drawn) return;
     this.drawn = key;
     const rows: HTMLElement[] = [];
-    this.columns.forEach((meta, column) => {
-      if (this.query !== "" && !meta.name.toLowerCase().includes(this.query)) return;
+    // Grouped by what each field is; a search lists the best fuzzy matches first instead.
+    const all = this.columns.map((meta, column) => ({ meta, column }));
+    const order =
+      this.query === ""
+        ? RAIL_GROUPS.flatMap((group) => all.filter((entry) => group.types.includes(entry.meta.type)).map((entry, at) => ({ ...entry, heading: at === 0 ? group.title : null })))
+        : fuzzyRank(all, this.query, (entry) => entry.meta.name).map((entry) => ({ ...entry, heading: null }));
+    for (const { meta, column, heading } of order) {
+      if (heading !== null) rows.push(el("div", { class: "chart-rail-group" }, [heading]));
       const role = roles.get(column) ?? "";
       const field = el(
         "button",
@@ -160,7 +176,8 @@ export class ChartFieldRail {
       );
       more.addEventListener("click", () => this.openFor(more, column));
       rows.push(el("div", { class: "chart-rail-row" }, [field, more]));
-    });
+    }
+    if (this.query !== "" && order.length === 0) rows.push(el("p", { class: "chart-rail-none" }, ["No field matches."]));
     this.list.replaceChildren(...rows);
   }
 

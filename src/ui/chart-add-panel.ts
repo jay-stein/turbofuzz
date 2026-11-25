@@ -13,6 +13,7 @@ import { barKindFor, COMMON_KINDS, fitChartKind, kindIcon, MORE_GROUPS, previewF
 import { profile, recommend, type RecRole } from "./chart-recommender.js";
 import { CHART_KIND_LABELS, sourceOption, suggestCharts, toRecColumn, type ChartCardKind } from "./chart-utils.js";
 import { el } from "./dom.js";
+import { fuzzyRank } from "../search/fuzzy-match.js";
 
 export interface ChartAddSource {
   id: string;
@@ -51,6 +52,15 @@ const ROLE_WORD: Record<RecRole, string> = {
   text: "text",
 };
 
+/** Fields shown together by what they are, in the order a chart is usually built: when, what, how much. */
+const FIELD_GROUPS: readonly { title: string; roles: readonly RecRole[] }[] = [
+  { title: "Dates and times", roles: ["time"] },
+  { title: "Categories", roles: ["cat-low", "cat-mid", "cat-high"] },
+  { title: "Numbers", roles: ["measure"] },
+  { title: "Text", roles: ["text"] },
+  { title: "Identifiers", roles: ["id"] },
+];
+
 /** Aggregation choices on a field chip's menu. */
 const AGG_CHOICES: readonly [ValueAgg, string][] = (["sum", "mean", "median", "min", "max"] as const).map(
   (value): [ValueAgg, string] => [value, aggShort(value)],
@@ -69,6 +79,8 @@ export class ChartAddPanel {
   private sources: ChartAddSource[] = [];
   private source = "";
   private picks = new Map<number, ValueAgg | undefined>();
+  /** The field search, kept across re-renders. */
+  private query = "";
   /** "More chart types" stays as it was left while the panel re-renders. */
   private moreOpen = false;
   private message = "";
@@ -133,6 +145,7 @@ export class ChartAddPanel {
   /** Forget the shelf after a chart is made, so the next one starts clean. */
   reset(): void {
     this.picks.clear();
+    this.query = "";
     this.message = "";
   }
 
@@ -173,7 +186,10 @@ export class ChartAddPanel {
     if (this.message !== "") {
       this.root.append(el("p", { class: "chart-add-message", role: "status" }, [this.message]));
     }
-    if (active !== undefined) (this.root.querySelector(active) as HTMLElement | null)?.focus();
+    const target = active === undefined ? null : (this.root.querySelector(active) as HTMLElement | null);
+    target?.focus();
+    // Typing in the field search re-renders: keep the caret at the end of what was typed.
+    if (target instanceof HTMLInputElement && target.type === "search") target.setSelectionRange(target.value.length, target.value.length);
   }
 
   /** A stable selector for the control that has focus, so a re-render keeps it. */
@@ -251,30 +267,62 @@ export class ChartAddPanel {
       out.push(el("div", { class: "chart-add-block" }, [el("h4", {}, ["Quick starts"]), row]));
     }
 
-    // 2. Fields, grouped by role, with the shelf's aggregation chips.
+    // 2. Fields, grouped by kind (dates, categories, numbers…), a fuzzy find on top, and the shelf's aggregation chips.
     const fields = el("div", { class: "chart-add-fields", role: "group", "aria-label": "Fields" });
-    for (const entry of rec) {
-      if (entry.meta.role === "provenance") continue;
-      const picked = this.picks.has(entry.index);
-      const button = el(
-        "button",
-        {
-          class: "chart-add-field",
-          type: "button",
-          "aria-pressed": picked ? "true" : "false",
-          "data-index": String(entry.index),
-          "data-key": `field-${entry.index}`,
-          title: `${entry.meta.name}: ${ROLE_WORD[entry.p.role]}, ${entry.p.distinct.toLocaleString("en-US")} distinct`,
-        },
-        [
-          el("span", { class: `chart-add-role role-${entry.p.role.split("-")[0]}`, "aria-hidden": "true" }, [ROLE_GLYPH[entry.p.role]]),
-          el("span", { class: "chart-add-field-name" }, [entry.meta.name]),
-          el("span", { class: "chart-add-field-meta" }, [ROLE_WORD[entry.p.role]]),
-        ],
-      );
-      button.addEventListener("click", () => this.toggleField(entry.index));
-      fields.append(button);
+    const candidates = rec.filter((entry) => entry.meta.role !== "provenance");
+    const matches = fuzzyRank(candidates, this.query, (entry) => entry.meta.name);
+    const find = el("input", {
+      class: "text-input chart-add-find",
+      type: "search",
+      placeholder: "Find a field… (Enter picks the top one)",
+      "aria-label": "Find a field",
+      "data-key": "find",
+      value: this.query,
+    }) as HTMLInputElement;
+    find.addEventListener("input", () => {
+      this.query = find.value;
+      this.render('[data-key="find"]');
+    });
+    find.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      const top = matches[0];
+      if (top === undefined || this.query.trim() === "") return;
+      this.query = "";
+      if (!this.picks.has(top.index)) this.picks.set(top.index, undefined);
+      this.message = "";
+      this.render('[data-key="find"]');
+    });
+    const searching = this.query.trim() !== "";
+    const sections = searching
+      ? [{ title: `${matches.length} matching`, entries: matches }]
+      : FIELD_GROUPS.map((group) => ({ title: group.title, entries: candidates.filter((entry) => group.roles.includes(entry.p.role)) })).filter((group) => group.entries.length > 0);
+    for (const section of sections) {
+      const list = el("div", { class: "chart-add-field-list" });
+      fields.append(el("div", { class: "chart-add-field-group" }, [el("div", { class: "chart-add-field-group-title" }, [section.title]), list]));
+      for (const entry of section.entries) {
+        const picked = this.picks.has(entry.index);
+        const button = el(
+          "button",
+          {
+            class: "chart-add-field",
+            type: "button",
+            "aria-pressed": picked ? "true" : "false",
+            "data-index": String(entry.index),
+            "data-key": `field-${entry.index}`,
+            title: `${entry.meta.name}: ${ROLE_WORD[entry.p.role]}, ${entry.p.distinct.toLocaleString("en-US")} distinct`,
+          },
+          [
+            el("span", { class: `chart-add-role role-${entry.p.role.split("-")[0]}`, "aria-hidden": "true" }, [ROLE_GLYPH[entry.p.role]]),
+            el("span", { class: "chart-add-field-name" }, [entry.meta.name]),
+            el("span", { class: "chart-add-field-meta" }, [ROLE_WORD[entry.p.role]]),
+          ],
+        );
+        button.addEventListener("click", () => this.toggleField(entry.index));
+        list.append(button);
+      }
     }
+    if (searching && matches.length === 0) fields.append(el("p", { class: "chart-add-hint" }, ["No field matches."]));
     const shelf = el("div", { class: "chart-add-shelf", "aria-label": "Selected fields" });
     for (const [index, agg] of this.picks) {
       const found = rec[index];
@@ -305,7 +353,7 @@ export class ChartAddPanel {
       });
       shelf.append(clear);
     }
-    out.push(el("div", { class: "chart-add-block" }, [el("h4", {}, ["Fields"]), fields, shelf]));
+    out.push(el("div", { class: "chart-add-block" }, [el("h4", {}, ["Fields"]), find, fields, shelf]));
 
     // 3. Recommended charts for the shelf.
     out.push(el("div", { class: "chart-add-block" }, [el("h4", {}, ["Recommended"]), this.recommended(rec.length)]));
