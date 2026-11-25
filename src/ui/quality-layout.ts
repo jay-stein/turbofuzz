@@ -2,7 +2,7 @@ import { n, percentLabel, plural, pointsLabel } from "../data/dq-copy.js";
 import type { ColumnHealth, IssueKind, PageIssue } from "../data/dq-issues.js";
 import type { Finding } from "../data/findings.js";
 import type { CleanStep } from "../data/dq-baseline.js";
-import { clear, el } from "./dom.js";
+import { clear, el, svgIcon } from "./dom.js";
 import { renderDistCompare } from "./dist-compare.js";
 
 /** Tabs on the Data Quality Report. The issues themselves live on the Clean page. */
@@ -61,6 +61,17 @@ export const ISSUE_GROUPS: readonly { id: string; title: string; about: string; 
 ];
 
 type IssueGroup = (typeof ISSUE_GROUPS)[number];
+
+/** A picture per kind of work for the step cards (24px line icons, drawn in the step's colour). */
+const STEP_ICONS: Record<string, string> = {
+  standardise: '<path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M17.8 6.2 19 5M3 21l9-9M12.2 6.2 11 5"/>',
+  junk: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/>',
+  dates: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 14h2M14 14h2M8 18h2"/>',
+  empty: '<path d="M5 3h2M11 3h2M17 3h2M21 5v2M21 11v2M21 17v2M19 21h-2M13 21h-2M7 21H5M3 19v-2M3 13v-2M3 7V5M12 8v8M8 12h8"/>',
+  duplicates: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M4 16V5a2 2 0 0 1 2-2h11"/>',
+  unusual: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  review: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+};
 
 /** Groups opened this session: the page re-renders after every fix, and an open group stays open. */
 const openGroups = new Set<string>();
@@ -206,6 +217,8 @@ export interface CleanHeroInput {
   overall: number | null;
   band: "good" | "fair" | "poor" | null;
   bandWord: string;
+  /** Why the band is below what the number alone gives ("Fair because “notes” is 62% empty"); null when it is not. */
+  bandReason?: string | null;
   /** The score of the data as loaded, before any step; null when not known. */
   raw: number | null;
   /** The score if every scored issue still on the page were fixed. */
@@ -217,8 +230,6 @@ export interface CleanHeroInput {
   safeCount: number;
   /** The kinds of work as numbered steps, in order (done, now, to come). */
   steps: readonly (CleanStep & { title: string })[];
-  /** Why the band is below what the number alone gives ("Fair because “notes” is 62% empty"); null when it is not. */
-  bandReason?: string | null;
   /** The step to do now: what it adds and how to start it. */
   next: { id: string; title: string; points: number; dimension: string | null; safe: number } | null;
   /** "Junk data done": the step finished most recently, said once it lands. */
@@ -262,6 +273,12 @@ export function buildCleanHero(
   }
   if (facts.length > 0) head.append(el("span", { class: "cl-score-facts" }, facts));
   meter.append(head);
+  // A score past the good line can still read fair: one column bad enough holds the band down. Say so, or it looks wrong.
+  const reason = input.bandReason ?? null;
+  if (reason !== null) {
+    const line = now !== null && now >= input.bandGood ? `, even though ${now.toFixed(1)} is above ${input.bandGood}` : "";
+    meter.append(el("p", { class: "cl-band-reason", "data-qp": "band-reason" }, [`${reason}${line}. One column that bad holds the band down until it is fixed.`]));
+  }
   if (now !== null) {
     const base = raw === null ? now : Math.min(raw, now);
     const gained = raw === null ? 0 : Math.max(0, now - raw);
@@ -273,12 +290,6 @@ export function buildCleanHero(
       part.style.width = `${Math.max(0, Math.min(100, width))}%`;
       return part;
     };
-  // A score past the good line can still read fair: one column bad enough holds the band down. Say so, or it looks wrong.
-  const reason = input.bandReason ?? null;
-  if (reason !== null) {
-    const line = now !== null && now >= input.bandGood ? `, even though ${now.toFixed(1)} is above ${input.bandGood}` : "";
-    meter.append(el("p", { class: "cl-band-reason", "data-qp": "band-reason" }, [`${reason}${line}. One column that bad holds the band down until it is fixed.`]));
-  }
     bar.append(seg("cl-seg-base", base), seg("cl-seg-gain", gained), seg("cl-seg-left", left));
     for (const [at, name] of [[input.bandFair, "Fair"], [input.bandGood, "Good"]] as const) {
       const tick = el("span", { class: "cl-tick", title: `${name} at ${at}` });
@@ -305,9 +316,16 @@ export function buildCleanHero(
     const list = el("ol", { class: "cl-steps", "aria-label": `${n(doneCount)} of ${n(steps.length)} steps done` });
     steps.forEach((step, index) => {
       const sub = step.state === "done" ? (step.total > 0 ? `${n(step.total)} of ${n(step.total)} cleared` : "Cleared") : step.total > step.left ? `${n(step.total - step.left)} of ${n(step.total)} cleared` : `${n(step.left)} to do`;
+      // The picture of the work, its number (a tick once done) on the corner, and a bar of what is cleared.
+      const share = step.state === "done" ? 1 : step.total > 0 ? (step.total - step.left) / step.total : 0;
+      const art = el("span", { class: "cl-step-icon", "aria-hidden": "true" }, [
+        svgIcon(STEP_ICONS[step.id] ?? STEP_ICONS["review"]!, "cl-step-svg"),
+        el("span", { class: "cl-step-mark" }, [step.state === "done" ? "✓" : String(index + 1)]),
+      ]);
+      const bar = el("span", { class: "cl-step-bar", "aria-hidden": "true" }, [el("span", { class: "cl-step-fill", style: `width:${Math.round(share * 100)}%` })]);
       const button = el("button", { class: "cl-step-btn", type: "button", "aria-current": step.state === "current" ? "step" : "false" }, [
-        el("span", { class: "cl-step-mark", "aria-hidden": "true" }, [step.state === "done" ? "✓" : String(index + 1)]),
-        el("span", { class: "cl-step-text" }, [el("span", { class: "cl-step-title" }, [step.title]), el("span", { class: "cl-step-sub" }, [sub])]),
+        art,
+        el("span", { class: "cl-step-text" }, [el("span", { class: "cl-step-title" }, [step.title]), el("span", { class: "cl-step-sub" }, [sub]), bar]),
       ]);
       button.addEventListener("click", () => actions.openStep(step.id));
       list.append(el("li", { class: `cl-step ${step.state}`, "data-step": step.id }, [button]));
