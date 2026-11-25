@@ -272,10 +272,10 @@ test("Smart Deduplicate: rows that repeat once the id is ignored are spotlit and
   await expect(card).toBeVisible();
   await expect(card.locator(".smart-badge")).toHaveText("Smart Deduplicate");
   await expect(card.locator(".pts-pill")).toContainText("pts");
-  // The fix reads as a go: green with a tick.
+  // Still to do: an orange fix button with no tick (the tick is for what is done).
   const remove = card.locator("[data-qp='dedupe']");
   await expect(remove).toHaveClass(/fix-btn/);
-  expect(await remove.evaluate((button) => getComputedStyle(button, "::before").content)).toContain("✓");
+  expect(await remove.evaluate((button) => getComputedStyle(button, "::before").content)).not.toContain("✓");
   // Remove the repeats, keeping the last copy: the copies side by side first, then 40 rows.
   await card.locator("[data-qp='dedupe-keep']").selectOption("last");
   await remove.click();

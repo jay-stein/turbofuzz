@@ -5397,7 +5397,7 @@ export class App {
         ]),
       );
     }
-    this.scoreTile.title = `Data quality ${rounded.toFixed(1)} (${score.band}) — click for the full breakdown`;
+    this.scoreTile.title = `Data quality ${rounded.toFixed(1)} (${score.bandReason ?? score.band}) — click for the full breakdown`;
     this.scoreTile.classList.remove("hidden");
   }
 

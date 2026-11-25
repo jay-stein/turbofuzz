@@ -9,7 +9,7 @@ import { captureBaseline } from "../src/data/dq-baseline.js";
 import { nearDuplicateFinding } from "../src/data/near-duplicates.js";
 import type { DatasetStats } from "../src/data/stats.js";
 import { QualityPage } from "../src/ui/quality-page.js";
-import { groupIssues } from "../src/ui/quality-layout.js";
+import { buildCleanHero, groupIssues } from "../src/ui/quality-layout.js";
 import { renderDistCompare } from "../src/ui/dist-compare.js";
 import { openFixPreview } from "../src/ui/fix-preview-dialog.js";
 import type { ColumnMeta } from "../src/worker/protocol.js";
@@ -423,6 +423,19 @@ test("Smart Deduplicate: the same record under two ids is a scored fix, spotlit 
   (card.querySelector("[data-qp='dedupe-keep']") as unknown as HTMLSelectElement).value = "last";
   (card.querySelector("[data-qp='dedupe']") as unknown as HTMLButtonElement).click();
   assert.deepEqual(removed, [[[0], "last", 16]]);
+});
+
+test("a score above the good line that reads fair says why, on the Clean page too", () => {
+  setupDom();
+  const base = { overall: 90.3, band: "fair" as const, bandWord: "fair", raw: 90.3, potential: null, bandFair: 75, bandGood: 90, fixCount: 1, reviewCount: 0, safeCount: 0, steps: [], next: null, finished: null };
+  const noop = (): void => undefined;
+  const actions = { fixAllSafe: noop, fixNext: noop, openNext: noop, openStep: noop, openReport: noop };
+  const held = buildCleanHero({ ...base, bandReason: "Fair because “notes” is 62% empty" }, actions);
+  assert.equal(
+    held.querySelector("[data-qp='band-reason']")?.textContent,
+    "Fair because “notes” is 62% empty, even though 90.3 is above 90. One column that bad holds the band down until it is fixed.",
+  );
+  assert.equal(buildCleanHero({ ...base, band: "good", bandWord: "good", bandReason: null }, actions).querySelector("[data-qp='band-reason']"), null, "nothing to explain");
 });
 
 test("finishing a step says so and names the next; finishing the last says all done with the score gained", () => {

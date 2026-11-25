@@ -538,6 +538,7 @@ export class QualityPage {
           overall: score.overall === null ? null : Math.round(score.overall * 10) / 10,
           band: score.band,
           bandWord: bandWord(score.band),
+          bandReason: score.bandReason,
           raw: baseline === null || baseline.overall === null ? null : Math.round(baseline.overall * 10) / 10,
           potential: potential === null ? null : Math.round(potential * 10) / 10,
           bandFair: this.callbacks.config?.bandFair ?? 75,

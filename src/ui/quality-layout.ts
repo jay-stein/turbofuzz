@@ -217,6 +217,8 @@ export interface CleanHeroInput {
   safeCount: number;
   /** The kinds of work as numbered steps, in order (done, now, to come). */
   steps: readonly (CleanStep & { title: string })[];
+  /** Why the band is below what the number alone gives ("Fair because “notes” is 62% empty"); null when it is not. */
+  bandReason?: string | null;
   /** The step to do now: what it adds and how to start it. */
   next: { id: string; title: string; points: number; dimension: string | null; safe: number } | null;
   /** "Junk data done": the step finished most recently, said once it lands. */
@@ -271,6 +273,12 @@ export function buildCleanHero(
       part.style.width = `${Math.max(0, Math.min(100, width))}%`;
       return part;
     };
+  // A score past the good line can still read fair: one column bad enough holds the band down. Say so, or it looks wrong.
+  const reason = input.bandReason ?? null;
+  if (reason !== null) {
+    const line = now !== null && now >= input.bandGood ? `, even though ${now.toFixed(1)} is above ${input.bandGood}` : "";
+    meter.append(el("p", { class: "cl-band-reason", "data-qp": "band-reason" }, [`${reason}${line}. One column that bad holds the band down until it is fixed.`]));
+  }
     bar.append(seg("cl-seg-base", base), seg("cl-seg-gain", gained), seg("cl-seg-left", left));
     for (const [at, name] of [[input.bandFair, "Fair"], [input.bandGood, "Good"]] as const) {
       const tick = el("span", { class: "cl-tick", title: `${name} at ${at}` });

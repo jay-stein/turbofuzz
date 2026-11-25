@@ -38,6 +38,9 @@
   --qa-warn-border: #fbbf24;
   --qa-warn-soft: #fef3c7;
   --qa-warn-text: #7c4a03;
+  --todo: #c2410c;
+  --todo-text: #9a3412;
+  --todo-soft: #ffedd5;
   --shadow: 0 1px 2px rgb(16 24 40 / 5%), 0 4px 12px rgb(16 24 40 / 6%);
   --radius: 8px;
   --radius-sm: 5px;
@@ -109,6 +112,9 @@
     --qa-warn-border: #8a6d1f;
     --qa-warn-soft: #3b2f0e;
     --qa-warn-text: #fbbf24;
+    --todo: #fb923c;
+    --todo-text: #fdba74;
+    --todo-soft: #3d220f;
     --ok: #4ade80;
     --ok-text: #4ade80;
     --ok-soft: #14351f;
@@ -152,6 +158,9 @@
   --qa-warn-border: #8a6d1f;
   --qa-warn-soft: #3b2f0e;
   --qa-warn-text: #fbbf24;
+  --todo: #fb923c;
+  --todo-text: #fdba74;
+  --todo-soft: #3d220f;
   --ok: #4ade80;
   --ok-text: #4ade80;
   --ok-soft: #14351f;
@@ -19604,6 +19613,7 @@ select.chart-add-agg {
 .cl-score { font-family: var(--font-mono, ui-monospace, monospace); font-size: 34px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
 .cl-of { color: var(--text-dim); }
 .cl-score-facts { margin-left: auto; color: var(--text-dim); font-size: var(--fs-sm); }
+.cl-band-reason { margin: 4px 0 6px; font-size: var(--fs-sm); color: var(--qa-warn-text); }
 .cl-score-facts b { color: var(--text); font-variant-numeric: tabular-nums; }
 .cl-score-facts b.cl-up, .cl-legend b.cl-up { color: var(--ok-text); }
 .cl-bar { position: relative; display: flex; height: 14px; overflow: hidden; border-radius: 7px; background: var(--panel-2); }
@@ -19667,13 +19677,12 @@ select.chart-add-agg {
 .issue-smart .issue-head { flex-wrap: wrap; }
 .issue-keep-select { font-size: var(--fs-sm); padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); }
 
-/* Fix actions read as a go: green with a tick (text in --panel so it holds contrast in dark mode). */
-.fix-btn::before { content: "✓"; font-weight: 700; margin-right: 6px; }
+/* Fix actions are still to do: orange, no tick. Green with a tick is kept for what is done (steps, cleared rows). */
 .primary.fix-btn,
-.issue-actions .primary.fix-btn { background: var(--ok); border-color: var(--ok); color: var(--panel); }
+.issue-actions .primary.fix-btn { background: var(--todo); border-color: var(--todo); color: var(--panel); }
 .ghost.fix-btn,
-.issue-actions .outlined.fix-btn { border-color: var(--ok); color: var(--ok-text); background: var(--ok-soft); font-weight: 600; }
-.ghost.fix-btn:hover { background: color-mix(in srgb, var(--ok) 22%, var(--panel)); }
+.issue-actions .outlined.fix-btn { border-color: var(--todo); color: var(--todo-text); background: var(--todo-soft); font-weight: 600; }
+.ghost.fix-btn:hover { background: color-mix(in srgb, var(--todo) 22%, var(--panel)); }
 
 /* Smart Deduplicate preview: each group's copies one after the other. */
 .dd-modal { width: min(1100px, calc(100vw - 32px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column; gap: 10px; }
