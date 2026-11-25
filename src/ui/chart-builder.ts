@@ -237,10 +237,29 @@ export function configForChart(
     case "bubble":
       if (m0) set.x = m0.pick.index;
       if (m1) set.y = m1.pick.index;
+      // One number picked: Y borrows another number, never a date nobody picked.
+      else if (m0) {
+        const numberAt = (strict: boolean) =>
+          columns.findIndex((meta, index) => {
+            const p = profile(toRecColumn(meta, index, rowCount), rowCount);
+            return index !== m0.pick.index && (p.role === "measure" || (!strict && p.canMeasure === true));
+          });
+        const borrowed = numberAt(true) >= 0 ? numberAt(true) : numberAt(false);
+        if (borrowed >= 0) set.y = borrowed;
+        else {
+          // No other number: the picked one over a date, time across and values up.
+          const when = columns.findIndex((meta, index) => profile(toRecColumn(meta, index, rowCount), rowCount).role === "time");
+          if (when >= 0) Object.assign(set, { x: when, y: m0.pick.index });
+        }
+      }
       if (kind === "bubble" && m2) set.sizeColumn = m2.pick.index;
       // A category colours the points.
       if (kind !== "density" && (cats[0] ?? t0)) set.colorColumn = (cats[0] ?? t0)!.pick.index;
-      else if (kind === "scatter" && m2) set.sizeColumn = m2.pick.index;
+      else {
+        if (kind === "scatter" && m2) set.sizeColumn = m2.pick.index;
+        // Nothing picked colours the points: one colour, not a column nobody picked.
+        if (picks.length > 0) set.colorColumn = -1;
+      }
       break;
     case "correlation":
       if (measures.length >= 2) set.correlationColumns = measures.map((e) => e.pick.index);
