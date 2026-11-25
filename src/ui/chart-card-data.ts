@@ -700,13 +700,15 @@ export function syncDataIssues(card: ChartCard): void {
 export function fieldsInUse(card: ChartCard): { measures: number[]; dimensions: number[] } {
   const c = card.config;
   const pair = isPairKind(c.kind);
-  const used = pair ? [c.y, c.x] : [c.valueColumn ?? -1, c.column, c.groupColumn];
+  const used = pair ? [c.y, c.x, c.colorColumn] : [c.valueColumn ?? -1, c.column, c.groupColumn];
   const measures: number[] = [];
   const dimensions: number[] = [];
   for (const index of used) {
     const meta = card.meta(index);
     if (meta === undefined) continue;
-    const measure = isNumericType(meta.type) && (pair || index === c.valueColumn || !isGroupable(meta));
+    // A histogram's column is its values, however few distinct ones it has.
+    const histogramValues = c.kind === "histogram" && index === c.column;
+    const measure = isNumericType(meta.type) && (pair || histogramValues || index === c.valueColumn || !isGroupable(meta));
     const list = measure ? measures : dimensions;
     if (!list.includes(index)) list.push(index);
   }
@@ -725,12 +727,18 @@ export function setKind(card: ChartCard, kind: ChartCardKind): void {
   if (isPairKind(kind)) {
     const xAllowed = card.allowedIndexes((meta) => card.allowsX(meta));
     const yAllowed = card.allowedIndexes((meta) => card.allowsY(meta));
-    // Keep what was charted: a measure goes on Y, and X takes the next field that fits.
-    const fromField = [...dimensions, ...measures];
-    const y = measures.find((index) => yAllowed.includes(index));
+    // Keep what was charted: Y takes a measure if it can (a category on a box plot's Groups),
+    // X the next field that fits, and a category left over colours the points.
+    // A box plot is the other way round: its Y is the Groups, a category; its X the values.
+    const box = kind === "box";
+    const y = (box ? [...dimensions, ...measures] : [...measures, ...dimensions]).find((index) => yAllowed.includes(index));
     if (y !== undefined) card.config.y = y;
-    const x = fromField.find((index) => index !== card.config.y && xAllowed.includes(index));
+    const x = (box ? [...measures, ...dimensions] : [...dimensions, ...measures]).find((index) => index !== card.config.y && xAllowed.includes(index));
     if (x !== undefined) card.config.x = x;
+    if ((kind === "scatter" || kind === "bubble") && card.config.colorColumn < 0) {
+      const hue = dimensions.find((index) => index !== card.config.x && index !== card.config.y);
+      if (hue !== undefined) card.config.colorColumn = hue;
+    }
     if (!xAllowed.includes(card.config.x)) card.config.x = xAllowed[0] ?? -1;
     if (!yAllowed.includes(card.config.y) || (card.config.y === card.config.x && yAllowed.length > 1)) {
       card.config.y = yAllowed.find((index) => index !== card.config.x) ?? yAllowed[0] ?? -1;
@@ -751,9 +759,19 @@ export function setKind(card: ChartCard, kind: ChartCardKind): void {
     const lead = kind === "histogram" ? [...measures, ...dimensions] : [...dimensions, ...measures];
     // A Line runs over a date when the data has one (a time series); numbers or categories otherwise.
     const dates = kind === "line" ? primary.filter((index) => card.isDateLike(card.meta(index))) : [];
-    const column = dates.length > 0 ? (lead.find((index) => dates.includes(index)) ?? dates[0]) : lead.find((index) => primary.includes(index));
+    // Without a date among the fields in use, a Line runs over the category it had rather than a
+    // date nobody picked.
+    const column = lead.find((index) => dates.includes(index)) ?? lead.find((index) => primary.includes(index)) ?? dates[0];
     if (column !== undefined) card.config.column = column;
     if (!primary.includes(card.config.column)) card.config.column = primary[0] ?? -1;
+    // A second category the chart was using splits the new one (a group, one histogram per group).
+    if ((SPLIT_KINDS.includes(kind) || kind === "histogram") && card.config.groupColumn < 0) {
+      const split = dimensions.find((index) => {
+        const meta = card.meta(index);
+        return index !== card.config.column && meta !== undefined && isGroupable(meta);
+      });
+      if (split !== undefined) card.config.groupColumn = split;
+    }
     // A count plot counts rows; every other chart with a Value keeps the measure.
     if (takesValue && kind !== "histogram" && kind !== "bar") {
       const value = measures.find((index) => index !== card.config.column);
@@ -783,6 +801,8 @@ export function dropSettingsTheNewKindCannotUse(card: ChartCard): void {
   const calc = card.config.valueCalc;
   const needsTime = calc === "rolling7" || calc === "diff" || calc === "pctChange" || calc === "yoy" || calc === "cumulative";
   if (needsTime && !card.isDateLike(card.meta(card.config.column))) card.config.valueCalc = undefined;
+  // A repeating part (every Monday) belongs to bars of a date; a line runs by period.
+  if (kind !== "barplot" || !card.isDateLike(card.meta(card.config.column))) card.config.valuePart = undefined;
 }
 
 /** Refetches and repaints everything a whole-chart settings change can touch. */
@@ -801,8 +821,6 @@ export function refreshForConfig(card: ChartCard): void {
   card.refreshBubble();
   card.refreshMapGrid();
   card.refreshAnimation();
-  // A repeating part (every Monday) belongs to bars of a date; a line runs by period.
-  if (kind !== "barplot" || !card.isDateLike(card.meta(card.config.column))) card.config.valuePart = undefined;
   card.refreshCorrelation();
   card.refreshGroupedBins();
   if (card.config.source !== "") card.refreshView();

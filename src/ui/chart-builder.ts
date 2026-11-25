@@ -179,6 +179,8 @@ export function configForChart(
   switch (kind) {
     case "histogram":
       if (m0) set.column = m0.pick.index;
+      // A category splits the values into one histogram per group.
+      if (cats[0]) set.groupColumn = cats[0].pick.index;
       break;
     case "line":
       if (!t0) {
@@ -199,8 +201,23 @@ export function configForChart(
       break;
     case "bar":
       if (c0) set.column = c0.pick.index;
+      if (c1) set.groupColumn = c1.pick.index;
       break;
-    case "barplot":
+    case "barplot": {
+      // Bars over a date (by month, by weekday) split by a category, or a category split by another.
+      const across = t0 ?? c0;
+      const split = t0 ? c0 : c1;
+      if (across) set.column = across.pick.index;
+      const value = measures.find((entry) => entry !== across && entry !== split);
+      if (value) Object.assign(set, { valueColumn: value.pick.index, valueAgg: agg(value) });
+      if (split && split !== value) set.groupColumn = split.pick.index;
+      // Several measures and no split: one bar each.
+      else if (value) {
+        const more = measures.filter((entry) => entry !== value && entry !== across);
+        if (more.length > 0) set.extraValueColumns = more.slice(0, 5).map((entry) => entry.pick.index);
+      }
+      break;
+    }
     case "treemap":
       if (c0) set.column = c0.pick.index;
       if (m0 && m0 !== c0) Object.assign(set, { valueColumn: m0.pick.index, valueAgg: agg(m0) });
@@ -219,6 +236,9 @@ export function configForChart(
       if (m0) set.x = m0.pick.index;
       if (m1) set.y = m1.pick.index;
       if (kind === "bubble" && m2) set.sizeColumn = m2.pick.index;
+      // A category colours the points.
+      if (kind !== "density" && (cats[0] ?? t0)) set.colorColumn = (cats[0] ?? t0)!.pick.index;
+      else if (kind === "scatter" && m2) set.sizeColumn = m2.pick.index;
       break;
     case "correlation":
       if (measures.length >= 2) set.correlationColumns = measures.map((e) => e.pick.index);
@@ -260,6 +280,14 @@ export function configForChart(
   }
   // A recommended tile must come from the shelf alone; a type chosen by hand may
   // fall back to the gallery's default columns for any slot the shelf leaves empty.
+  // Fields were picked and none of them has a place on this type: say so, rather than draw other
+  // columns the analyst never picked (the picks would seem to vanish).
+  const placed = new Set<number>(
+    [set.column, set.x, set.y, set.valueColumn, set.groupColumn, set.colorColumn, set.sizeColumn, ...(set.correlationColumns ?? []), ...(set.extraValueColumns ?? [])].filter(
+      (index): index is number => index !== undefined && index >= 0,
+    ),
+  );
+  if (picks.length > 0 && !picks.some((pick) => placed.has(pick.index))) return null;
   if (options.strict === true && (kind === "stacked100" || kind === "dotplot" || kind === "waterfall" || kind === "smallmultiples" || kind === "slopegraph")) {
     if (set.valueColumn === undefined || set.column === undefined) return null;
     if ((kind === "stacked100" || kind === "smallmultiples" || kind === "slopegraph") && set.groupColumn === undefined) return null;
