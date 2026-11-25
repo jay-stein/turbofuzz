@@ -3997,11 +3997,11 @@ test("switching chart type keeps the fields that still fit", async () => {
   assert.equal(bars.valueColumn, 3, "the measure on Y becomes the Value");
   assert.equal(bars.column, 1, "and the bars are laid out by a category");
   const line = to("line");
-  assert.equal(line.column, 0);
-  assert.equal(line.valueColumn, 3, "the Value carries over to a time series");
+  assert.equal(line.column, 1, "no date in use: the line runs over the category it had, not a date nobody picked");
+  assert.equal(line.valueColumn, 3, "the Value carries over");
   const back = to("scatter");
   assert.equal(back.y, 3, "back on a scatter the measure is on Y");
-  assert.equal(back.x, 0, "and X takes the date it was charted over");
+  assert.equal(back.x, 2, "and X borrows a number, never the unused date");
   const histogram = to("histogram");
   assert.equal(histogram.column, 3, "a histogram plots the measure itself");
   assert.equal(histogram.valueColumn, -1);

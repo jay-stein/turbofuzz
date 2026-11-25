@@ -750,7 +750,16 @@ export function setKind(card: ChartCard, kind: ChartCardKind): void {
       const hue = dimensions.find((index) => index !== card.config.x && index !== card.config.y);
       if (hue !== undefined) card.config.colorColumn = hue;
     }
-    if (!xAllowed.includes(card.config.x)) card.config.x = xAllowed[0] ?? -1;
+    // An axis no field in use fits: a scatter borrows a number, never a date nobody picked (nor a
+    // stale X left over from the card's first preset).
+    const points = kind === "scatter" || kind === "bubble" || kind === "density";
+    if (!xAllowed.includes(card.config.x) || (points && x === undefined)) {
+      const number = xAllowed.find((index) => {
+        const meta = card.meta(index);
+        return index !== card.config.y && meta !== undefined && isNumericType(meta.type);
+      });
+      card.config.x = (points ? number : undefined) ?? xAllowed[0] ?? -1;
+    }
     if (!yAllowed.includes(card.config.y) || (card.config.y === card.config.x && yAllowed.length > 1)) {
       card.config.y = yAllowed.find((index) => index !== card.config.x) ?? yAllowed[0] ?? -1;
     }
@@ -774,7 +783,11 @@ export function setKind(card: ChartCard, kind: ChartCardKind): void {
     // date nobody picked.
     const column = lead.find((index) => dates.includes(index)) ?? lead.find((index) => primary.includes(index)) ?? dates[0];
     if (column !== undefined) card.config.column = column;
-    if (!primary.includes(card.config.column)) card.config.column = primary[0] ?? -1;
+    if (!primary.includes(card.config.column)) {
+      // Nothing in use fits: bars are laid out by a category before a date nobody picked.
+      const category = kind === "barplot" ? primary.find((index) => !card.isDateLike(card.meta(index))) : undefined;
+      card.config.column = category ?? primary[0] ?? -1;
+    }
     // A second category the chart was using splits the new one (a group, one histogram per group).
     if ((SPLIT_KINDS.includes(kind) || kind === "histogram") && card.config.groupColumn < 0) {
       const split = dimensions.find((index) => {

@@ -74,6 +74,9 @@ test("changing a finished chart's type keeps its second field: the group, the co
   expect(await used(page)).toEqual(["region=X", "sales=Value", "type=Group by"]);
   await changeTo("Scatter");
   expect(await used(page)).toContain("region=Colour");
+  // The axis no pick fits borrows a number, never the date nobody picked.
+  expect(await used(page)).not.toContain("date=X");
+  expect(await used(page)).toContain("price=X");
   // One of the picked categories splits it; the values stay the values.
   await changeTo("Histogram");
   expect(await used(page)).toContain("sales=Values");
@@ -95,11 +98,11 @@ test("bars of a date group by period or by a repeating part (every weekday toget
   await expect(grain).toHaveValue("part:dow");
   // Period settings (width, gaps, week start) say nothing about a repeating part.
   await expect(page.locator(".chart-card:not(.hidden) .chart-every-input")).toBeHidden();
+  // The note names the part in words, not the engine's code.
+  await expect(page.locator(".chart-card:not(.hidden) .chart-note")).toContainText("date (day of week)");
   // A line asked for a weekday becomes bars of weekdays.
   await make(page, ["date", "sales"], "Line");
   await grain.selectOption("part:month");
-  // The note names the part in words, not the engine's code.
-  await expect(page.locator(".chart-card:not(.hidden) .chart-note")).toContainText("date (day of week)");
   await expect(grain).toHaveValue("part:month");
   expect(await used(page)).toEqual(["date=Category", "sales=Value"]);
 });
