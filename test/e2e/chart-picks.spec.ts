@@ -10,10 +10,17 @@ function sales(): string {
   return lines.join("\n");
 }
 
-async function open(page: Page): Promise<void> {
+/** 150 customers: too many values to group a chart by. */
+function customers(): string {
+  const lines = ["customer,product,amount"];
+  for (let i = 0; i < 600; i++) lines.push(`Customer ${String(i % 150).padStart(3, "0")},P${i % 3},${(i * 37) % 500}`);
+  return lines.join("\n");
+}
+
+async function open(page: Page, csv = sales()): Promise<void> {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
-  await page.locator('input[type="file"]').setInputFiles({ name: "sales.csv", mimeType: "text/csv", buffer: Buffer.from(sales()) });
+  await page.locator('input[type="file"]').setInputFiles({ name: "sales.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
   await page.locator(".nav-row").waitFor();
   await page.keyboard.press("Escape");
   await page.locator(".view-tabs button", { hasText: "Chart" }).click();
@@ -85,6 +92,32 @@ test("changing a finished chart's type keeps its second field: the group, the co
   await changeTo("Box plot");
   expect(await used(page)).toContain("sales=Value");
   expect((await used(page)).some((entry) => /^(region|type)=Groups$/.test(entry))).toBe(true);
+});
+
+test("Bar of categories alone counts rows, a group splits the counts, and nothing borrows a field nobody picked", async ({ page }) => {
+  await open(page);
+  const note = page.locator(".chart-card:not(.hidden) .chart-note").first();
+  // One category: a count per type, never the average of a measure nobody picked.
+  await make(page, ["type"], "Bar");
+  expect(await used(page)).toEqual(["type=Category"]);
+  await expect(note).toContainText(/^2 groups · Rows by type/i);
+  // Two categories: counts split by the second.
+  await make(page, ["region", "type"], "Bar");
+  expect(await used(page)).toEqual(["region=Category", "type=Group by"]);
+  await expect(note).toContainText("series");
+  await expect(note).not.toContainText("Pick a numeric measure");
+  // One number on a scatter: Y borrows another number, not the date.
+  await make(page, ["region", "sales"], "Scatter");
+  expect(await used(page)).toEqual(["price=Y", "region=Colour", "sales=X"]);
+});
+
+test("a field with too many values to group by is refused on Bar, not swapped for another", async ({ page }) => {
+  await open(page, customers());
+  for (const name of ["customer", "amount"]) await field(page, name).click();
+  const before = await page.locator(".charts-tab").count();
+  await page.locator(".chart-add-types > .chart-add-type-group").first().locator(".chart-add-type", { hasText: "Bar" }).click();
+  await expect(page.locator(".chart-add-message")).toContainText("do not fit a bar");
+  expect(await page.locator(".charts-tab").count()).toBe(before);
 });
 
 test("bars of a date group by period or by a repeating part (every weekday together)", async ({ page }) => {

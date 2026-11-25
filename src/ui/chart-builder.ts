@@ -309,6 +309,10 @@ export function configForChart(
     ),
   );
   if (picks.length > 0 && !picks.some((pick) => placed.has(pick.index))) return null;
+  // A text field picked to lay the bars out by (5,000 customers: too many to group) and nothing
+  // picked that can: say so, rather than lay them out by a category nobody picked.
+  const laidOut = kind === "bar" || kind === "barplot" || kind === "treemap" || kind === "dotplot" || kind === "waterfall" || kind === "stacked100";
+  if (laidOut && set.column === undefined && texts.length > 0) return null;
   if (options.strict === true && (kind === "stacked100" || kind === "dotplot" || kind === "waterfall" || kind === "smallmultiples" || kind === "slopegraph")) {
     if (set.valueColumn === undefined || set.column === undefined) return null;
     if ((kind === "stacked100" || kind === "smallmultiples" || kind === "slopegraph") && set.groupColumn === undefined) return null;
