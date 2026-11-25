@@ -475,7 +475,8 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
   ctx.stroke();
 
   const slot = frame.plotW / Math.max(1, buckets.length);
-  const lineCard = result.dimensionIsTime[0] === true;
+  // Periods draw as lines, except on a Bar chart, where each period is its bar.
+  const lineCard = result.dimensionIsTime[0] === true && card.config.kind !== "barplot";
   // Each grouped or stacked bar, for its tooltip, its own colour and its single label.
   const splitMarks: { x: number; y: number; w: number; h: number; bucket: string; series: string; value: number }[] = [];
   if (lineCard) {
@@ -747,7 +748,9 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
     return;
   }
   // A small-multiples panel takes the whole chart's layout, so every panel draws its bars the same way.
-  if (result.dimensionIsTime[0] !== true && (card.panelOrder?.size ?? result.groupCount) > RANKED_BARS_ABOVE) {
+  // Parts of a date (24 hours, 31 days of the month) keep their own order, every one shown, never a top 10.
+  const datePart = card.config.source === "" && card.config.kind === "barplot" && card.config.valuePart !== undefined;
+  if (result.dimensionIsTime[0] !== true && !datePart && (card.panelOrder?.size ?? result.groupCount) > RANKED_BARS_ABOVE) {
     card.drawRankedBars(ctx, frame, result, values);
     return;
   }
@@ -786,7 +789,8 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
   ctx.stroke();
 
   const slot = frame.plotW / Math.max(1, n);
-  const isTime = result.dimensionIsTime[0] === true;
+  // Periods draw as a line, except on a Bar chart, where each period is its bar.
+  const isTime = result.dimensionIsTime[0] === true && card.config.kind !== "barplot";
   ctx.strokeStyle = card.primaryColor();
   ctx.fillStyle = card.primaryColor();
   let gapPeriods = 0;

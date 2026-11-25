@@ -307,8 +307,10 @@ export function syncFieldVisibility(card: ChartCard): void {
   const grainKinds =
     (kind === "line" && !relLineOn(card)) ||
     kind === "smallmultiples" ||
-    ((kind === "kpi" || kind === "slopegraph" || kind === "waterfall") &&
+    ((kind === "kpi" || kind === "slopegraph" || kind === "waterfall" || kind === "barplot") &&
       card.isDateLike(card.meta(card.config.column)));
+  // Bars by a repeating part (every Monday) have no period width, gaps, week start or financial year.
+  const part = kind === "barplot" && card.config.valuePart !== undefined;
   const valueOn =
     measureKinds && card.config.source === "" && (card.config.valueColumn ?? -1) >= 0;
   const kpiPrimaryHidden =
@@ -329,10 +331,10 @@ export function syncFieldVisibility(card: ChartCard): void {
   card.valueWrap.classList.toggle("hidden", bound || !measureKinds);
   card.valueAggWrap.classList.toggle("hidden", bound || !measureKinds || !valueOn);
   card.valueGrainWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn);
-  card.valueEveryWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || !card.hasExplicitGrain());
-  card.valueFillWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn);
-  card.weekStartWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || card.resolvedGrain() !== "week");
-  card.fiscalWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || (card.resolvedGrain() !== "quarter" && card.resolvedGrain() !== "year"));
+  card.valueEveryWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || part || !card.hasExplicitGrain());
+  card.valueFillWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || part);
+  card.weekStartWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || part || card.resolvedGrain() !== "week");
+  card.fiscalWrap.classList.toggle("hidden", bound || !grainKinds || !valueOn || part || (card.resolvedGrain() !== "quarter" && card.resolvedGrain() !== "year"));
   card.valueCalcWrap.classList.toggle("hidden", bound || !valueOn || kind === "treemap");
   card.syncExtraValues();
   // Regions matched by name need no coordinates, so a map of them hides X and Y too.
@@ -522,8 +524,10 @@ export function allowsPrimary(card: ChartCard, meta: ColumnMeta): boolean {
     case "kpi":
       // The primary column is the KPI's optional date axis.
       return meta.type === "date" || meta.type === "datetime";
-    case "bar":
     case "barplot":
+      // A date makes bars too: one per month, say, or one per weekday (Time resolution).
+      return isGroupable(meta) || meta.type === "date" || meta.type === "datetime";
+    case "bar":
     case "dotplot":
     case "stacked100":
       return isGroupable(meta);
@@ -655,7 +659,8 @@ export function syncOptions(card: ChartCard): void {
     card.valueSelect.value = String(card.config.valueColumn);
   }
   card.syncValueAggOptions();
-  card.valueGrainSelect.value = card.config.valueGrain ?? "auto";
+  const repeating = card.config.kind === "barplot" && card.config.valuePart !== undefined;
+  card.valueGrainSelect.value = repeating ? `part:${card.config.valuePart}` : (card.config.valueGrain ?? "auto");
   card.valueEveryInput.value = String(card.config.valueEvery ?? 1);
   card.valueFillSelect.value = card.config.valueFill ?? "auto";
   card.weekStartSelect.value = String(card.config.valueWeekStart ?? 1);
@@ -668,7 +673,8 @@ export function syncOptions(card: ChartCard): void {
     autoOption.textContent = `Auto (${describeStep(auto.grain, auto.every)})`;
   }
   for (const option of Array.from(card.valueGrainSelect.options)) {
-    option.hidden = dateOnly && (option.value === "minute" || option.value === "hour" || option.value === "second");
+    const grain = option.value.replace(/^part:/, "");
+    option.hidden = dateOnly && (grain === "minute" || grain === "hour" || grain === "second");
   }
   card.valueCalcSelect.value = card.config.valueCalc ?? "";
   card.barStackInput.checked = (card.config.barLayout ?? "group") === "stack";

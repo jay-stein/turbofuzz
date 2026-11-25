@@ -226,7 +226,9 @@ export function valueViewDef(card: ChartCard): ViewDef | null {
   const line =
     card.config.kind === "line" ||
     card.config.kind === "smallmultiples" ||
-    ((card.config.kind === "slopegraph" || card.config.kind === "waterfall") && datedColumn);
+    ((card.config.kind === "slopegraph" || card.config.kind === "waterfall" || card.config.kind === "barplot") && datedColumn);
+  // Bars of a date by a part that repeats (every Monday together); other dated charts run by period.
+  const part = card.config.kind === "barplot" && datedColumn ? card.config.valuePart : undefined;
   const kpi = card.config.kind === "kpi";
   const histogram = card.config.kind === "histogram";
   if ((card.config.kind === "line" || card.config.kind === "smallmultiples") && !datedColumn) return null;
@@ -295,10 +297,10 @@ export function valueViewDef(card: ChartCard): ViewDef | null {
       line || overTime
         ? split
           ? [
-              { column: card.config.column, by: card.timeBy(grain) },
+              { column: card.config.column, by: part === undefined ? card.timeBy(grain) : { datePart: part } },
               { column: card.config.groupColumn, by: "value" },
             ]
-          : [{ column: card.config.column, by: card.timeBy(grain) }]
+          : [{ column: card.config.column, by: part === undefined ? card.timeBy(grain) : { datePart: part } }]
         : histogram
           ? [{ column: card.config.column, by: { bin: { n: binCount } } }]
           : kpi
@@ -317,8 +319,8 @@ export function valueViewDef(card: ChartCard): ViewDef | null {
         ...(post === undefined ? {} : { post: [...post] }),
       })),
     ],
-    fill: line && !split ? (fillPolicy === "zero" ? "zero" : fillPolicy === "carry" ? "carry" : "none") : "none",
-    ...(line && !split && fillPolicy === "gap" ? { showGaps: true } : {}),
+    fill: line && !split && part === undefined ? (fillPolicy === "zero" ? "zero" : fillPolicy === "carry" ? "carry" : "none") : "none",
+    ...(line && !split && part === undefined && fillPolicy === "gap" ? { showGaps: true } : {}),
     sort:
       line || overTime || histogram
         ? { key: "dim0", dir: "asc" }
@@ -799,6 +801,8 @@ export function refreshForConfig(card: ChartCard): void {
   card.refreshBubble();
   card.refreshMapGrid();
   card.refreshAnimation();
+  // A repeating part (every Monday) belongs to bars of a date; a line runs by period.
+  if (kind !== "barplot" || !card.isDateLike(card.meta(card.config.column))) card.config.valuePart = undefined;
   card.refreshCorrelation();
   card.refreshGroupedBins();
   if (card.config.source !== "") card.refreshView();

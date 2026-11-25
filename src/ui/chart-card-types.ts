@@ -11,7 +11,7 @@ import type { SeriesGrid, SeriesMode } from "../data/chart-series.js";
 import { type IntervalKind } from "../data/error-bars.js";
 import { type DotScale } from "../data/dot-size.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
-import type { TimeGrain, ViewDef } from "../data/aggregate.js";
+import type { DatePart, TimeGrain, ViewDef } from "../data/aggregate.js";
 import { type FrameStep } from "../data/chart-frames.js";
 import type { ColumnFilter } from "../search/query-engine.js";
 import type { ErrorBarsMessage, ErrorBarsProgressMessage, GetRelLineRequest, RelLineMessage } from "../worker/protocol.js";
@@ -499,6 +499,11 @@ export interface ChartCardConfig {
     | "truePct";
   /** Bucket grain for the value line; "auto"/undefined derives it from the span. */
   valueGrain?: TimeGrain | "auto";
+  /**
+   * Bars of a date grouped by a part that repeats (every Monday together, every March together)
+   * instead of by period. Undefined groups by period (valueGrain). Lines always run by period.
+   */
+  valuePart?: DatePart;
   /** Bucket width in grain units (15 with minute = every 15 minutes); undefined or 1 is one unit. */
   valueEvery?: number;
   /**

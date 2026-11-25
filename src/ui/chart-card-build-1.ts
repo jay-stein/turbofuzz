@@ -9,6 +9,17 @@ import { CHART_KIND_LABELS, type ChartCardKind, DEFAULT_MAP_MODE, SPLIT_KINDS } 
 import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
 import type { DensityStyle, ChartCardConfig } from "./chart-card-types.js";
+import type { DatePart } from "../data/aggregate.js";
+
+/** Recurring parts of a date for bars, from the longest cycle to the shortest (as the Pivot offers them). */
+export const REPEATING_PARTS: readonly (readonly [DatePart, string])[] = [
+  ["quarter", "Quarter of year"],
+  ["month", "Month of year"],
+  ["week", "Week of year"],
+  ["dom", "Day of month"],
+  ["dow", "Day of week"],
+  ["hour", "Hour of day"],
+];
 
 export function buildPart1(card: ChartCard, root: HTMLElement, preset: Partial<ChartCardConfig> | undefined) {
     card.root = root;
@@ -133,8 +144,28 @@ export function buildPart1(card: ChartCard, root: HTMLElement, preset: Partial<C
         card.valueGrainSelect.append(el("option", { value: grain }, [label]) as HTMLOptionElement);
       },
     );
+    // Parts that repeat: every Monday together, every March together. They make bars, so a Line becomes one.
+    const repeating = el("optgroup", { label: "Repeating" });
+    for (const [part, label] of REPEATING_PARTS) repeating.append(el("option", { value: `part:${part}` }, [label]));
+    card.valueGrainSelect.append(repeating);
     card.valueGrainSelect.addEventListener("change", () => {
-      card.config.valueGrain = card.valueGrainSelect.value as ChartCardConfig["valueGrain"];
+      const chosen = card.valueGrainSelect.value;
+      if (chosen.startsWith("part:")) {
+        card.noteBeforeChange();
+        card.config.valuePart = chosen.slice(5) as DatePart;
+        if (card.config.kind !== "barplot") {
+          card.setKind("barplot");
+          card.kindSelect.value = "barplot";
+        }
+        card.noteAfterChange();
+        card.generation++;
+        card.renderControls();
+        card.refreshValue();
+        card.render();
+        return;
+      }
+      card.config.valuePart = undefined;
+      card.config.valueGrain = chosen as ChartCardConfig["valueGrain"];
       card.generation++;
       card.renderControls();
       card.refreshValue();
