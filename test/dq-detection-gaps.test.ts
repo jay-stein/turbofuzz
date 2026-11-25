@@ -87,6 +87,7 @@ test("a key-named, 98%+ distinct column that repeats is a fix item with Show row
   // Kept apart from the exact-duplicate-rows item.
   const dup = issues.find((issue) => issue.kind === "duplicates");
   assert.ok(dup, "exact duplicate rows are still their own item");
+  assert.equal(dup.severity, "review", "a step on the Clean page, not an aside");
   assert.notEqual(dup.id, key.id);
   assert.equal(issues.filter((issue) => issue.kind === "keyDuplicates").length, 1, "customer_id never fires");
 });

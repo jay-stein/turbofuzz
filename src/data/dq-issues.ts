@@ -802,14 +802,14 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
     });
   }
 
-  // --- exact duplicate rows (info) ---
+  // --- exact duplicate rows (review: a step of their own; some logs repeat rows on purpose) ---
   const duplicates = score.dimensions
     .find((d) => d.dimension === "uniqueness")
     ?.checks.find((c) => c.id === "uniqueness.rows");
   if (duplicates !== undefined && duplicates.fail > 0) {
     issues.push({
       id: "duplicates",
-      severity: "info",
+      severity: "review",
       kind: "duplicates",
       column: null,
       columnName: null,
