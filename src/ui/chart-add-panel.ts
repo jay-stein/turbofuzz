@@ -189,7 +189,9 @@ export class ChartAddPanel {
     const target = active === undefined ? null : (this.root.querySelector(active) as HTMLElement | null);
     target?.focus();
     // Typing in the field search re-renders: keep the caret at the end of what was typed.
-    if (target instanceof HTMLInputElement && target.type === "search") target.setSelectionRange(target.value.length, target.value.length);
+    // (Duck-typed: the unit tests' DOM has no HTMLInputElement.)
+    const search = target as (HTMLElement & Partial<Pick<HTMLInputElement, "type" | "value" | "setSelectionRange">>) | null;
+    if (search?.type === "search" && search.value !== undefined) search.setSelectionRange?.(search.value.length, search.value.length);
   }
 
   /** A stable selector for the control that has focus, so a re-render keeps it. */
