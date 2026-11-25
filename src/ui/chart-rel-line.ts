@@ -14,7 +14,7 @@ import type { RelLineBand, RelLineStat } from "../data/rel-line.js";
 import { INTERVAL_KINDS } from "../data/error-bars.js";
 import { formatChartNumber, formatCompact, isGroupable, isNumericType, niceTicks, plainMeasureName } from "./chart-utils.js";
 import { markColor } from "./chart-mark-colors.js";
-import { refAxisRange } from "./chart-ref-lines.js";
+import { refAxisRange, setRefAxis } from "./chart-ref-lines.js";
 
 /** Lines drawn at most; more Group by values are counted in the note. */
 const MAX_HUES = 8;
@@ -151,6 +151,8 @@ export function drawRelLine(card: ChartCard, ctx: CanvasRenderingContext2D, fram
   lo = Math.min(lo, yTicks[0] ?? lo);
   hi = Math.max(hi, yTicks[yTicks.length - 1] ?? hi);
   const yAt = (value: number): number => frame.top + frame.plotH - ((value - lo) / (hi - lo)) * frame.plotH;
+  // The value axis as drawn, so a reference line lands on it.
+  setRefAxis(card, frame, lo, hi, shown.flatMap(({ series }) => Array.from(series.center).filter(Number.isFinite)));
 
   // x: by value for numbers, evenly for categories.
   const xMin = categorical ? -0.5 : result.xs[0]!;
