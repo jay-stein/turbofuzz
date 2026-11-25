@@ -210,6 +210,8 @@ export function configForChart(
       if (across) set.column = across.pick.index;
       const value = measures.find((entry) => entry !== across && entry !== split);
       if (value) Object.assign(set, { valueColumn: value.pick.index, valueAgg: agg(value) });
+      // Fields picked and none of them a number: the bars count rows, never average a column nobody picked.
+      else if (picks.length > 0) set.valueColumn = -1;
       if (split && split !== value) set.groupColumn = split.pick.index;
       // Several measures and no split: one bar each.
       else if (value) {

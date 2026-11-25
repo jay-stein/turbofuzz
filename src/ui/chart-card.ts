@@ -745,11 +745,21 @@ export class ChartCard {
     );
   }
   /** True when this card plots its own measure aggregate (line/bar/KPI/bins). */
-  usesValueAggregate(): boolean {    return (
+  usesValueAggregate(): boolean {
+    return (
       this.config.source === "" &&
       VALUE_AGGREGATE_KINDS.includes(this.config.kind) &&
-      (this.config.valueColumn ?? -1) >= 0
+      ((this.config.valueColumn ?? -1) >= 0 || this.countsRowsByValue())
     );
+  }
+
+  /**
+   * Bars whose Value is "Count of rows" (-1) count rows through the value aggregate: Bar always
+   * (per category or per period), and count bars once a Group by splits them.
+   */
+  countsRowsByValue(): boolean {
+    if ((this.config.valueColumn ?? -1) >= 0) return false;
+    return this.config.kind === "barplot" || (this.config.kind === "bar" && this.config.groupColumn >= 0);
   }
 
   /** True when the card draws an aggregate result (bound view or own value). */

@@ -220,7 +220,10 @@ export function aggregateResult(card: ChartCard): AggregateMessage | null {
 export function valueViewDef(card: ChartCard): ViewDef | null {
   if (!card.usesValueAggregate() || card.options.requestAggregate === undefined) return null;
   const column = card.config.valueColumn ?? -1;
-  if (column < 0) return null;
+  // Bars with "Count of rows" as their Value count rows; every other kind needs a column.
+  const countRows = card.countsRowsByValue();
+  if (column < 0 && !countRows) return null;
+  if (countRows && card.config.column < 0) return null;
   const datedColumn = card.isDateLike(card.meta(card.config.column));
   // Lines and small multiples run over time; a slopegraph or waterfall does
   // when its column is a date, and over category values otherwise.
@@ -264,8 +267,9 @@ export function valueViewDef(card: ChartCard): ViewDef | null {
         : ([{ op: calc }] as const);
   const valueAgg = card.config.valueAgg ?? "mean";
   const fillPolicy = card.fillPolicy();
-  const measure: MeasureSpec =
-    valueAgg === "true" || valueAgg === "false" || valueAgg === "missing"
+  const measure: MeasureSpec = countRows
+    ? { column: null, agg: "count", ...(post === undefined ? {} : { post: [...post] }) }
+    : valueAgg === "true" || valueAgg === "false" || valueAgg === "missing"
       ? {
           column: null,
           agg: "count",
