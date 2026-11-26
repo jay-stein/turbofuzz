@@ -5272,6 +5272,111 @@ mark {
   }
 }
 
+/* Interactive web page export: what the hover shows, with a live preview. */
+.chart-html-modal {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-html-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px 8px;
+}
+
+.chart-html-body h3 {
+  margin: 8px 0 0;
+  font-size: var(--fs-md);
+}
+
+.chart-html-title {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.chart-html-columns,
+.chart-html-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.chart-html-columns {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.chart-html-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chart-html-field-name,
+.chart-html-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chart-html-field input[type="text"] {
+  min-width: 0;
+}
+
+.chart-html-example {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.chart-html-preview {
+  align-self: flex-start;
+  max-width: 320px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  font-size: var(--fs-sm);
+}
+
+.chart-html-preview-detail {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-dim);
+}
+
+.chart-html-preview-empty {
+  color: var(--text-dim);
+}
+
+@media (max-width: 560px) {
+  .chart-html-columns {
+    display: none;
+  }
+
+  .chart-html-field {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .chart-html-example {
+    display: none;
+  }
+}
+
 .chart-stats-modal {
   width: min(960px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);

@@ -11,13 +11,15 @@ import { symlog as symlogValue, symlogInverse } from "../data/symlog.js";
 import { openChartStats } from "./chart-stats-dialog.js";
 import { smoothSeries } from "../data/kde.js";
 import { chartSpecJson, chartSpecToPandas, chartSpecToPolars } from "./chart-spec.js";
-import { type ChartCardKind, formatChartNumber, plainMeasureName, VALUE_AGGREGATE_KINDS, safeFileName } from "./chart-utils.js";
+import { type ChartCardKind, describeStep, formatChartNumber, plainMeasureName, VALUE_AGGREGATE_KINDS, safeFileName } from "./chart-utils.js";
 import { downloadCsv } from "./chart-export.js";
 import { clear, el } from "./dom.js";
 import { openConfirm } from "./dialog.js";
 import { openMenu } from "./menu.js";
 import type { ChartCard } from "./chart-card.js";
 import { KDE_SIGMA_BINS } from "./chart-card-types.js";
+import { openChartHtmlDialog } from "./chart-html-export.js";
+import { downloadHtml } from "./map-html-export.js";
 
 /** Hidden file picker for importing a previously downloaded ChartSpec. */
 export function importChartSpecFile(card: ChartCard): void {
@@ -52,14 +54,49 @@ export function importChartSpecFile(card: ChartCard): void {
   input.click();
 }
 
-export function exportPng(card: ChartCard, width: number, height: number): void {
+/** The colours an exported chart is drawn in: light or dark whatever the app shows, or the app's own. */
+export type ExportTheme = "light" | "dark" | "app";
+
+/**
+ * Runs a draw with the page's colours switched to this theme, and puts the page's own back before
+ * anything paints: chart colours are read from the page's CSS variables as they are drawn.
+ */
+export function withExportTheme<T>(theme: ExportTheme, draw: () => T): T {
+  if (theme === "app") return draw();
+  const root = document.documentElement;
+  const before = root.getAttribute("data-theme");
+  root.setAttribute("data-theme", theme);
+  try {
+    return draw();
+  } finally {
+    if (before === null) root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", before);
+  }
+}
+
+/**
+ * The chart at the export size in the theme's colours, on a solid background of the same theme:
+ * a transparent export with light text would vanish on a white slide.
+ */
+function drawForExport(card: ChartCard, ctx: CanvasRenderingContext2D, width: number, height: number, theme: ExportTheme): void {
+  withExportTheme(theme, () => {
+    card.drawChart(ctx, width, height, true);
+    card.drawReferenceLines(ctx);
+    ctx.save();
+    ctx.globalCompositeOperation = "destination-over";
+    ctx.fillStyle = card.plateColor();
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
+  });
+}
+
+export function exportPng(card: ChartCard, width: number, height: number, theme: ExportTheme = "app"): void {
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (ctx === null) return;
-  card.drawChart(ctx, width, height, true);
-  card.drawReferenceLines(ctx);
+  drawForExport(card, ctx, width, height, theme);
   // The export drew over the card's hit regions and axes at its own size: put the on-screen ones back.
   card.render();
   if (typeof canvas.toBlob !== "function") return;
@@ -75,6 +112,54 @@ export function exportPng(card: ChartCard, width: number, height: number): void 
     anchor.click();
     URL.revokeObjectURL(url);
   }, "image/png");
+}
+
+/** The theme an export in "app" colours is drawn in, as the page shows it now. */
+function shownTheme(theme: ExportTheme): "light" | "dark" {
+  if (theme !== "app") return theme;
+  const pinned = document.documentElement.getAttribute("data-theme");
+  if (pinned === "light" || pinned === "dark") return pinned;
+  return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+/**
+ * The chart as an interactive web page: drawn at this size in this theme, with the hover details
+ * of every mark, after a window where the analyst picks which hover lines show and what they say.
+ */
+export function exportHtml(card: ChartCard, width: number, height: number, theme: ExportTheme = "app"): void {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (ctx === null) return;
+  drawForExport(card, ctx, width, height, theme);
+  // The marks' boxes at the export size, before the on-screen draw puts its own back.
+  const regions = card.hitRegions.slice();
+  card.render();
+  const details: string[] = [];
+  const valueMeta = card.meta(card.config.valueColumn ?? -1);
+  if (valueMeta !== undefined) details.push(`${card.aggPhrase()} of ${valueMeta.name}`);
+  if (card.config.valueGrain !== undefined && card.config.valueGrain !== "auto") {
+    details.push(`Bucket: ${describeStep(card.config.valueGrain, card.everyFor(card.config.valueGrain))}`);
+  }
+  if (card.config.groupColumn >= 0) details.push(`Grouped by ${card.meta(card.config.groupColumn)?.name ?? "group"}`);
+  const scope = (card.scopeEl.textContent ?? "").trim();
+  const dataset = card.options.datasetName();
+  const name = `${safeFileName(dataset)}-${safeFileName(card.chartName())}.html`;
+  openChartHtmlDialog(
+    {
+      title: (card.summaryEl.textContent ?? "").trim() || card.chartName(),
+      subtitle: [dataset, scope].filter((part) => part !== "").join(" · "),
+      width,
+      height,
+      image: canvas.toDataURL("image/png"),
+      background: withExportTheme(theme, () => card.plateColor()),
+      regions,
+      details,
+    },
+    shownTheme(theme),
+    (html) => downloadHtml(name, html),
+  );
 }
 
 /** Download the data already behind this chart, not a re-query of the table. */

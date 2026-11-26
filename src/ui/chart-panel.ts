@@ -38,6 +38,7 @@ import type { RegionRequests } from "./chart-card-types.js";
 import { isGroupableColumn } from "../data/groupable.js";
 import { type ChartCardConfig, type ChartCardOptions, type ChartSeriesTarget, type ChartTableFilter, type BrushRange, type MapBrushSelection, type SeriesRequestInput } from "./chart-card-types.js";
 import { ChartCard } from "./chart-card.js";
+import type { ExportTheme } from "./chart-card-export.js";
 import {
   fitChartKind,
 } from "./chart-gallery.js";
@@ -446,6 +447,26 @@ function writeSettingsOpen(open: boolean): void {
   }
 }
 
+const EXPORT_THEME_KEY = "turbofuzz.charts.exportTheme";
+
+/** Light unless the analyst chose otherwise: a chart for a report or a slide is usually on white. */
+function readExportTheme(): ExportTheme {
+  try {
+    const stored = localStorage.getItem(EXPORT_THEME_KEY);
+    return stored === "dark" || stored === "app" ? stored : "light";
+  } catch {
+    return "light";
+  }
+}
+
+function writeExportTheme(theme: ExportTheme): void {
+  try {
+    localStorage.setItem(EXPORT_THEME_KEY, theme);
+  } catch {
+    // Remembering is a convenience; the export still uses the choice this time.
+  }
+}
+
 type ChartEntry =
   | { type: "card"; card: ChartCard }
   | { type: "orphan"; root: HTMLElement; named: NamedChartCardConfig };
@@ -487,6 +508,8 @@ export class ChartsPanel {
   private rowCount = 0;
   private totalRowCount = 0;
   private exportSizeIndex = DEFAULT_EXPORT_SIZE;
+  /** The colours exports are drawn in: light unless the analyst picks otherwise; remembered. */
+  private exportTheme: ExportTheme = readExportTheme();
   /** Whether the settings panel beside each chart is open; remembered, and the same on every tab. */
   private settingsOpen = readSettingsOpen();
   private undoKey: ((event: KeyboardEvent) => void) | null = null;
@@ -958,23 +981,51 @@ export class ChartsPanel {
         onConvertToken: this.options.onConvertToken,
         onSuggestion: this.options.onSuggestion,
         // The size is asked at the moment of export, not kept on the page for the rare time it matters.
-        onExport: (target, anchor) => {
-          openMenu(anchor ?? target.pngButton, [
-            ...(target.isMap
-              ? [{ label: "Interactive web page (.html)", title: target.mapHtmlBlock ?? "One file with zoom, pan, hover and any time slider, that opens in any browser with no internet", disabled: !target.canExportMapHtml, action: () => void target.exportMapHtml() }]
-              : []),
-            { label: "Download PNG at", heading: true, action: () => {} },
-            ...EXPORT_SIZES.map((size, index) => ({
-              label: size.label,
-              checked: index === this.exportSizeIndex,
-              action: () => {
-                this.exportSizeIndex = index;
-                target.exportPng(size.width, size.height);
-              },
-            })),
-          ]);
-        },
+        onExport: (target, anchor) => this.openExportMenu(target, anchor ?? target.pngButton),
     };
+  }
+
+  /**
+   * Exports, with the colours to draw them in first (light by default, whatever the app shows),
+   * then the interactive web page and the PNG sizes. Picking colours reopens the menu.
+   */
+  private openExportMenu(target: ChartCard, anchor: HTMLElement): void {
+    const size = EXPORT_SIZES[this.exportSizeIndex] ?? EXPORT_SIZES[0]!;
+    const themes: { theme: ExportTheme; label: string; title: string }[] = [
+      { theme: "light", label: "Light", title: "White background, dark text, whatever the app shows" },
+      { theme: "dark", label: "Dark", title: "Dark background, light text, whatever the app shows" },
+      { theme: "app", label: "Same as the app", title: "The colours the app shows right now" },
+    ];
+    openMenu(anchor, [
+      { label: "Colours", heading: true, action: () => {} },
+      ...themes.map((entry) => ({
+        label: entry.label,
+        title: entry.title,
+        checked: entry.theme === this.exportTheme,
+        action: () => {
+          this.exportTheme = entry.theme;
+          writeExportTheme(entry.theme);
+          this.openExportMenu(target, anchor);
+        },
+      })),
+      { label: "Interactive", heading: true, action: () => {} },
+      target.isMap
+        ? { label: "Interactive web page (.html)", title: target.mapHtmlBlock ?? "One file with zoom, pan, hover and any time slider, that opens in any browser with no internet", disabled: !target.canExportMapHtml, action: () => void target.exportMapHtml() }
+        : {
+            label: "Interactive web page (.html)…",
+            title: `One file that shows each mark's details on hover, opens in any browser with no internet; choose what the hover shows (drawn at ${size.label})`,
+            action: () => target.exportHtml(size.width, size.height, this.exportTheme),
+          },
+      { label: "Download PNG at", heading: true, action: () => {} },
+      ...EXPORT_SIZES.map((entry, index) => ({
+        label: entry.label,
+        checked: index === this.exportSizeIndex,
+        action: () => {
+          this.exportSizeIndex = index;
+          target.exportPng(entry.width, entry.height, this.exportTheme);
+        },
+      })),
+    ]);
   }
 
   /** Sources every card can bind to: the filtered table plus each saved view. */

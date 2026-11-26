@@ -133,7 +133,7 @@ test("the field list changes the chart, + Add chart opens a new tab, and PNG ask
   await expect(page.getByText("PNG size")).toHaveCount(0);
   await card(page).locator(".chart-png-btn").click();
   await expect(page.locator(".context-menu")).toContainText("Download PNG at");
-  const [download] = await Promise.all([page.waitForEvent("download"), page.locator(".context-menu .context-item").first().click()]);
+  const [download] = await Promise.all([page.waitForEvent("download"), page.locator(".context-menu .context-item", { hasText: "1280 × 720" }).click()]);
   expect(download.suggestedFilename()).toMatch(/\.png$/);
 });
 
