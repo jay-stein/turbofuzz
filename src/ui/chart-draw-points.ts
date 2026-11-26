@@ -593,6 +593,39 @@ export function colorNote(card: ChartCard, result: SeriesPoints): string | null 
   return null;
 }
 
+/** A point's value as its axis reads it: a date as a date, a number in full. */
+function pointValueText(meta: ColumnMeta, value: number): string {
+  const kind = axisKindFor(meta.type);
+  return kind === "line" || kind === "datetime" || kind === "time" || kind === "duration" ? formatTick(value, kind) : formatChartNumber(value);
+}
+
+/**
+ * Hover for each drawn point (up to 5,000, the ones drawn one by one): its colour group, X and Y,
+ * and its colour and size values. The interactive web page export carries the same.
+ */
+function pointHitRegions(card: ChartCard, frame: Frame, result: SeriesPoints, xMeta: ColumnMeta, yMeta: ColumnMeta, sizes: ArrayLike<number> | null, radius: number, panel: { title: string } | null): void {
+  const xScale = frame.plotW / (result.xMax - result.xMin);
+  const yScale = frame.plotH / (result.yMax - result.yMin);
+  const colorMeta = card.config.colorColumn >= 0 ? card.meta(card.config.colorColumn) : undefined;
+  const labels = colorMeta?.categories?.labels;
+  const sizeMeta = card.config.sizeColumn >= 0 ? card.meta(card.config.sizeColumn) : undefined;
+  for (let i = 0; i < result.shown; i++) {
+    const x = frame.left + (result.x[i]! - result.xMin) * xScale;
+    const y = frame.top + frame.plotH - (result.y[i]! - result.yMin) * yScale;
+    if (x < frame.left || x > frame.left + frame.plotW || y < frame.top || y > frame.top + frame.plotH) continue;
+    // A little larger than the dot, so a small one can still be found.
+    const r = Math.max(4, Math.max(0.5, sizes === null ? radius : sizes[i]!) + 2);
+    const code = result.colorCodes?.[i];
+    const group = code !== undefined ? labels?.[code] : undefined;
+    const lines = [group ?? panel?.title ?? "Point", `${xMeta.name}: ${pointValueText(xMeta, result.x[i]!)}`, `${yMeta.name}: ${pointValueText(yMeta, result.y[i]!)}`];
+    if (code === undefined && colorMeta !== undefined && result.colorValues !== null && Number.isFinite(result.colorValues[i])) {
+      lines.push(`${colorMeta.name}: ${formatChartNumber(result.colorValues[i]!)}`);
+    }
+    if (sizeMeta !== undefined && result.size !== null && Number.isFinite(result.size[i])) lines.push(`${sizeMeta.name}: ${formatChartNumber(result.size[i]!)}`);
+    card.hitRegions.push({ x: x - r, y: y - r, w: 2 * r, h: 2 * r, contains: (px, py) => (px - x) ** 2 + (py - y) ** 2 <= r * r, lines, actions: [] });
+  }
+}
+
 export function drawPoints(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, result: SeriesPoints, xMeta: ColumnMeta, yMeta: ColumnMeta, panel: { title: string } | null = null): void {
   if (panel !== null) {
     // One small multiple: its name above it, its own fit and r, and none of the whole chart's notes.
@@ -681,6 +714,7 @@ export function drawPoints(card: ChartCard, ctx: CanvasRenderingContext2D, frame
     }
   }
   ctx.globalAlpha = 1;
+  if (detailed) pointHitRegions(card, frame, result, xMeta, yMeta, sizes, radius, panel);
   const fit = card.config.fitLine ?? true ? leastSquares(result.x, result.y, result.shown) : null;
   if (fit !== null) {
     // The dashed line of best fit, across the whole plot.
