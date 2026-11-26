@@ -8660,6 +8660,14 @@ select.chart-number {
   align-items: center;
   gap: 4px;
   min-width: 0;
+  /* Pinned under the chart tabs, so scrolling the chart never hides its title, type and export. */
+  position: sticky;
+  top: var(--charts-toolbar-bottom, 84px);
+  z-index: 4;
+  margin: -8px -10px 0;
+  padding: 8px 10px 6px;
+  background: var(--panel);
+  border-radius: inherit;
 }
 
 .chart-card-docked .chart-card-head > .grow {

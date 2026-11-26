@@ -603,6 +603,13 @@ export class ChartsPanel {
     this.body = el("div", { class: "charts-body" }, [this.rail.root, content]);
     const main = el("div", { class: "charts-main" }, [toolbar, this.peek.root, this.body]);
     this.root.append(el("div", { class: "charts-layout" }, [main]));
+    // Each chart's own bar pins just under this one; it wraps on narrow windows, so measure it.
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(() => {
+        const top = Number.parseFloat(getComputedStyle(toolbar).top) || 0;
+        this.root.style.setProperty("--charts-toolbar-bottom", `${Math.round(top + toolbar.offsetHeight)}px`);
+      }).observe(toolbar);
+    }
     this.syncEmpty();
   }
 

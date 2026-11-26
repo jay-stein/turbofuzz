@@ -68,6 +68,24 @@ test("the wheel over a chart scrolls the page, and Ctrl+wheel zooms", async ({ p
   expect(await scrollTop()).toBe(0);
 });
 
+test("scrolled to the bottom, the chart's own bar stays pinned under the chart tabs, uncovered", async ({ page }) => {
+  await open(page, { width: 1280, height: 600 });
+  await pick(page, "date", "price", "type");
+  await page.locator(".workspace-body").evaluate((node) => { node.scrollTop = node.scrollHeight; });
+  await page.waitForTimeout(100);
+  const head = card(page).locator(".chart-card-head");
+  const tabs = (await page.locator(".charts-tabs").boundingBox())!;
+  const box = (await head.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(tabs.y + tabs.height - 1);
+  const onTop = await head.evaluate((node) => {
+    const r = node.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + 40, r.top + 3);
+    return hit !== null && node.contains(hit);
+  });
+  expect(onTop).toBe(true);
+  await expect(card(page).getByRole("button", { name: /settings/i }).first()).toBeInViewport();
+});
+
 test("a click marks a bar; only Filter to this filters every page", async ({ page }) => {
   await open(page);
   await pick(page, "region", "sales");
