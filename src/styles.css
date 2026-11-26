@@ -2804,6 +2804,30 @@ button:disabled {
   flex: 1;
 }
 
+/* Over the Table after "Show rows" on the Clean or Report page: the way back. */
+.table-return {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  min-width: 0;
+}
+
+.table-return.hidden {
+  display: none;
+}
+
+.table-return-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .table-nav-pos {
   height: 26px;
   padding: 0 8px;

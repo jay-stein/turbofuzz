@@ -119,6 +119,30 @@ test("Fix all safe previews first, applies as undoable steps, raises the score f
   await expect(page.locator(".issue-card").filter({ hasText: "spellings of" })).toHaveCount(1, { timeout: 15_000 });
 });
 
+test("junk text is its own issue under Junk data, apart from standardising the spellings", async ({ page }) => {
+  await openClean(page);
+  const standardise = page.locator('.qp-group[data-group="standardise"]');
+  const junk = page.locator('.qp-group[data-group="junk"]');
+  await expect(standardise.locator(".issue-card").filter({ hasText: "“status” has" })).toContainText("spellings of");
+  await expect(standardise).not.toContainText("junk text");
+  await expect(junk.locator(".issue-card").filter({ hasText: "status" })).toHaveCount(1);
+});
+
+test("Show rows on the Clean page opens the Table with a way back to Clean", async ({ page }) => {
+  await openClean(page);
+  await expect(page.locator(".table-return")).toBeHidden();
+  await page.locator(".issue-card").filter({ hasText: "outside" }).getByRole("button", { name: "Show rows" }).first().click();
+  const back = page.getByRole("button", { name: "← Back to Clean" });
+  await expect(back).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".table-rows")).toBeVisible();
+  await back.click();
+  await expect(page.locator(".cl-hero")).toBeVisible();
+  // Reached from any other page, the Table has no way back to offer.
+  await page.getByRole("tab", { name: "Overview" }).click();
+  await page.getByRole("tab", { name: "Table" }).click();
+  await expect(page.locator(".table-return")).toBeHidden();
+});
+
 test("the report sets the raw load against the cleaned data, step by step", async ({ page }) => {
   await openClean(page);
   await page.locator("[data-qp='fix-all-safe']").click();

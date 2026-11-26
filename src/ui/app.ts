@@ -839,6 +839,11 @@ export class App {
   private filterHost!: HTMLElement;
   private filterSearch!: HTMLInputElement;
   private tableHost!: HTMLElement;
+  /** Over the Table when the Clean or Report page sent the analyst there to see rows: a way back. */
+  private returnBar!: HTMLElement;
+  private returnButton!: HTMLButtonElement;
+  /** The page "Show rows" came from, while the Table shows those rows; null otherwise. */
+  private returnTo: "clean" | "quality" | null = null;
   private chartHost!: HTMLElement;
   private chartsPanel: ChartsPanel | null = null;
   private chartActive = false;
@@ -1682,6 +1687,16 @@ export class App {
     this.bannerEl = el("div", { class: "banner hidden" });
     resultsBar.append(resultsRow, this.deleteBar, this.bannerEl);
     this.tableHost = el("div", { class: "table-host" });
+    this.returnButton = el("button", { class: "small table-return-button", type: "button" }, ["← Back to Clean"]) as HTMLButtonElement;
+    this.returnButton.addEventListener("click", () => {
+      if (this.returnTo !== null) this.setView(this.returnTo);
+    });
+    this.returnBar = el("div", { class: "table-return hidden", role: "region", "aria-label": "Return" }, [
+      this.returnButton,
+      el("span", { class: "table-return-note" }, ["Showing the rows you asked for. The filter stays until you clear it."]),
+    ]);
+    // First in the host: the table and its bar are appended after it.
+    this.tableHost.append(this.returnBar);
     this.chartHost = el("div", { class: "chart-host hidden" });
     this.viewsHost = el("div", { class: "views-host hidden" });
     this.outliersHost = el("div", { class: "outliers-host hidden" });
@@ -2990,6 +3005,8 @@ export class App {
     this.table?.dispose();
     this.table = null;
     clear(this.tableHost);
+    // The way back to Clean stays first in the host, over the new table.
+    this.tableHost.append(this.returnBar);
 
     this.chartsPanel?.dispose();
     this.chartsPanel = null;
@@ -4707,7 +4724,14 @@ export class App {
 
   private setView(view: ViewId): void {
     this.syncPivotFilters(view);
+    const from = this.view;
     this.view = view;
+    // From Clean or the Report to the Table (Show rows): offer the way back until the analyst goes elsewhere.
+    if (view !== "table") this.returnTo = null;
+    else if (from === "clean" || from === "quality") this.returnTo = from;
+    this.returnBar.classList.toggle("hidden", this.returnTo === null);
+    this.returnButton.textContent = this.returnTo === "quality" ? "← Back to the Data Quality Report" : "← Back to Clean";
+    this.returnButton.title = this.returnTo === "quality" ? "Return to the Data Quality Report" : "Return to the Clean page";
     if (view === "table" || view === "chart" || view === "views") this.ensureFilters();
     if (view === "table") this.ensureTable();
     if (view === "chart") {
