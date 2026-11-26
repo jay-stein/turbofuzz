@@ -277,6 +277,29 @@ test("a period inside the data with far fewer rows than usual is marked incomple
   assert.equal(daily.partials?.filter(Boolean).length ?? 0, 0);
 });
 
+test("data that grows over the years leaves its early, smaller months unmarked; a dip among its neighbours is still marked", () => {
+  const rows: string[][] = [];
+  // Four years of monthly events: 2 a month at first, rising steadily to about 50 a month.
+  for (let month = 0; month < 48; month++) {
+    const count = month === 30 ? 5 : 2 + month;
+    for (let k = 0; k < count; k++) {
+      const day = 1 + Math.floor((k * 27) / count);
+      rows.push([new Date(Date.UTC(2020, month, day)).toISOString().slice(0, 10), "1"]);
+    }
+  }
+  // The last month runs to its end, so only the dip is in question.
+  rows.push([new Date(Date.UTC(2020, 47, 31)).toISOString().slice(0, 10), "1"]);
+  const data = buildDataset("accreditations", ["date", "size"], rows);
+  const monthly = computeAggregate(
+    view({ dimensions: [{ column: 0, by: { time: "month" } }], sort: { key: "dim0", dir: "asc" } }),
+    data.columns,
+    data.rowCount,
+    allIds(data.rowCount),
+  );
+  const marked = monthly.labels.filter((_, i) => monthly.partials?.[i] === true);
+  assert.deepEqual(marked, ["2022-07"], "month 30 (July 2022) holds 5 rows among neighbours of about 30");
+});
+
 test("split by a group, each series' thin periods are judged against that series", () => {
   const rows: string[][] = [];
   const start = Date.UTC(2024, 0, 1);

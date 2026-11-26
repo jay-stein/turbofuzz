@@ -223,6 +223,8 @@ export interface AggregateResult {
 
 /** A time period with under half the median rows per period is marked incomplete. */
 const THIN_PERIOD_SHARE = 0.5;
+/** How many periods either side a period's row count is compared with. */
+const THIN_NEIGHBOURS = 6;
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
@@ -1820,33 +1822,44 @@ export function computeAggregate(
     // and coarser only: by the day or hour, quiet Sundays and nights are real.
     const coarse = edgeGrain === "week" || edgeGrain === "month" || edgeGrain === "quarter" || edgeGrain === "year";
     // Each period is judged against its own series (the other dimensions' values,
-    // e.g. one store), so a small series is not thin next to a large one.
+    // e.g. one store), so a small series is not thin next to a large one; and
+    // against its neighbours in that series (up to THIN_NEIGHBOURS periods either
+    // side), not the whole run, so data that grows over the years does not mark
+    // its early, smaller periods as gaps.
     if (coarse) {
       const seriesOf = (index: number): string =>
         dimValues.slice(1).map((values) => values[index] ?? "").join("\u0000");
-      const bySeries = new Map<string, number[]>();
-      for (const index of finalShown) {
+      const bySeries = new Map<string, { position: number; time: number; count: number }[]>();
+      finalShown.forEach((index, position) => {
         const count = groupRows[index] ?? 0;
-        if (count <= 0) continue;
+        const time = groupTimes[index] ?? Number.NaN;
+        if (count <= 0 || !Number.isFinite(time)) return;
         const key = seriesOf(index);
         const list = bySeries.get(key);
-        if (list === undefined) bySeries.set(key, [count]);
-        else list.push(count);
-      }
-      const medians = new Map<string, number>();
-      for (const [key, list] of bySeries) {
-        if (list.length < 4) continue;
-        list.sort((a, b) => a - b);
-        const median = list[Math.floor(list.length / 2)];
-        if (median >= 4) medians.set(key, median);
-      }
-      if (medians.size > 0) {
-        const thin = finalShown.map((index) => {
-          const median = medians.get(seriesOf(index));
-          const count = groupRows[index] ?? 0;
-          return median !== undefined && count > 0 && count < median * THIN_PERIOD_SHARE;
+        const entry = { position, time, count };
+        if (list === undefined) bySeries.set(key, [entry]);
+        else list.push(entry);
+      });
+      const thin = new Set<number>();
+      for (const list of bySeries.values()) {
+        list.sort((a, b) => a.time - b.time);
+        const medianOf = (from: number, to: number): number | null => {
+          const counts = list.slice(Math.max(0, from), Math.max(0, to)).map((entry) => entry.count);
+          if (counts.length < 2) return null;
+          counts.sort((a, b) => a - b);
+          return counts[Math.floor(counts.length / 2)]!;
+        };
+        // A gap is a dip: well below the periods before it AND the periods after it.
+        // A growing series' early periods are only below the later ones, so they pass.
+        list.forEach((entry, at) => {
+          const before = medianOf(at - THIN_NEIGHBOURS, at);
+          const after = medianOf(at + 1, at + 1 + THIN_NEIGHBOURS);
+          if (before === null || after === null || Math.min(before, after) < 4) return;
+          if (entry.count < before * THIN_PERIOD_SHARE && entry.count < after * THIN_PERIOD_SHARE) thin.add(entry.position);
         });
-        partials = (partials ?? finalShown.map(() => false)).map((flag, position) => flag || thin[position] === true);
+      }
+      if (thin.size > 0) {
+        partials = (partials ?? finalShown.map(() => false)).map((flag, position) => flag || thin.has(position));
       }
     }
   }
