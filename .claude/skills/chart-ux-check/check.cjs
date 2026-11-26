@@ -858,6 +858,67 @@ async function walk(page, set) {
     }
   }
 
+  // 7b. Axes: a Y range and tick step on a bar chart, a date range on a line over dates. Each
+  // changes the chart, and Reset axes brings back exactly what was there.
+  if (set.settings !== undefined) {
+    log(set.name, "axes");
+    const s = set.settings;
+    await axesCheck(`axes on a bar of ${s.by}`, s.measure ? [s.by, s.measure] : [s.by], "Bar", async (axes) => {
+      if (!(await axes.locator(".chart-axis-row:not(.hidden) .chart-axis-name", { hasText: "Y axis" }).count())) return "no Y axis row on a bar chart";
+      await axisSet(axes, "Y axis minimum", "0");
+      await axisSet(axes, "Y axis maximum", "1");
+      await axisSet(axes, "A tick on the Y axis every", "0.25");
+      const texts = (await canvasOf(page).evaluate((canvas) => window.__chartTexts?.(canvas) ?? [])).map((t) => t.text);
+      return ["0.25", "0.5", "0.75"].every((tick) => texts.includes(tick)) ? null : `Y ticks every 0.25 from 0 to 1 not drawn (saw ${texts.slice(0, 12).join(", ")})`;
+    });
+  }
+  if (set.dateGrouping !== undefined) {
+    const d = table.col(set.dateGrouping);
+    const dates = table.body.map((row) => parseWhen(row[d])).filter((when) => when !== null).sort((a, b) => a - b);
+    const middle = dates[Math.floor(dates.length / 2)];
+    if (middle !== undefined) {
+      log(set.name, "axes on dates");
+      await axesCheck(`axes on a line over ${set.dateGrouping}`, [set.dateGrouping], "Line", async (axes) => {
+        const row = axes.locator(".chart-axis-row:not(.hidden)", { hasText: "X axis" });
+        if ((await row.count()) === 0) return "no X axis row on a line over dates";
+        if ((await axes.locator('[aria-label="X axis minimum"]').getAttribute("type")) !== "date") return "the X range of a date axis does not take dates";
+        await axisSet(axes, "X axis minimum", new Date(middle).toISOString().slice(0, 10));
+        return null;
+      });
+    }
+  }
+  async function axisSet(axes, label, value) {
+    const box = axes.locator(`[aria-label="${label}"]`);
+    await box.fill(value);
+    await box.press("Enter");
+    await box.blur();
+    await waitForRedraw(page);
+  }
+  async function axesCheck(step, picks, type, change) {
+    const made = await makeChart(page, picks, type);
+    if (made.used === undefined) return add("INFO", set.name, step, `no chart to set axes on: ${made.refused ?? made.error}`);
+    const axes = card(page).locator('.chart-side-group[data-group="axes"]');
+    if ((await axes.count()) === 0) return add("FAIL", set.name, step, "no Axes section in the settings");
+    if (!(await axes.evaluate((node) => node.open))) await axes.locator("summary").click();
+    await page.mouse.move(0, 0);
+    const before = await signature(page);
+    const problem = await change(axes).catch((error) => `stopped: ${String(error).split("\n")[0]}`);
+    if (problem !== null) return add("FAIL", set.name, step, problem);
+    await page.mouse.move(0, 0);
+    const after = await signature(page);
+    if (after.note === before.note && after.hash === before.hash) add("FAIL", set.name, step, "setting the axes changed nothing on the chart");
+    if (BAD_NOTE.test(after.note)) add("FAIL", set.name, step, `note "${after.note}"`);
+    if (!(await canvasDrawn(page))) add("FAIL", set.name, step, "blank chart after setting the axes");
+    const status = (await axes.locator(".chart-axis-status").textContent()) ?? "";
+    if (status.trim() !== "") add("FAIL", set.name, step, `the Axes settings refused a valid value: "${status}"`);
+    await axes.getByRole("button", { name: "Reset axes" }).click();
+    await waitForRedraw(page);
+    await page.mouse.move(0, 0);
+    const reset = await signature(page);
+    if (reset.note !== before.note) add("FAIL", set.name, step, `Reset axes left the note "${reset.note}", was "${before.note}"`);
+    else if (reset.hash !== before.hash) add("INFO", set.name, step, "Reset axes: same note, pixels differ");
+  }
+
   // 8. A table filter changes the chart; "Also respect table filters" off ignores it.
   if (set.filter !== undefined) {
     log(set.name, "filter");

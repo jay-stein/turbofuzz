@@ -64,6 +64,10 @@ Exit code: 0 when there are no FAILs, 1 on any FAIL, 2 when the app is not runni
   back, with the same numbers.
 - **Layout.** At 1280×720 and 1440×900 the plot is on screen and tall enough, the page never
   scrolls sideways, and the label check read the canvas.
+- **Axes**: on a bar chart, a Y range of 0 to 1 with a tick every 0.25 draws those ticks; on a line
+  over dates, the X range takes dates and an X min in the middle of the data changes the chart.
+  Each must change the chart, be accepted without an error message, and come back exactly with
+  Reset axes.
 - **Hover** on every chart drawn: a pointer sweep over the plot (then the drawn dots, for a sparse
   scatter) must show a tooltip, with no NaN or undefined in it.
 - **Top bars stay in view**: the app's tabs, the chart tabs and the chart's own bar (title, Undo,
