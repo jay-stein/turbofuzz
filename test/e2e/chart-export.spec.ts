@@ -119,8 +119,18 @@ test("a web page export shows each bar's details on hover, with the lines the an
 test("a line split by group hovers every line's value on screen and in the web page", async ({ page, browser }) => {
   await chart(page, ["date", "sales", "region"], "Line");
   await page.waitForTimeout(300);
+  // One line at a time: the nearest one, its colour beside its name, and a ring on its point.
   const onScreen = await hoverPlot(page);
-  for (const region of ["R0", "R1", "R2", "R3"]) expect(onScreen).toMatch(new RegExp(`${region}: [\\d,.]+`));
+  expect(onScreen).toMatch(/^R\d\ndate[^:\n]*: .+\n(Sum|Average) of sales: [\d,.]+/);
+  expect(onScreen.match(/\bR\d\b/g)).toHaveLength(1);
+  const swatch = page.locator(".chart-card:not(.hidden) .chart-tooltip .chart-tooltip-swatch");
+  await expect(swatch).toBeVisible();
+  const dot = page.locator(".chart-card:not(.hidden) .chart-hover-dot");
+  await expect(dot).toBeVisible();
+  const ring = await dot.evaluate((node) => getComputedStyle(node).borderTopColor);
+  expect(ring).toBe(await swatch.evaluate((node) => getComputedStyle(node).backgroundColor));
+  await page.mouse.move(0, 0);
+  await expect(dot).toBeHidden();
 
   await openExports(page);
   await page.getByRole("menuitemradio", { name: /Interactive web page/ }).click();
@@ -135,12 +145,17 @@ test("a line split by group hovers every line's value on screen and in the web p
   await view.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
   await expect(view.locator(".tip")).toBeVisible();
   const inPage = await view.locator(".tip").innerText();
-  for (const region of ["R0", "R1", "R2", "R3"]) expect(inPage).toMatch(new RegExp(`${region}: [\\d,.]+`));
+  expect(inPage).toMatch(/^R\d\ndate[^:\n]*: .+\n(Sum|Average) of sales: [\d,.]+/);
+  expect(inPage.match(/\bR\d\b/g)).toHaveLength(1);
+  await expect(view.locator(".tip .swatch")).toBeVisible();
+  await expect(view.locator(".hl.ring")).toBeVisible();
   await view.close();
 });
 
 test("a histogram split by group hovers each group's share of its rows in the bin", async ({ page }) => {
   await chart(page, ["sales", "region"], "Histogram");
   await page.waitForTimeout(300);
-  expect(await hoverPlot(page)).toMatch(/–[\s\S]*R\d: [\d.]+% \([\d,]+ rows\)/);
+  const text = await hoverPlot(page);
+  expect(text).toMatch(/^R\d\nsales: .+ – .+\nShare of its rows: [\d.]+%\nRows: [\d,]+/);
+  expect(text.match(/\bR\d\b/g)).toHaveLength(1);
 });

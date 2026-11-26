@@ -467,7 +467,14 @@ export function showTooltipAtPointer(card: ChartCard): void {
   card.emitHighlight(region.actions, region.lines[0] ?? "");
   clear(card.tooltipEl);
   const title = el("div", { class: "chart-tooltip-title" }, [region.lines[0] ?? "Value"]);
+  // A line's colour beside its name, so the tooltip reads as that line's.
+  if (region.color !== undefined) {
+    const swatch = el("span", { class: "chart-tooltip-swatch", "aria-hidden": "true" });
+    swatch.style.background = region.color;
+    title.prepend(swatch);
+  }
   card.tooltipEl.append(title);
+  placeHoverDot(card, region);
   for (const line of region.lines.slice(1)) {
     card.tooltipEl.append(el("div", { class: "chart-tooltip-row" }, [line]));
   }
@@ -508,6 +515,33 @@ export function showTooltipAtPointer(card: ChartCard): void {
   card.tooltipEl.style.left = `${left}px`;
   card.tooltipEl.style.top = `${top}px`;
   card.canvas.classList.toggle("chart-clickable", region.actions.length > 0);
+}
+
+const hoverDots = new WeakMap<ChartCard, HTMLElement>();
+
+/** A ring in the line's colour on the hovered point, tying the tooltip to its place on the chart. */
+function placeHoverDot(card: ChartCard, region: HitRegion): void {
+  let dot = hoverDots.get(card);
+  if (region.point === undefined || region.color === undefined) {
+    dot?.classList.add("hidden");
+    return;
+  }
+  if (dot === undefined || !dot.isConnected) {
+    dot = el("span", { class: "chart-hover-dot hidden", "aria-hidden": "true" });
+    card.root.append(dot);
+    hoverDots.set(card, dot);
+  }
+  const cardRect = card.root.getBoundingClientRect();
+  const canvasRect = card.canvas.getBoundingClientRect();
+  dot.style.left = `${canvasRect.left - cardRect.left + region.point.x}px`;
+  dot.style.top = `${canvasRect.top - cardRect.top + region.point.y}px`;
+  dot.style.borderColor = region.color;
+  dot.classList.remove("hidden");
+}
+
+/** Hides the hovered point's ring with the tooltip. */
+export function hideHoverDot(card: ChartCard): void {
+  hoverDots.get(card)?.classList.add("hidden");
 }
 
 /** Tells the panel which slice the pointer is over (null when it leaves a mark). */

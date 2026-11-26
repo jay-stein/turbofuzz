@@ -4,11 +4,11 @@ import {
   barHitRegions,
   boxHitRegions,
   correlationHitRegions,
-  groupedSeriesHitRegions,
   heatmapHitRegions,
   hitTest,
   seriesHitRegions,
 } from "../src/ui/chart-card.js";
+import { nearestLineRegions } from "../src/ui/chart-hit-regions.js";
 import type { CategoryBar } from "../src/ui/chart-utils.js";
 import type { BoxGroupStats } from "../src/data/chart-stats.js";
 
@@ -74,28 +74,25 @@ test("time series slots label dates and filter a date range", () => {
   assert.equal(regions[0].actions[0].kind, "range");
 });
 
-test("grouped time-series slots list each visible group's count", () => {
-  const start = Date.UTC(2024, 0, 1);
-  const end = Date.UTC(2024, 3, 1);
-  const regions = groupedSeriesHitRegions(geom, {
-    column: 1,
-    groups: [
-      { label: "Perth", bins: [3, 0] },
-      { label: "Sydney", bins: [1, 2] },
-    ],
-    min: start,
-    max: end,
-  });
-  assert.equal(regions.length, 2);
-  assert.deepEqual(regions[0].lines, [
-    "2024-01-01 – 2024-02-15",
-    "Perth: 3",
-    "Sydney: 1",
+test("several lines in one period: the pointer gets the nearest line alone, with its colour and point", () => {
+  const column = { x: 100, w: 20, top: 60, bottom: 300 };
+  const regions = nearestLineRegions(column, [
+    { y: 250, color: "#0a0", lines: ["NSW", "Rows: 3"], actions: [] },
+    { y: 100, color: "#00a", lines: ["VIC", "Rows: 9"], actions: [] },
+    { y: 140, color: "#a00", lines: ["QLD", "Rows: 7"], actions: [] },
   ]);
-  assert.deepEqual(regions[1].lines, ["2024-02-15 – 2024-04-01", "Sydney: 2"]);
-  assert.deepEqual(regions[0].actions, [
-    { kind: "range", column: 1, min: start, max: Date.UTC(2024, 1, 15, 12) },
-  ]);
+  const at = (y: number) => hitTest(regions, 110, y)?.lines[0];
+  // Bands meet halfway between neighbouring lines, and the top and bottom lines reach the plot's edges.
+  assert.equal(at(61), "VIC");
+  assert.equal(at(119), "VIC");
+  assert.equal(at(121), "QLD");
+  assert.equal(at(194), "QLD");
+  assert.equal(at(196), "NSW");
+  assert.equal(at(299), "NSW");
+  const nsw = regions.find((region) => region.lines[0] === "NSW")!;
+  assert.equal(nsw.color, "#0a0");
+  assert.deepEqual(nsw.point, { x: 110, y: 250 });
+  assert.equal(hitTest(regions, 130, 200), null);
 });
 
 test("bar regions toggle their category and Other is hover-only", () => {

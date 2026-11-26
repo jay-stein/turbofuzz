@@ -7954,6 +7954,33 @@ tr.views-drop-after > td {
   pointer-events: none;
 }
 
+/* The hovered line's colour beside its name. */
+.chart-tooltip-swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 0;
+}
+
+/* A ring on the hovered point, in the line's colour. */
+.chart-hover-dot {
+  position: absolute;
+  z-index: 39;
+  width: 10px;
+  height: 10px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background: var(--panel);
+  pointer-events: none;
+}
+
+.chart-hover-dot.hidden {
+  display: none;
+}
+
 .chart-summary {
   padding: 0 2px;
   font-size: var(--fs-sm);

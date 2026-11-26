@@ -40,6 +40,42 @@ export interface HitRegion {
    * nothing (box plots). Used only when `actions` is empty.
    */
   contextActions?: HitAction[];
+  /** The mark's colour, shown as a dot beside the tooltip's title. */
+  color?: string;
+  /** Where the hovered value sits on the canvas (a point on a line), marked while hovered. */
+  point?: { x: number; y: number };
+}
+
+/** One line's point in one column of a multi-line chart, for {@link nearestLineRegions}. */
+export interface LinePoint {
+  y: number;
+  color: string;
+  lines: string[];
+  actions: HitAction[];
+}
+
+/**
+ * Hover for several lines across one column (a period or a bin): each line owns the band of the
+ * column nearest to it, so the pointer picks the one line it is closest to, and its tooltip is
+ * about that line alone.
+ */
+export function nearestLineRegions(column: { x: number; w: number; top: number; bottom: number }, points: readonly LinePoint[]): HitRegion[] {
+  const sorted = [...points].filter((point) => Number.isFinite(point.y)).sort((a, b) => a.y - b.y);
+  const centre = column.x + column.w / 2;
+  return sorted.map((point, index) => {
+    const above = index === 0 ? column.top : (sorted[index - 1]!.y + point.y) / 2;
+    const below = index === sorted.length - 1 ? column.bottom : (point.y + sorted[index + 1]!.y) / 2;
+    return {
+      x: column.x,
+      y: above,
+      w: column.w,
+      h: Math.max(1, below - above),
+      lines: point.lines,
+      actions: point.actions,
+      color: point.color,
+      point: { x: centre, y: point.y },
+    };
+  });
 }
 
 
@@ -164,50 +200,6 @@ export function seriesHitRegions(geom: PlotGeometry, input: SeriesHitInput): Hit
       h: geom.plotH,
       lines: [`> ${format(max)}`, `${formatCount(overflow)} rows`],
       actions: [{ kind: "range", column, min: max, max: null }],
-    });
-  }
-  return regions;
-}
-
-export interface GroupedSeriesHitInput {
-  column: number;
-  /** Visible series, in draw order, each with its per-bin counts. */
-  groups: { label: string; bins: readonly number[] }[];
-  min: number;
-  max: number;
-  axisFormat?: AxisFormat;
-}
-
-/**
- * Time-series slots for a grouped line chart: the tooltip lists the date range
- * and each visible group's count; clicking filters the date range as before.
- */
-export function groupedSeriesHitRegions(
-  geom: PlotGeometry,
-  input: GroupedSeriesHitInput,
-): HitRegion[] {
-  const binCount = input.groups[0]?.bins.length ?? 0;
-  if (binCount === 0 || input.groups.length === 0) return [];
-  const slotW = geom.plotW / binCount;
-  const step = (input.max - input.min) / binCount;
-  const format = (value: number): string =>
-    formatTick(value, input.axisFormat ?? "line", input.max - input.min);
-  const regions: HitRegion[] = [];
-  for (let index = 0; index < binCount; index++) {
-    const lo = input.min + index * step;
-    const hi = index === binCount - 1 ? input.max : input.min + (index + 1) * step;
-    const lines = [`${format(lo)} – ${format(hi)}`];
-    for (const group of input.groups) {
-      const count = group.bins[index] ?? 0;
-      if (count > 0) lines.push(`${group.label}: ${formatCount(count)}`);
-    }
-    regions.push({
-      x: geom.left + index * slotW,
-      y: geom.top,
-      w: slotW,
-      h: geom.plotH,
-      lines,
-      actions: [{ kind: "range", column: input.column, min: lo, max: hi }],
     });
   }
   return regions;

@@ -1077,7 +1077,9 @@ test("group by draws one line per category with a toggleable legend", async () =
   );
   await new Promise((resolve) => setTimeout(resolve, 60));
   const tooltip = host.querySelector("[role=tooltip]") as HTMLElement;
-  assert.match(tooltip.textContent ?? "", /Perth: 2/);
+  // One line at a time, the nearest one: its name, its period and its row count there.
+  assert.match(tooltip.textContent ?? "", /^(Perth|Sydney)order_date: .+Rows: \d/);
+  assert.equal(tooltip.querySelectorAll(".chart-tooltip-swatch").length, 1);
 
   const items = [...legend.querySelectorAll("button")];
   (items[1] as unknown as { click(): void }).click();

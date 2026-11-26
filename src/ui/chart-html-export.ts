@@ -39,7 +39,7 @@ export interface ChartHtmlPayload {
   /** The chart's own background, so the page and the picture are one surface. */
   background: string;
   /** Per mark: its box (for the highlight) and its hover lines, after the analyst's choices. */
-  regions: { x: number; y: number; w: number; h: number; lines: string[] }[];
+  regions: { x: number; y: number; w: number; h: number; lines: string[]; color?: string; point?: { x: number; y: number } }[];
   /** Which mark is under each cell of the chart: run-length pairs of (mark index + 1, cells). */
   map: { cell: number; cols: number; rows: number; runs: number[] };
   details: string[];
@@ -147,6 +147,8 @@ header p { margin: 0 0 12px; color: var(--dim); }
 .hl { position: absolute; pointer-events: none; background: var(--hl); border-radius: 3px; display: none; }
 .tip { position: fixed; z-index: 2; pointer-events: none; display: none; max-width: 320px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--tip); box-shadow: 0 6px 20px rgba(0,0,0,.18); font-size: 13px; }
 .tip b { display: block; margin-bottom: 2px; }
+.tip .swatch { display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; }
+.hl.ring { width: 14px; height: 14px; border: 2px solid; border-radius: 50%; background: var(--bg); }
 .tip .detail { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--dim); font-size: 12px; }
 footer { margin-top: 10px; color: var(--dim); font-size: 12px; }
 `;
@@ -172,12 +174,21 @@ const SCRIPT = `
       shown = index;
       tip.textContent = "";
       var title = document.createElement("b");
-      title.textContent = region.lines[0];
+      if (region.color) { var swatch = document.createElement("span"); swatch.className = "swatch"; swatch.style.background = region.color; title.appendChild(swatch); }
+      title.appendChild(document.createTextNode(region.lines[0]));
       tip.appendChild(title);
       for (var j = 1; j < region.lines.length; j++) { var row = document.createElement("div"); row.textContent = region.lines[j]; tip.appendChild(row); }
       if (data.details.length) { var detail = document.createElement("div"); detail.className = "detail"; detail.textContent = data.details.join(" · "); tip.appendChild(detail); }
-      hl.style.left = region.x / sx + "px"; hl.style.top = region.y / sy + "px";
-      hl.style.width = Math.max(4, region.w / sx) + "px"; hl.style.height = Math.max(4, region.h / sy) + "px";
+      if (region.point && region.color) {
+        // One line's point: a ring on it in the line's colour, not a band over the column.
+        hl.className = "hl ring";
+        hl.style.left = region.point.x / sx - 7 + "px"; hl.style.top = region.point.y / sy - 7 + "px";
+        hl.style.width = ""; hl.style.height = ""; hl.style.borderColor = region.color;
+      } else {
+        hl.className = "hl";
+        hl.style.left = region.x / sx + "px"; hl.style.top = region.y / sy + "px";
+        hl.style.width = Math.max(4, region.w / sx) + "px"; hl.style.height = Math.max(4, region.h / sy) + "px";
+      }
       hl.style.display = "block";
     }
     tip.style.display = "block";
@@ -340,7 +351,15 @@ export function openChartHtmlDialog(source: ChartHtmlSource, theme: "light" | "d
         image: source.image,
         background: source.background,
         theme,
-        regions: source.regions.map((region) => ({ x: region.x, y: region.y, w: region.w, h: region.h, lines: applyHover(region.lines, choices) })),
+        regions: source.regions.map((region) => ({
+          x: region.x,
+          y: region.y,
+          w: region.w,
+          h: region.h,
+          lines: applyHover(region.lines, choices),
+          ...(region.color === undefined ? {} : { color: region.color }),
+          ...(region.point === undefined ? {} : { point: region.point }),
+        })),
         map: buildHitMap(source.regions, source.width, source.height),
         details: choices.details ? source.details : [],
       }),

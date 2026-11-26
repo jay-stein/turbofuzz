@@ -4,7 +4,7 @@
  * Moved out of chart-card.ts: each function takes the card it works on, and the card keeps a
  * one-line method of the same name that calls it.
  */
-import { type HitAction, groupedSeriesHitRegions, seriesHitRegions } from "./chart-hit-regions.js";
+import { type HitAction, type LinePoint, nearestLineRegions, seriesHitRegions } from "./chart-hit-regions.js";
 import { measuresToSeries } from "../data/pivot-chart.js";
 import { smoothSeries } from "../data/kde.js";
 import { TYPE_LABELS } from "../types.js";
@@ -551,21 +551,22 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
         ctx.restore();
       }
     }
-    // Hover anywhere over a period: every line's value there, largest first.
+    // Hover over a period: the line nearest the pointer, alone, with its colour and its value there.
+    const lineMeasure = plainMeasureName(result.measureNames[0] ?? "measure");
+    const periodName = result.dimensionNames[0] ?? "Period";
     for (let b = 0; b < buckets.length; b++) {
-      const values = shown
-        .map((series) => ({ label: series.label, value: series.values[b] ?? Number.NaN, partial: series.partial[b] === 1 }))
-        .filter((entry) => Number.isFinite(entry.value))
-        .sort((a, c) => c.value - a.value);
-      if (values.length === 0) continue;
-      card.hitRegions.push({
-        x: frame.left + b * slot,
-        y: frame.top,
-        w: slot,
-        h: frame.plotH,
-        lines: [buckets[b] ?? "", ...values.map((entry) => `${entry.label}: ${formatChartNumber(entry.value)}${entry.partial ? " (part period)" : ""}`)],
-        actions: [],
-      });
+      const points: LinePoint[] = [];
+      for (const series of shown) {
+        const value = series.values[b] ?? Number.NaN;
+        if (!Number.isFinite(value)) continue;
+        points.push({
+          y: frame.top + frame.plotH - (value / top) * frame.plotH,
+          color: series.color,
+          lines: [series.label, `${periodName}: ${buckets[b] ?? ""}${series.partial[b] === 1 ? " (part period)" : ""}`, `${lineMeasure}: ${formatChartNumber(value)}`],
+          actions: [],
+        });
+      }
+      card.hitRegions.push(...nearestLineRegions({ x: frame.left + b * slot, w: slot, top: frame.top, bottom: frame.top + frame.plotH }, points));
     }
   } else if (stacked) {
     for (let b = 0; b < buckets.length; b++) {
@@ -1512,28 +1513,25 @@ export function drawGroupedHistogram(card: ChartCard, ctx: CanvasRenderingContex
     frame.top + frame.plotH + 16 * ui,
   );
 
-  // Hover over a bin: each group's share of its own rows there, and the row count behind it.
+  // Hover over a bin: the curve nearest the pointer, alone: its share of its own rows there and the count.
   const binStep = (max - min) / bins;
   card.hitRegions = [];
   for (let bin = 0; bin < bins; bin++) {
     const lo = min + bin * binStep;
     const hi = bin === bins - 1 ? max : lo + binStep;
-    const rows = groups
-      .map((group, groupIndex) => ({ label: group.label, share: shares[groupIndex]?.[bin] ?? 0, count: group.counts[bin] ?? 0 }))
-      .filter((entry) => entry.count > 0)
-      .sort((a, b) => b.share - a.share);
-    if (rows.length === 0) continue;
-    card.hitRegions.push({
-      x: frame.left + bin * slot,
-      y: frame.top,
-      w: slot,
-      h: frame.plotH,
+    const range = `${formatTick(lo, histTickKind, histTickSpan)} – ${formatTick(hi, histTickKind, histTickSpan)}`;
+    const points: LinePoint[] = groups.map((group, groupIndex) => ({
+      y: frame.top + frame.plotH - ((smooth[groupIndex]?.[bin] ?? 0) / maxShare) * frame.plotH,
+      color: card.groupColor(group.index),
       lines: [
-        `${formatTick(lo, histTickKind, histTickSpan)} – ${formatTick(hi, histTickKind, histTickSpan)}`,
-        ...rows.map((entry) => `${entry.label}: ${(entry.share * 100).toFixed(1)}% (${entry.count.toLocaleString()} rows)`),
+        group.label,
+        `${meta.name}: ${range}`,
+        `Share of its rows: ${((shares[groupIndex]?.[bin] ?? 0) * 100).toFixed(1)}%`,
+        `Rows: ${(group.counts[bin] ?? 0).toLocaleString()}`,
       ],
       actions: [{ kind: "range", column: card.config.column, min: lo, max: hi }],
-    });
+    }));
+    card.hitRegions.push(...nearestLineRegions({ x: frame.left + bin * slot, w: slot, top: frame.top, bottom: frame.top + frame.plotH }, points));
   }
 
   const groupName = card.meta(card.config.groupColumn)?.name ?? "group";
@@ -1601,19 +1599,22 @@ export function drawGroupedLines(card: ChartCard, ctx: CanvasRenderingContext2D,
     frame.top + frame.plotH + 16 * ui,
   );
 
-  card.hitRegions = groupedSeriesHitRegions(
-    { left: frame.left, top: frame.top, plotW: frame.plotW, plotH: frame.plotH },
-    {
-      column: card.config.column,
-      groups: visible.map((entry) => ({
-        label: result.labels[entry.index],
-        bins: entry.bins,
-      })),
-      min,
-      max,
-      axisFormat: axisKindFor(card.meta(card.config.column)?.type ?? "date") ?? "line",
-    },
-  );
+  // Hover over a period: the line nearest the pointer, alone, with its colour and row count there.
+  card.hitRegions = [];
+  const columnName = card.meta(card.config.column)?.name ?? "Period";
+  const binStep = (max - min) / binCount;
+  for (let i = 0; i < binCount; i++) {
+    const lo = min + i * binStep;
+    const hi = i === binCount - 1 ? max : lo + binStep;
+    const period = `${formatTick(lo, lineTickKind, lineTickSpan)} – ${formatTick(hi, lineTickKind, lineTickSpan)}`;
+    const points: LinePoint[] = visible.map((entry) => ({
+      y: frame.top + frame.plotH - ((entry.bins[i] ?? 0) / maxCount) * frame.plotH,
+      color: card.groupColor(entry.index),
+      lines: [result.labels[entry.index] ?? "", `${columnName}: ${period}`, `Rows: ${(entry.bins[i] ?? 0).toLocaleString()}`],
+      actions: [{ kind: "range", column: card.config.column, min: lo, max: hi }],
+    }));
+    card.hitRegions.push(...nearestLineRegions({ x: frame.left + i * slotW, w: slotW, top: frame.top, bottom: frame.top + frame.plotH }, points));
+  }
 
   const groupName = card.meta(card.config.groupColumn)?.name ?? "group";
   const total = result.groups.length;
