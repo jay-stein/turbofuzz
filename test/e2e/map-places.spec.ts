@@ -28,6 +28,13 @@ test("the Map groups rows into one dot per place, offers one dot per row, and th
   await expect(mode).toHaveValue("places");
   await expect(note).toContainText("24 places from 400 rows", { timeout: 10_000 });
   await expect(note).toContainText("dot size = rows");
+  // The Size box says so; None then draws every place one size.
+  const size = page.getByRole("combobox", { name: "Size column" }).first();
+  await expect(size).toHaveValue("rows");
+  await size.selectOption("-1");
+  await expect(note).not.toContainText("dot size");
+  await size.selectOption("rows");
+  await expect(note).toContainText("dot size = rows");
   // One dot per row is one pick away, and then the note offers the grouping back.
   await mode.selectOption("points");
   await expect(note).toContainText("400 rows sit on 24 places");

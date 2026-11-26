@@ -544,6 +544,8 @@ export interface ChartCardConfig {
   bubbleScale?: "area" | "radius" | "log";
   /** Map display: one dot per place (default), one dot per row, or an aggregated heat grid. */
   mapMode?: "points" | "heat" | "places" | "regions";
+  /** One dot per place with no Size column: false (Size: None) draws every dot one size; unset or true sizes each by its rows. */
+  sizeByRows?: boolean;
   /**
    * Map dots. Radius in pixels of the smallest and largest dot (one size for all when nothing
    * sizes them), the value range those radii span (unset: the data's own), how value becomes

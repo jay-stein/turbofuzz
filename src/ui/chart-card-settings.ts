@@ -9,7 +9,7 @@ import { CUSTOM_PALETTE, isRampPalette, PALETTES, parseCustomColors } from "../d
 import { TYPE_LABELS } from "../types.js";
 import { fieldsFor } from "./chart-registry.js";
 import type { ColumnMeta } from "../worker/protocol.js";
-import { sourceOption, formatChartNumber, describeStep, isCategoryType, isGroupable, isIdLikeColumn, isNumericType, isPairKind, SPLIT_KINDS, VALUE_AGGREGATE_KINDS } from "./chart-utils.js";
+import { DEFAULT_MAP_MODE, sourceOption, formatChartNumber, describeStep, isCategoryType, isGroupable, isIdLikeColumn, isNumericType, isPairKind, SPLIT_KINDS, VALUE_AGGREGATE_KINDS } from "./chart-utils.js";
 import { clear, el } from "./dom.js";
 import { openPrompt } from "./dialog.js";
 import type { ChartCard } from "./chart-card.js";
@@ -742,6 +742,8 @@ export function syncOptions(card: ChartCard): void {
   const facet = card.config.facetColumn ?? -1;
   card.facetSelect.value = [...card.facetSelect.options].some((o) => o.value === String(facet)) ? String(facet) : "-1";
   card.sizeSelect.replaceChildren(card.option("-1", "None"));
+  const placesMap = card.config.kind === "map" && (card.config.mapMode ?? DEFAULT_MAP_MODE) === "places";
+  if (placesMap) card.sizeSelect.append(card.option("rows", "Rows at each place"));
   card.columns.forEach((meta, index) => {
     card.colorSelect.append(card.option(String(index), `${meta.name} (${TYPE_LABELS[meta.type]})`));
     if (isNumericType(meta.type)) {
@@ -755,7 +757,7 @@ export function syncOptions(card: ChartCard): void {
     card.config.sizeColumn = -1;
   }
   card.colorSelect.value = String(card.config.colorColumn);
-  card.sizeSelect.value = String(card.config.sizeColumn);
+  card.sizeSelect.value = placesMap && card.config.sizeColumn < 0 && card.config.sizeByRows !== false ? "rows" : String(card.config.sizeColumn);
   const sizeNone = card.sizeSelect.options[0];
   if (sizeNone !== undefined) {
     sizeNone.textContent =

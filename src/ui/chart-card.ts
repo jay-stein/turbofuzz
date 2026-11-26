@@ -2267,7 +2267,8 @@ export class ChartCard {
   /** Human description of what the bubble sizes represent. */
   /** What sizes the map's dots: a Size column, or the rows at each place. Null when every dot is alike. */
   dotsAreSized(): boolean {
-    return (this.config.mapMode ?? DEFAULT_MAP_MODE) === "places" || this.config.sizeColumn >= 0;
+    // One dot per place is sized by its rows unless Size was set to None, which makes every dot one size.
+    return this.config.sizeColumn >= 0 || ((this.config.mapMode ?? DEFAULT_MAP_MODE) === "places" && this.config.sizeByRows !== false);
   }
 
   /** The radii the Dots row currently stands for; a lone radius when nothing sizes the dots. */

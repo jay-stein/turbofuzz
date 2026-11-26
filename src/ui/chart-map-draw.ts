@@ -1111,6 +1111,7 @@ export function drawMapBody(card: ChartCard, ctx: CanvasRenderingContext2D, fram
       const nudge = el("button", { class: "link small chart-density-nudge", type: "button", title: "Group the rows that sit at the same place into one dot, sized by how many rows it holds" }, [`${result.shown.toLocaleString()} rows sit on ${spots.size.toLocaleString()} places: show one dot per place`]);
       nudge.addEventListener("click", () => {
         card.config.mapMode = "places";
+        card.config.sizeByRows = true;
         card.mapModeSelect.value = "places";
         card.generation++;
         card.refreshSeries();
@@ -1125,7 +1126,7 @@ export function drawMapBody(card: ChartCard, ctx: CanvasRenderingContext2D, fram
     const colorPart = result.colorValues === null || colorMeta === undefined ? "" : ` · colour = ${MAP_COLOR_AGG_NAMES[card.config.mapColorAgg ?? "mean"]} ${colorMeta.name}${card.config.colorMin == null || card.config.colorMax == null ? " (the scale spans the middle 90% of values)" : ""}${card.config.mapColorScale === "log" ? ", logarithmic" : ""}`;
     const stepping = card.animationResult?.places !== undefined && card.placeFrame() !== null;
     const time = stepping ? (card.animationResult?.frames[Math.min(card.animationFrame, card.animationResult.frames.length - 1)]?.label ?? "") : "";
-    card.noteEl.textContent = `${time === "" ? "" : `${time} · `}${result.shown.toLocaleString()} places from ${result.total.toLocaleString()} rows${result.sampled ? " (the busiest shown)" : ""}${top > 0 ? ` · the busiest holds ${top.toLocaleString()}` : ""} · dot size = ${card.config.sizeColumn >= 0 ? `${card.config.bubbleAgg ?? "count"} of ${card.meta(card.config.sizeColumn)?.name ?? "the size column"}` : "rows"}${colorPart} · scroll to zoom · drag to pan · double-click resets`;
+    card.noteEl.textContent = `${time === "" ? "" : `${time} · `}${result.shown.toLocaleString()} places from ${result.total.toLocaleString()} rows${result.sampled ? " (the busiest shown)" : ""}${top > 0 ? ` · the busiest holds ${top.toLocaleString()}` : ""}${card.config.sizeColumn >= 0 ? ` · dot size = ${card.config.bubbleAgg ?? "count"} of ${card.meta(card.config.sizeColumn)?.name ?? "the size column"}` : card.dotsAreSized() ? " · dot size = rows" : ""}${colorPart} · scroll to zoom · drag to pan · double-click resets`;
     if (time !== "") {
       card.font(ctx, ui, 13, "600");
       const width = ctx.measureText(time).width;

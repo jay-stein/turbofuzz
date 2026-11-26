@@ -419,7 +419,9 @@ export function buildPart2(card: ChartCard) {
 
     card.sizeSelect = card.buildSelect("chart-picker chart-picker-small", "Size column");
     card.sizeSelect.addEventListener("change", () => {
-      card.config.sizeColumn = Number(card.sizeSelect.value);
+      const rows = card.sizeSelect.value === "rows";
+      card.config.sizeByRows = rows;
+      card.config.sizeColumn = rows ? -1 : Number(card.sizeSelect.value);
       // Picking a column for a bubble or heat map means "measure by this
       // column": switch the measure away from count so the choice takes
       // effect immediately, and back to count when the column is cleared.
