@@ -80,6 +80,22 @@ export function dock(card: ChartCard, head: HTMLElement, quickRow: HTMLElement, 
   card.root.classList.add("chart-card-docked");
   card.layoutEl.classList.add("docked");
   sideHead.remove();
+  // The panel says what it is and carries its own way to close, at the top, always in view.
+  const hide = el(
+    "button",
+    { class: "ghost small chart-dock-hide", type: "button", title: "Hide the settings and give the chart the whole width", "aria-label": "Hide the chart settings" },
+    ["Hide ›"],
+  );
+  hide.addEventListener("click", () => card.toggleSidebar());
+  card.sidebar.prepend(el("div", { class: "chart-dock-head" }, [el("b", {}, ["Settings"]), hide]));
+  // While hidden, a labelled tab on the chart's right edge brings them back.
+  const rail = el(
+    "button",
+    { class: "chart-settings-rail", type: "button", title: "Show the chart settings: type, fields, sort, colours", "aria-label": "Show the chart settings" },
+    [el("span", { class: "chart-settings-rail-arrow", "aria-hidden": "true" }, ["‹"]), el("span", { class: "chart-settings-rail-label" }, ["Settings"])],
+  );
+  rail.addEventListener("click", () => card.toggleSidebar());
+  card.layoutEl.append(rail);
   card.sourceChip.addEventListener("click", () => {
     if (card.config.source !== "") card.options.onOpenSource?.(card.config.source);
   });

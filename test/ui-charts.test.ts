@@ -958,9 +958,16 @@ test("on the Chart page the settings sit beside the plot, open until closed, and
   assert.equal(toggle.textContent, "Hide settings", "settings start open: nothing has to be hunted for");
   assert.equal(toggle.getAttribute("aria-expanded"), "true");
   assert.ok(layout.querySelector(".chart-sidebar .chart-quick") !== null, "how values roll up is with the other settings");
+  // The panel names itself and carries its own Hide; hidden, a Settings tab on the edge brings it back.
+  assert.match(layout.querySelector(".chart-sidebar .chart-dock-head")?.textContent ?? "", /^Settings/);
+  layout.querySelector<HTMLButtonElement>(".chart-dock-hide")?.click();
+  assert.equal(layout.classList.contains("sidebar-collapsed"), true);
+  assert.equal(toggle.textContent, "Show settings");
+  layout.querySelector<HTMLButtonElement>(".chart-settings-rail")?.click();
+  assert.equal(layout.classList.contains("sidebar-collapsed"), false);
   toggle.click();
   assert.equal(layout.classList.contains("sidebar-collapsed"), true);
-  assert.equal(toggle.textContent, "Customize");
+  assert.equal(toggle.textContent, "Show settings");
   panel.addCard({ kind: "bar", column: 0 });
   await tick();
   const layouts = host.querySelectorAll(".chart-card-layout");

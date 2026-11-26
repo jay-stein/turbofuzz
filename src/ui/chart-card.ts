@@ -556,8 +556,8 @@ export class ChartCard {
     this.layoutEl.classList.toggle("sidebar-open", open);
     this.layoutEl.classList.toggle("sidebar-collapsed", !open);
     this.sidebarToggle.setAttribute("aria-expanded", String(open));
-    this.sidebarToggle.textContent = open ? "Hide settings" : "Customize";
-    this.sidebarToggle.setAttribute("aria-label", open ? "Hide the chart settings" : "Customize this chart");
+    this.sidebarToggle.textContent = open ? "Hide settings" : "Show settings";
+    this.sidebarToggle.setAttribute("aria-label", open ? "Hide the chart settings" : "Show the chart settings");
     this.sidebarToggle.title = open ? "Give the chart the whole width" : "Show every setting beside the chart";
   }
 

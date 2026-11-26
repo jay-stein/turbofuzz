@@ -22,8 +22,16 @@ test("the settings sit beside the plot and can be put away, without covering it 
   expect(open.x + open.width).toBeLessThanOrEqual(beside.x);
   await toggle.click();
   await expect(panel).toBeHidden();
-  await expect(toggle).toHaveText("Customize");
+  await expect(toggle).toHaveText("Show settings");
   await expect.poll(async () => (await canvas.boundingBox())!.width).toBeGreaterThan(open.width + 100);
+  // Hidden, a Settings tab on the chart's edge brings them back; open, the panel's own Hide closes it.
+  const rail = page.getByRole("button", { name: "Show the chart settings" }).and(page.locator(".chart-settings-rail")).first();
+  await expect(rail).toBeVisible();
+  await rail.click();
+  await expect(panel).toBeVisible();
+  await expect(rail).toBeHidden();
+  await panel.locator(".chart-dock-hide").click();
+  await expect(panel).toBeHidden();
   // Escape does not take the panel away from under a person using it.
   await toggle.click();
   await expect(panel).toBeVisible();
