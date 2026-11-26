@@ -62,9 +62,6 @@ export const TITLES = {
   variants: (column: string, spellings: number, values: number): string =>
     `“${column}” has ${n(spellings)} spellings of ${n(values)} ${plural(values, "value", "values")}`,
 
-  variantsAndPlaceholders: (column: string, spellings: number, values: number, cells: number): string =>
-    `${TITLES.variants(column, spellings, values)}, plus ${n(cells)} junk text ${plural(cells, "cell", "cells")}`,
-
   placeholders: (column: string, cells: number): string =>
     `“${column}” has ${n(cells)} junk text ${plural(cells, "cell", "cells")} standing in for missing values`,
 

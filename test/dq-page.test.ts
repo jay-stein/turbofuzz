@@ -94,14 +94,12 @@ test("copy templates handle plurals, zero, rounding and never print undefined", 
     IMPACT.duplicates(40),
     IMPACT.offFormat(155),
     TITLES.variants("status", 8, 3),
-    TITLES.variantsAndPlaceholders("status", 8, 3, 312),
     TITLES.unreadable("age", 1, "Integer"),
   ];
   for (const line of lines) assert.ok(!/undefined|NaN|null/.test(line), line);
   assert.equal(IMPACT.variants("status", 8, 3), "A pivot by “status” shows 8 groups instead of 3.");
   assert.equal(IMPACT.placeholders(1, ["N/A"]), "1 cell says “N/A” instead of being empty.");
   assert.equal(IMPACT.unreadable(1), "1 value is read as text, so sums and charts skip it.");
-  assert.equal(TITLES.variantsAndPlaceholders("status", 8, 3, 312), "“status” has 8 spellings of 3 values, plus 312 junk text cells");
 });
 
 test("masks are described in words, never shown raw", () => {
@@ -111,18 +109,23 @@ test("masks are described in words, never shown raw", () => {
   assert.equal(maskToWords("A~9"), "letters, “~”, digits");
 });
 
-test("one issue list: variants merge with placeholders, fixes first, points on fixes only", () => {
+test("one issue list: spellings to standardise and junk text are separate issues, fixes first, points on fixes only", () => {
   const metas = messy();
   const score = computeDQScore(metas, stats(400), 400);
   const issues = buildIssues({ score, metas, rowCount: 400, review: [], sensitiveColumns: new Set() });
   const status = issues.find((issue) => issue.id === "variants.1");
   assert.ok(status !== undefined, issues.map((i) => i.id).join(","));
-  assert.match(status.title, /“status” has 3 spellings of 1 value, plus 80 junk text cells/);
+  assert.match(status.title, /^“status” has 3 spellings of 1 value$/);
   assert.equal(status.severity, "fix");
   assert.ok((status.points ?? 0) > 0);
-  assert.deepEqual(status.fixes.map((fix) => fix.kind), ["standardise", "placeholders"]);
+  assert.deepEqual(status.fixes.map((fix) => fix.kind), ["standardise"]);
   assert.equal(status.batchSafe, true);
-  assert.equal(issues.filter((i) => i.id.startsWith("placeholders.1")).length, 0, "no second card for the same column");
+  // The junk text in the same column is its own issue, under Junk data.
+  const junk = issues.filter((i) => i.id === "placeholders.1");
+  assert.equal(junk.length, 1, issues.map((i) => i.id).join(","));
+  assert.equal(junk[0]!.kind, "placeholders");
+  assert.equal(junk[0]!.rows, 80);
+  assert.deepEqual(junk[0]!.fixes.map((fix) => fix.kind), ["placeholders"]);
   // Dist: kept spellings are targets, merged ones variants, placeholders grey.
   const classes = new Set(status.dist?.now.map((row) => row.cls));
   assert.ok(classes.has("target") && classes.has("variant") && classes.has("placeholder"));
@@ -188,7 +191,7 @@ test("the fix preview applies only what is ticked", async () => {
   const window = setupDom();
   const metas = messy();
   const score = computeDQScore(metas, stats(400), 400);
-  const issues = buildIssues({ score, metas, rowCount: 400, review: [], sensitiveColumns: new Set() }).filter((i) => i.fixes.length > 0);
+  const issues = buildIssues({ score, metas, rowCount: 400, review: [], sensitiveColumns: new Set() }).filter((i) => i.id === "variants.1");
   const result = openFixPreview(issues);
   await new Promise((resolve) => setTimeout(resolve, 0));
   const doc = (globalThis as Record<string, unknown>).document as Window["document"];
@@ -260,14 +263,19 @@ test("Fix all safe on the Clean page applies via the callback, lists the fix und
   });
   quality.render(input(metas, issues) as never);
   const primary = host.querySelector("[data-qp='fix-all-safe']") as unknown as HTMLButtonElement;
-  assert.match(primary.textContent ?? "", /Fix all safe \(1\)/);
+  // The spellings and the junk text in "status" are two safe fixes.
+  assert.match(primary.textContent ?? "", /Fix all safe \(2\)/);
   primary.click();
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.deepEqual(seen, [["variants.1"]]);
+  assert.deepEqual(seen.map((ids) => [...ids].sort()), [["placeholders.1", "variants.1"]]);
   assert.match(host.querySelector(".qp-fixed")?.textContent ?? "", /Fixed this session/);
   assert.match(host.querySelector(".qp-fixed-row")?.textContent ?? "", /status/);
-  (host.querySelector(".qp-fixed-row button") as unknown as HTMLButtonElement).click();
-  assert.equal(undone, 1);
+  let undo = host.querySelector(".qp-fixed-row button") as unknown as HTMLButtonElement | null;
+  while (undo !== null) {
+    undo.click();
+    undo = host.querySelector(".qp-fixed-row button") as unknown as HTMLButtonElement | null;
+  }
+  assert.equal(undone, 2);
   assert.equal(host.querySelector(".qp-fixed"), null, "undo removes it from the fixed list");
 
   // A new file clears the list.

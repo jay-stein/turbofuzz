@@ -247,7 +247,6 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
   const total = weightSum(score);
   const weights = new Map(score.dimensions.map((d) => [d.dimension, d.weight] as const));
   const issues: PageIssue[] = [];
-  const handledPlaceholders = new Set<number>();
   const rangeColumns = new Set<number>();
 
   // --- spelling variants (merged with placeholders in the same column) ---
@@ -294,8 +293,7 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
       if (check.id.startsWith("consistency.variants.")) {
         const variants = meta.variants;
         if (variants === null || variants === undefined) continue;
-        const tokens = placeholderTokens(meta);
-        const cells = tokens.reduce((sum, token) => sum + token.count, 0);
+        // Junk text in the same column is its own issue under Junk data, not part of standardising.
         const spellings = variants.mappings.length + variants.groups;
         const fixes: FixStep[] = [
           {
@@ -306,37 +304,23 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
             ...(variants.detail === undefined ? {} : { groups: variants.detail }),
           },
         ];
-        if (cells > 0) {
-          fixes.push({
-            kind: "placeholders",
-            column,
-            tokens: tokens.map((t) => t.label),
-            preview: tokens.slice(0, 5).map((t) => ({ from: t.label, to: "(empty)", count: t.count })),
-          });
-          handledPlaceholders.add(column);
-        }
         issues.push({
           id: `variants.${column}`,
           severity: "fix",
           kind: "variants",
           column,
           columnName: meta.name,
-          title:
-            cells > 0
-              ? TITLES.variantsAndPlaceholders(meta.name, spellings, variants.groups, cells)
-              : TITLES.variants(meta.name, spellings, variants.groups),
-          evidence: `${n(variants.minorityRows)} ${plural(variants.minorityRows, "row", "rows")} use a less common spelling${
-            cells > 0 ? `, and ${n(cells)} ${plural(cells, "cell holds", "cells hold")} junk text` : ""
-          }`,
+          title: TITLES.variants(meta.name, spellings, variants.groups),
+          evidence: `${n(variants.minorityRows)} ${plural(variants.minorityRows, "row", "rows")} use a less common spelling`,
           impact: IMPACT.variants(meta.name, meta.stats.distinct, meta.stats.distinct - variants.mappings.length),
           points,
           examples: [],
           dist: distFor(meta),
           fixes,
-          fixLabel: cells > 0 ? "Standardise…" : "Standardise…",
+          fixLabel: "Standardise…",
           batchSafe: true,
           check,
-          rows: variants.minorityRows + cells,
+          rows: variants.minorityRows,
         });
         continue;
       }
@@ -645,7 +629,7 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
 
   // --- placeholders stored as text, in columns not already covered above ---
   metas.forEach((meta, column) => {
-    if (meta.role === "provenance" || handledPlaceholders.has(column)) return;
+    if (meta.role === "provenance") return;
     const tokens = placeholderTokens(meta);
     const cells = tokens.reduce((sum, token) => sum + token.count, 0);
     if (cells === 0) return;
