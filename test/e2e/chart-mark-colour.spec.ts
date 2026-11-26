@@ -17,7 +17,7 @@ test("clicking a bar and picking a colour recolours that bar only, and Reset col
   const canvas = card.locator("canvas.chart-canvas");
   await canvas.waitFor();
   // The test is about bars, whatever the recommendation was.
-  await card.getByRole("button", { name: "Chart type" }).click();
+  await card.getByRole("button", { name: "Chart type", exact: true }).click();
   await page.locator(".chart-kind-option:not([disabled])", { hasText: "Bar" }).first().click();
   await expect(canvas).toHaveAttribute("aria-label", /^Bar/);
   const box = (await canvas.boundingBox())!;
@@ -37,7 +37,8 @@ test("clicking a bar and picking a colour recolours that bar only, and Reset col
   await canvas.click({ position: { x: xs[0]!, y } });
   const bar = card.locator(".chart-selection");
   await expect(bar).toBeVisible();
-  await bar.getByRole("button", { name: "Colour…" }).click();
+  // A clicked bar opens with its colours already showing (Colour… toggles them).
+  await expect(bar.getByRole("button", { name: "Colour…" })).toHaveAttribute("aria-expanded", "true");
   await bar.locator(".chart-mark-colors .chart-swatch").nth(3).click();
   // Keyboard: Escape closes the colour row; × clears the selection so the sample has no selection tint.
   await page.keyboard.press("Escape");
