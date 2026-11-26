@@ -166,9 +166,10 @@ function placeholderTokens(meta: ColumnMeta): { label: string; count: number }[]
   return meta.nullTokens.filter((token) => token.label.trim() !== "" && token.count > 0);
 }
 
-function distFor(meta: ColumnMeta): DistData | null {
-  const variants = meta.variants ?? null;
-  const tokens = placeholderTokens(meta);
+/** NOW and AFTER CLEAN bars for one issue: spellings only, or junk text only, never both. */
+function distFor(meta: ColumnMeta, part: "variants" | "placeholders"): DistData | null {
+  const variants = part === "variants" ? (meta.variants ?? null) : null;
+  const tokens = part === "placeholders" ? placeholderTokens(meta) : [];
   if ((variants === null || variants.minorityRows === 0) && tokens.length === 0) return null;
   const now: DistRow[] = [];
   const after: DistRow[] = [];
@@ -249,7 +250,7 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
   const issues: PageIssue[] = [];
   const rangeColumns = new Set<number>();
 
-  // --- spelling variants (merged with placeholders in the same column) ---
+  // --- spelling variants (junk text in the same column is its own issue, below) ---
   for (const dimension of score.dimensions) {
     for (const check of dimension.checks) {
       // A name-implied order (ship after order) that some rows break: worth reviewing, never auto-fixed.
@@ -315,7 +316,7 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
           impact: IMPACT.variants(meta.name, meta.stats.distinct, meta.stats.distinct - variants.mappings.length),
           points,
           examples: [],
-          dist: distFor(meta),
+          dist: distFor(meta, "variants"),
           fixes,
           fixLabel: "Standardise…",
           batchSafe: true,
@@ -627,7 +628,7 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
     }
   }
 
-  // --- placeholders stored as text, in columns not already covered above ---
+  // --- placeholders stored as text ---
   metas.forEach((meta, column) => {
     if (meta.role === "provenance") return;
     const tokens = placeholderTokens(meta);
@@ -647,7 +648,7 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
       impact: IMPACT.placeholders(cells, tokens.map((t) => t.label)),
       points: null,
       examples: [],
-      dist: distFor(meta),
+      dist: distFor(meta, "placeholders"),
       fixes: [
         {
           kind: "placeholders",

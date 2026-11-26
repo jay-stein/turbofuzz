@@ -125,11 +125,16 @@ test("one issue list: spellings to standardise and junk text are separate issues
   assert.equal(junk.length, 1, issues.map((i) => i.id).join(","));
   assert.equal(junk[0]!.kind, "placeholders");
   assert.equal(junk[0]!.rows, 80);
+  // Each card's before/after bars show only its own problem.
+  const labels = (rows: readonly { cls: string }[] | undefined) => (rows ?? []).map((row) => row.cls);
+  assert.ok(!labels(status.dist?.now).includes("placeholder"), JSON.stringify(status.dist));
+  assert.ok(!labels(status.dist?.after).includes("placeholder"), JSON.stringify(status.dist));
+  assert.deepEqual([...new Set(labels(junk[0]!.dist?.now))], ["placeholder"]);
   assert.deepEqual(junk[0]!.fixes.map((fix) => fix.kind), ["placeholders"]);
-  // Dist: kept spellings are targets, merged ones variants, placeholders grey.
+  // Dist: kept spellings are targets, merged ones variants; the junk card's 80 cells become empty.
   const classes = new Set(status.dist?.now.map((row) => row.cls));
-  assert.ok(classes.has("target") && classes.has("variant") && classes.has("placeholder"));
-  assert.equal(status.dist?.after.find((row) => row.cls === "placeholder")?.count, 80);
+  assert.ok(classes.has("target") && classes.has("variant"));
+  assert.equal(junk[0]!.dist?.after.find((row) => row.cls === "placeholder")?.count, 80);
   // Ordering: fix before review before info, then by points.
   const severities = issues.map((i) => i.severity);
   assert.deepEqual(severities, [...severities].sort((a, b) => ["fix", "review", "info"].indexOf(a) - ["fix", "review", "info"].indexOf(b)));
