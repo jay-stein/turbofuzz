@@ -247,6 +247,32 @@ const TEXT_HOOK = () => {
     return fill.call(this, text, x, y, maxWidth);
   };
   window.__chartTexts = (canvas) => logs.get(canvas) ?? [];
+  // Dot centres (arcs), so the hover check can point at a mark a coarse sweep would miss.
+  const dots = new WeakMap();
+  for (const name of ["clearRect", "fillRect"]) {
+    const original = proto[name];
+    proto[name] = function (x, y, w, h) {
+      if (isChart(this.canvas) && covers(this, x, y, w, h)) dots.set(this.canvas, []);
+      return original.call(this, x, y, w, h);
+    };
+  }
+  const arc = proto.arc;
+  proto.arc = function (x, y, ...rest) {
+    try {
+      if (isChart(this.canvas)) {
+        const list = dots.get(this.canvas) ?? [];
+        if (list.length < 400) {
+          const m = this.getTransform();
+          list.push({ x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f, w: this.canvas.width, h: this.canvas.height });
+          dots.set(this.canvas, list);
+        }
+      }
+    } catch {
+      // never break the page
+    }
+    return arc.call(this, x, y, ...rest);
+  };
+  window.__chartDots = (canvas) => dots.get(canvas) ?? [];
 };
 
 // ---------- page helpers ----------
@@ -382,7 +408,91 @@ async function checkChart(page, set, step, picks) {
   const groups = Number((/^([\d,]+) groups/.exec(note)?.[1] ?? "0").replace(/,/g, ""));
   if (groups > 500) add("WARN", set.name, step, `draws ${groups.toLocaleString()} groups: "${note}"`);
   await checkLabels(page, set, step);
+  await checkHover(page, set, step);
+  await checkTopBars(page, set, step);
   return used;
+}
+
+/** Sweeps the plot with the pointer: some mark must show a tooltip with its details. */
+async function checkHover(page, set, step) {
+  const box = await canvasOf(page).boundingBox();
+  if (box === null) return;
+  const tip = card(page).locator(".chart-tooltip:not(.hidden)");
+  let found = "";
+  outer: for (const fy of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+    for (let fx = 0.1; fx <= 0.92; fx += 0.04) {
+      await page.mouse.move(box.x + box.width * fx, box.y + box.height * fy);
+      if ((await tip.count()) > 0 && (await tip.first().isVisible())) {
+        found = ((await tip.first().innerText()) ?? "").replace(/\s+/g, " ").trim();
+        break outer;
+      }
+    }
+  }
+  // A sparse scatter's dots slip between the sweep's steps: point at drawn dots instead.
+  if (found === "") {
+    const dots = await canvasOf(page).evaluate((canvas) => window.__chartDots?.(canvas) ?? []).catch(() => []);
+    const step = Math.max(1, Math.floor(dots.length / 12));
+    for (let i = 0; i < dots.length && found === ""; i += step) {
+      const dot = dots[i];
+      await page.mouse.move(box.x + (dot.x / dot.w) * box.width, box.y + (dot.y / dot.h) * box.height);
+      if ((await tip.count()) > 0 && (await tip.first().isVisible())) found = ((await tip.first().innerText()) ?? "").replace(/\s+/g, " ").trim();
+    }
+  }
+  await page.mouse.move(0, 0);
+  if (found === "") add("FAIL", set.name, step, "no hover: sweeping the plot showed no tooltip");
+  else if (/NaN|undefined|Infinity|\[object/.test(found)) add("FAIL", set.name, step, `hover text is broken: "${found.slice(0, 120)}"`);
+}
+
+/**
+ * The top bars stay in view: the app's tabs, the chart tabs, and the chart's own bar (title, Undo,
+ * type, settings, export). Checked as drawn, then with the page scrolled to the bottom, since a bar
+ * that is not pinned slides under the pinned ones and vanishes. Each must be on screen, not hidden,
+ * and not covered by something else.
+ */
+async function checkTopBars(page, set, step) {
+  const bars = [
+    ["app tabs", ".view-tabs"],
+    ["chart tabs", ".charts-tabs"],
+    ["chart's own bar", ".chart-card:not(.hidden) .chart-card-head"],
+  ];
+  const look = (when) =>
+    page.evaluate(
+      ({ bars, when }) =>
+        bars.map(([name, selector]) => {
+          const node = document.querySelector(selector);
+          if (node === null) return `the ${name} ${name.endsWith("bar") ? "is" : "are"} gone from the page ${when}`;
+          const r = node.getBoundingClientRect();
+          const s = getComputedStyle(node);
+          if (s.display === "none" || s.visibility === "hidden" || Number(s.opacity) === 0 || r.height < 4) return `the ${name} hidden ${when}`;
+          if (r.bottom <= 0 || r.top >= innerHeight) return `the ${name} scrolled out of view ${when} (top ${Math.round(r.top)}px)`;
+          // Something drawn on top, even partly: its top edge or middle belongs to another element.
+          const x = Math.min(r.left + 40, r.right - 2);
+          for (const y of [r.top + 3, r.top + r.height / 2]) {
+            const hit = document.elementFromPoint(x, y);
+            if (hit !== null && !node.contains(hit) && !hit.contains(node) && !hit.closest(".chart-tooltip, .context-menu"))
+              return `the ${name} is ${y < r.top + 4 ? "partly " : ""}covered by .${String(hit.className).split(" ")[0] || hit.tagName} ${when}`;
+          }
+          return null;
+        }),
+      { bars, when },
+    );
+  const problems = [...(await look("as drawn"))];
+  // Scroll the chart page to the bottom, as a person reading the data below the chart does.
+  const scrolled = await page.evaluate(() => {
+    const body = document.querySelector(".workspace-body");
+    if (body === null || body.scrollHeight <= body.clientHeight + 8) return false;
+    body.scrollTop = body.scrollHeight;
+    return true;
+  });
+  if (scrolled) {
+    await page.waitForTimeout(80);
+    problems.push(...(await look("after scrolling down")));
+    await page.evaluate(() => {
+      const body = document.querySelector(".workspace-body");
+      if (body !== null) body.scrollTop = 0;
+    });
+  }
+  for (const problem of problems) if (problem !== null) add("FAIL", set.name, step, problem);
 }
 
 async function checkLayout(page, set, size) {
@@ -394,6 +504,7 @@ async function checkLayout(page, set, size) {
   if (plot.height < 240) add("WARN", set.name, `layout ${size.width}x${size.height}`, `plot only ${Math.round(plot.height)}px tall`);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   if (overflow > 1) add("FAIL", set.name, `layout ${size.width}x${size.height}`, `page scrolls sideways by ${overflow}px`);
+  await checkTopBars(page, set, `top bars at ${size.width}x${size.height}`);
   const texts = await checkLabels(page, set, `labels at ${size.width}x${size.height}`);
   if (texts === undefined) add("WARN", set.name, `labels at ${size.width}x${size.height}`, "the label check read no text on the canvas, so it checked nothing");
   else add("INFO", set.name, `labels at ${size.width}x${size.height}`, `${texts.length} labels read`);

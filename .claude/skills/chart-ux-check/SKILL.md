@@ -64,6 +64,11 @@ Exit code: 0 when there are no FAILs, 1 on any FAIL, 2 when the app is not runni
   back, with the same numbers.
 - **Layout.** At 1280×720 and 1440×900 the plot is on screen and tall enough, the page never
   scrolls sideways, and the label check read the canvas.
+- **Hover** on every chart drawn: a pointer sweep over the plot (then the drawn dots, for a sparse
+  scatter) must show a tooltip, with no NaN or undefined in it.
+- **Top bars stay in view**: the app's tabs, the chart tabs and the chart's own bar (title, Undo,
+  type, settings, export) are on screen, not hidden and not covered, both as drawn and after
+  scrolling the page to the bottom; checked on every chart and at 1280×720 and 1440×900.
 - **Dark mode** still draws.
 - **Console errors** on any step.
 
