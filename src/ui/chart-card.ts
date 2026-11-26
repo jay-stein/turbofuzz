@@ -3,6 +3,8 @@ import { buildPart4, buildPart5, buildPart6 } from "./chart-card-build-2.js";
 import { buildPart1, buildPart2, buildPart3 } from "./chart-card-build-1.js";
 import { dataDrawerRows, undo, setColumns, setSources, refreshView, aggregateResult, valueViewDef, refreshValue, syncScope, syncNote, lintNote, syncSummaryText, issueColumns, syncDataIssues, fieldsInUse, setKind, dropSettingsTheNewKindCannotUse, refreshForConfig, setPrimaryColumn, applyColumnDefaults, defaultStepFor, defaultTitle, seriesTarget, resetBinRange, commitBinOptions, refreshBins, xZoomBase, chartScope, canvasLabel, boundFormatter, canDraw } from "./chart-card-data.js";
 import { groupSettings, dock, fieldSlots, toggleSidebar, bindSettingsDismiss, renderSourceOptions, syncSourceControls, syncFieldVisibility, toggleExtraValue, syncExtraValues, setViewShape, pivotRailItems, syncViewShapeOptions, syncPivotOptions, allowsPrimary, syncValueAggOptions, syncOptions, syncChartFilterControls, fillColumnSelect, renderControls, fillPaletteOptions, syncPalette, applyPalette, forgetSettingsDisclosure } from "./chart-card-settings.js";
+import { syncAxesSettings } from "./chart-axes-settings.js";
+import type { DateTickUnit } from "./chart-axes.js";
 import { type ExportTheme, exportHtml, importChartSpecFile, exportPng, openStats, chartExtract, drawnBins, histogramExtract, exportCsv, chartCsvRows, gridCsvRows, syncDeepDive, openCardMenu, toggleFocus, closeFocus, openExportMenu, downloadChartSpec, downloadChartCode, downloadBlob } from "./chart-card-export.js";
 import { openKindPicker, selectRegion, drawSelection, queuePointer, showTooltipAtPointer, hideHoverDot, emitHighlight, setLinkedHighlight, cancelSliceFetch, sliceRegions, sliceEntries, scheduleSliceFetch, scheduleSlicePoints, drawSlicePoints, drawLinkedOverlay, drawSliceShare, handleCanvasClick, finishBrush, timeSlotBrush, drawBrushOverlay, onWheel, withoutExcludedBins, syncExclusions, handleCanvasContextMenu, dataPointAt, openExclusionMenu, excludeFromTable, applyHitAction } from "./chart-interaction.js";
 import { allCategoryBars, refreshSeries, refreshTreemap, drawTreemap, refreshText, drawTerms, refreshBox, refreshGroupedBins, widestYLabel, fillTopRounded, drawKpi, drawExtraKind, axisLabels, drawAxisTitles, drawBars, drawAxes, drawBox } from "./chart-draw-bars.js";
@@ -250,6 +252,14 @@ export class ChartCard {
   chartXZoom: { min: number; max: number } | null = null;
   /** Bar chart category window: start index and count over the sorted bars. */
   barWindow: { start: number; count: number } | null = null;
+  /** What the last draw's X axis was, for the Axes settings to offer the right controls. */
+  axisXKind: "date" | "number" | null = null;
+  /** Whether the last draw had a value (Y) axis that reads the Axes settings. */
+  axisYUsed = false;
+  /** The period a date axis of slots is drawn in (a tick cannot fall between them), or null. */
+  axisXGrain: DateTickUnit | null = null;
+  /** Why the date ticks drawn differ from the ones asked for, or "". */
+  axisXTickNote = "";
   /** Heatmap category windows on both axes. */
   heatWindow: {
     xStart: number;
@@ -1745,6 +1755,8 @@ export class ChartCard {
     }
     // Drawing can add a legend above the plot; then the height above was worked out too low.
     if (this.options.docked === true && this.focusOverlay === null && wrap !== null) {
+    // The Axes settings offer what this draw's axes are.
+    syncAxesSettings(this);
       const scroller = this.root.closest(".workspace-body");
       const top = wrap.getBoundingClientRect().top + (scroller?.scrollTop ?? 0);
       if (top !== this.dockedTop) this.scheduleRender(true);
@@ -2196,8 +2208,8 @@ export class ChartCard {
     return drawSeries(this, ctx, frame, kind);
   }
 
-  drawCountAxis(ctx: CanvasRenderingContext2D, frame: Frame, maxCount: number, values?: ArrayLike<number>): void {
-    return drawCountAxis(this, ctx, frame, maxCount, values);
+  drawCountAxis(ctx: CanvasRenderingContext2D, frame: Frame, maxCount: number, values?: ArrayLike<number>, lo = 0): void {
+    return drawCountAxis(this, ctx, frame, maxCount, values, lo);
   }
 
   lineUnitLabel(min: number, max: number, bins: number): string {

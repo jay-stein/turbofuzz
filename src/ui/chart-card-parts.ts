@@ -4,7 +4,7 @@
  */
 import { svgIcon } from "./dom.js";
 
-export type SettingsGroup = "refine" | "format" | "data";
+export type SettingsGroup = "refine" | "axes" | "format" | "data";
 
 
 /** Whether a settings section is open: closed until the person opens it, then as they left it. */

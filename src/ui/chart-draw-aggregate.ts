@@ -9,11 +9,12 @@ import { measuresToSeries } from "../data/pivot-chart.js";
 import { smoothSeries } from "../data/kde.js";
 import { TYPE_LABELS } from "../types.js";
 import type { AggregateMessage } from "../worker/protocol.js";
-import { axisKindFor, type AxisFormat, formatChartNumber, formatCompact, calendarTicks, fillTimeAxis, formatCount, formatTick, isGroupable, isNumericType, niceTicks, plainMeasureName } from "./chart-utils.js";
+import { axisKindFor, type AxisFormat, formatChartNumber, formatCompact, fillTimeAxis, formatCount, formatTick, isGroupable, isNumericType, niceTicks, plainMeasureName } from "./chart-utils.js";
 import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
 import type { Frame } from "./chart-card-types.js";
 import { refAxisTop, setRefAxis, setRefX } from "./chart-ref-lines.js";
+import { axesSet, axisLo, axisTicks, clipToPlot, dateTicks, drawTickMark, stepTicks, userDateTicks, userXRange, userXStep, valueTop, valueY } from "./chart-axes.js";
 import { barFill, markColor, markKey, markLabelled, openSeriesColours } from "./chart-mark-colors.js";
 import { RANKED_BARS_ABOVE, SPLIT_AXIS_LIMIT, GROUP_LINE_LIMIT, KDE_SIGMA_BINS } from "./chart-card-types.js";
 import { disposePanels, drawPanelGrid, panelsOn } from "./chart-panels.js";
@@ -144,6 +145,13 @@ export function drawChart(card: ChartCard, ctx: CanvasRenderingContext2D, width:
   ctx.textBaseline = "alphabetic";
   card.hitRegions = [];
   card.plotMessageDrawn = false;
+  // Small-multiples panels draw through here too; the whole chart's kinds stay as its first panel left them.
+  if (card.panelUi === null) {
+    card.axisXKind = null;
+    card.axisYUsed = false;
+    card.axisXGrain = null;
+    card.axisXTickNote = "";
+  }
   const ui = card.textScale(height, forExport);
   const labels = card.axisLabels();
   card.plotHasHeadline = card.options.docked === true && !forExport;
@@ -445,11 +453,14 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
       }
     }
   }
-  const top = refAxisTop(card, Math.max(1, max));
-  setRefAxis(card, frame, 0, top, shown.flatMap((series) => Array.from(series.values)));
+  const lo = axisLo(card);
+  const top = valueTop(card, refAxisTop(card, Math.max(1, max)), lo);
+  setRefAxis(card, frame, lo, top, shown.flatMap((series) => Array.from(series.values)));
+  /** A value's share of the axis, from its bottom (0 unless the person set Y min). */
+  const share = (value: number): number => (value - lo) / (top - lo);
 
   // Shared y grid and baseline (same shape as the single-series bars).
-  const yTicks = niceTicks(0, top, 4).filter(
+  const yTicks = axisTicks(card, "y", lo, top, 4).filter(
     (value, index, list) =>
       index === 0 || formatChartNumber(value) !== formatChartNumber(list[index - 1]),
   );
@@ -459,7 +470,7 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
   card.font(ctx, ui, 10);
   ctx.textAlign = "right";
   for (const value of yTicks) {
-    const y = frame.top + frame.plotH - (value / top) * frame.plotH;
+    const y = valueY(frame, value, lo, top);
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.moveTo(frame.left, y + 0.5);
@@ -479,6 +490,12 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
   const lineCard = result.dimensionIsTime[0] === true && card.config.kind !== "barplot";
   // Each grouped or stacked bar, for its tooltip, its own colour and its single label.
   const splitMarks: { x: number; y: number; w: number; h: number; bucket: string; series: string; value: number }[] = [];
+  // A range the person set can cut marks off: they stop at the plot's edge.
+  const clipped = axesSet(card.config.axes);
+  if (clipped) {
+    ctx.save();
+    clipToPlot(ctx, frame);
+  }
   if (lineCard) {
     for (const series of shown) {
       ctx.strokeStyle = series.color;
@@ -503,7 +520,7 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
           continue;
         }
         const x = frame.left + (b + 0.5) * slot;
-        const y = frame.top + frame.plotH - (value / top) * frame.plotH;
+        const y = valueY(frame, value, lo, top);
         const partial = series.partial[b] === 1;
         if (partial || previousPartial) {
           if (previous !== null) dashes.push([previous[0], previous[1], x, y]);
@@ -560,7 +577,7 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
         const value = series.values[b] ?? Number.NaN;
         if (!Number.isFinite(value)) continue;
         points.push({
-          y: frame.top + frame.plotH - (value / top) * frame.plotH,
+          y: valueY(frame, value, lo, top),
           color: series.color,
           lines: [series.label, `${periodName}: ${buckets[b] ?? ""}${series.partial[b] === 1 ? " (part period)" : ""}`, `${lineMeasure}: ${formatChartNumber(value)}`],
           actions: [],
@@ -570,18 +587,21 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
     }
   } else if (stacked) {
     for (let b = 0; b < buckets.length; b++) {
-      let base = 0;
+      // The running total so far: each segment sits on the ones below it, on the axis's scale.
+      let sum = 0;
       for (const series of shown) {
         const value = series.values[b] ?? Number.NaN;
         if (!Number.isFinite(value) || value <= 0) continue;
-        const height = (value / top) * frame.plotH;
+        const below = share(sum) * frame.plotH;
+        const above = share(sum + value) * frame.plotH;
+        sum += value;
+        const height = above - below;
         ctx.fillStyle = markColor(card, series.base ?? series.color, buckets[b] ?? "", series.label);
         ctx.globalAlpha = 0.85;
         const x = frame.left + b * slot + slot * 0.1;
-        const y = frame.top + frame.plotH - base - height;
+        const y = frame.top + frame.plotH - above;
         card.fillTopRounded(ctx, x, y, Math.max(1, slot * 0.8), height, 2 * ui);
         splitMarks.push({ x, y, w: Math.max(1, slot * 0.8), h: height, bucket: buckets[b] ?? "", series: series.label, value });
-        base += height;
       }
       ctx.globalAlpha = 1;
     }
@@ -592,7 +612,8 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
       for (let b = 0; b < buckets.length; b++) {
         const value = series.values[b] ?? Number.NaN;
         if (!Number.isFinite(value) || value <= 0) continue;
-        const height = (value / top) * frame.plotH;
+        const height = share(value) * frame.plotH;
+        if (height <= 0) continue;
         ctx.fillStyle = markColor(card, series.base ?? series.color, buckets[b] ?? "", series.label);
         const x = frame.left + b * slot + slot * 0.1 + s * barW;
         const y = frame.top + frame.plotH - height;
@@ -602,14 +623,17 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
       ctx.globalAlpha = 1;
     });
   }
+  if (clipped) ctx.restore();
 
   ctx.fillStyle = frame.dim;
   card.font(ctx, ui, 10);
   ctx.textAlign = "center";
   if (bucketTimes !== null) {
     const room = Math.max(3, Math.floor(frame.plotW / (70 * ui)));
-    for (const tick of calendarTicks(bucketTimes, room)) {
-      ctx.fillText(tick.label, frame.left + (tick.index + 0.5) * slot, frame.top + frame.plotH + 14 * ui);
+    for (const tick of dateTicks(card, bucketTimes, room)) {
+      const x = frame.left + (tick.index + 0.5) * slot;
+      if (tick.mark === true) drawTickMark(ctx, frame, x, ui, tick.label !== "");
+      if (tick.label !== "") ctx.fillText(tick.label, x, frame.top + frame.plotH + 14 * ui);
     }
   } else {
     const step = Math.max(1, Math.ceil(buckets.length / 8));
@@ -780,17 +804,20 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
   for (let i = 0; i < n; i++) max = Math.max(max, card.errorBarAt(result, i)?.high ?? 0);
   // Room above the tallest bar for its value label, clear of any whisker.
   const labelled = result.dimensionIsTime[0] !== true && n <= RANKED_BARS_ABOVE && card.options.docked === true;
-  const top = refAxisTop(card, Math.max(1, labelled ? max * 1.1 : max));
-  setRefAxis(card, frame, 0, top, values);
+  const lo = axisLo(card);
+  const top = valueTop(card, refAxisTop(card, Math.max(1, labelled ? max * 1.1 : max)), lo);
+  setRefAxis(card, frame, lo, top, values);
+  /** A value's share of the axis, from its bottom (0 unless the person set Y min). */
+  const share = (value: number): number => (value - lo) / (top - lo);
 
-  const yTicks = niceTicks(0, top, 4).filter((value, index, all) => index === 0 || formatChartNumber(value) !== formatChartNumber(all[index - 1]));
+  const yTicks = axisTicks(card, "y", lo, top, 4).filter((value, index, all) => index === 0 || formatChartNumber(value) !== formatChartNumber(all[index - 1]));
   ctx.strokeStyle = frame.border;
   ctx.lineWidth = 1;
   ctx.fillStyle = frame.dim;
   card.font(ctx, ui, 10);
   ctx.textAlign = "right";
   for (const value of yTicks) {
-    const y = frame.top + frame.plotH - (value / top) * frame.plotH;
+    const y = valueY(frame, value, lo, top);
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.moveTo(frame.left, y + 0.5);
@@ -811,6 +838,12 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
   ctx.strokeStyle = card.primaryColor();
   ctx.fillStyle = card.primaryColor();
   let gapPeriods = 0;
+  // A range the person set can cut marks off: they stop at the plot's edge.
+  const clipped = axesSet(card.config.axes);
+  if (clipped) {
+    ctx.save();
+    clipToPlot(ctx, frame);
+  }
   if (isTime) {
     // A missing period (NaN) breaks the line; it is never drawn as a zero.
     const base = frame.top + frame.plotH;
@@ -837,7 +870,7 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
     };
     // The band first, under the line; it replaces the usual area fill, which would read as part of it.
     if (card.errorBarResult !== null) {
-      const clamp = (value: number): number => Math.max(frame.top, Math.min(base, base - (value / top) * frame.plotH));
+      const clamp = (value: number): number => Math.max(frame.top, Math.min(base, base - share(value) * frame.plotH));
       let band: { x: number; low: number; high: number }[] = [];
       const paint = (): void => {
         if (band.length === 1) {
@@ -896,7 +929,7 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
         afterPartial = null;
         continue;
       }
-      const point = { x: frame.left + (i + 0.5) * slot, y: base - (value / top) * frame.plotH };
+      const point = { x: frame.left + (i + 0.5) * slot, y: base - share(value) * frame.plotH };
       if (partials?.[i] === true) {
         const previous = segment[segment.length - 1];
         flush();
@@ -923,7 +956,7 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
     const barW = roomy ? Math.max(1, slot * 0.8) : Math.max(1, slot - 1);
     const inset = roomy ? (slot - barW) / 2 : 0;
     for (let i = 0; i < n; i++) {
-      const height = ((values[i] || 0) / top) * frame.plotH;
+      const height = share(values[i] || 0) * frame.plotH;
       if (height <= 0) continue;
       ctx.globalAlpha = 0.85;
       ctx.fillStyle = markColor(card, barFill(card, i, values[i] ?? 0, top), result.labels[i] ?? "");
@@ -931,10 +964,10 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
       ctx.globalAlpha = 1;
       const bar = card.errorBarAt(result, i);
       const base = frame.top + frame.plotH;
-      const barTop = bar === null ? base - height : base - (Math.max(0, bar.high) / top) * frame.plotH;
+      const barTop = bar === null ? base - height : base - share(Math.max(lo, bar.high)) * frame.plotH;
       if (bar !== null) {
         const x = frame.left + (i + 0.5) * slot;
-        card.drawWhisker(ctx, frame, x, base - (Math.max(0, bar.low) / top) * frame.plotH, x, barTop);
+        card.drawWhisker(ctx, frame, x, base - share(Math.max(lo, bar.low)) * frame.plotH, x, barTop);
       }
       if (roomy || markLabelled(card, result.labels[i] ?? "")) {
         card.font(ctx, ui, 10);
@@ -946,6 +979,7 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
     }
     ctx.globalAlpha = 1;
   }
+  if (clipped) ctx.restore();
 
   // Incomplete edge periods are hatched so the truncated period is visible.
   const partials = result.partials ?? null;
@@ -981,8 +1015,10 @@ export function drawViewAggregate(card: ChartCard, ctx: CanvasRenderingContext2D
   if (isTime && axisTimes !== undefined && axisTimes.length === n) {
     // Calendar boundaries (quarters, months, weeks), not arbitrary bucket labels.
     const room = Math.max(3, Math.floor(frame.plotW / (70 * ui)));
-    for (const tick of calendarTicks(Array.from(axisTimes), room)) {
-      ctx.fillText(tick.label, frame.left + (tick.index + 0.5) * slot, frame.top + frame.plotH + 14 * ui);
+    for (const tick of dateTicks(card, Array.from(axisTimes), room)) {
+      const x = frame.left + (tick.index + 0.5) * slot;
+      if (tick.mark === true) drawTickMark(ctx, frame, x, ui, tick.label !== "");
+      if (tick.label !== "") ctx.fillText(tick.label, x, frame.top + frame.plotH + 14 * ui);
     }
   } else {
     const step = Math.max(1, Math.ceil(n / 8));
@@ -1124,18 +1160,26 @@ export function drawSeries(card: ChartCard, ctx: CanvasRenderingContext2D, frame
   const ui = frame.ui;
   const hasOverflow = custom !== null && custom.overflow > 0;
   const overflowCount = custom?.overflow ?? 0;
-  const maxCount = refAxisTop(card, Math.max(1, ...bins, overflowCount));
+  const lo = axisLo(card);
+  const maxCount = valueTop(card, refAxisTop(card, Math.max(1, ...bins, overflowCount)), lo);
+  /** A count's height in the plot, from the axis's bottom (0 unless the person set Y min). */
+  const tall = (count: number): number => ((count - lo) / (maxCount - lo)) * frame.plotH;
+  card.axisXKind = kind === "line" ? "date" : "number";
   const slots = bins.length + (hasOverflow ? 1 : 0);
   const slotW = frame.plotW / slots;
   const barW = Math.max(1, slotW - 1);
+  // The custom bins' own span when they came back; a zoom, the X range set, the bins chosen, else the column's.
+  const setRange = custom === null ? { min: null, max: null } : userXRange(card);
   const min =
     card.lineBinRange?.min ??
     card.chartXZoom?.min ??
+    setRange.min ??
     card.config.binOptions?.min ??
     automatic.min;
   const max =
     card.lineBinRange?.max ??
     card.chartXZoom?.max ??
+    setRange.max ??
     card.config.binOptions?.max ??
     automatic.max;
   card.brushSpace = {
@@ -1172,7 +1216,12 @@ export function drawSeries(card: ChartCard, ctx: CanvasRenderingContext2D, frame
     },
   );
 
-  card.drawCountAxis(ctx, frame, maxCount, bins);
+  card.drawCountAxis(ctx, frame, maxCount, bins, lo);
+  const clipped = axesSet(card.config.axes);
+  if (clipped) {
+    ctx.save();
+    clipToPlot(ctx, frame);
+  }
 
   if (kind === "line") {
     // Say what one point on the line counts: "Rows per day" and not just ticks.
@@ -1186,14 +1235,14 @@ export function drawSeries(card: ChartCard, ctx: CanvasRenderingContext2D, frame
 
   if (kind === "histogram") {
     for (let i = 0; i < bins.length; i++) {
-      const h = (bins[i] / maxCount) * frame.plotH;
+      const h = tall(bins[i]);
       if (h <= 0) continue;
       ctx.globalAlpha = 0.85;
       ctx.fillStyle = card.primaryColor();
       card.fillTopRounded(ctx, frame.left + i * slotW, frame.top + frame.plotH - h, barW, h, 3 * ui);
     }
     if (hasOverflow) {
-      const h = (overflowCount / maxCount) * frame.plotH;
+      const h = tall(overflowCount);
       const x = frame.left + bins.length * slotW + 3 * ui;
       ctx.globalAlpha = 0.55;
       card.fillTopRounded(ctx, x, frame.top + frame.plotH - h, Math.max(1, slotW - 4 * ui), h, 3 * ui);
@@ -1203,7 +1252,7 @@ export function drawSeries(card: ChartCard, ctx: CanvasRenderingContext2D, frame
     ctx.beginPath();
     for (let i = 0; i < bins.length; i++) {
       const x = frame.left + (i + 0.5) * slotW;
-      const y = frame.top + frame.plotH - (bins[i] / maxCount) * frame.plotH;
+      const y = frame.top + frame.plotH - tall(bins[i]);
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -1224,7 +1273,7 @@ export function drawSeries(card: ChartCard, ctx: CanvasRenderingContext2D, frame
     ctx.beginPath();
     for (let i = 0; i < smooth.length; i++) {
       const x = frame.left + (i + 0.5) * slotW;
-      const y = frame.top + frame.plotH - (smooth[i] / maxCount) * frame.plotH;
+      const y = frame.top + frame.plotH - tall(smooth[i]);
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -1240,6 +1289,7 @@ export function drawSeries(card: ChartCard, ctx: CanvasRenderingContext2D, frame
     ctx.fill();
     ctx.globalAlpha = 1;
   }
+  if (clipped) ctx.restore();
 
   if (
     kind === "histogram" &&
@@ -1278,7 +1328,18 @@ export function drawSeries(card: ChartCard, ctx: CanvasRenderingContext2D, frame
   const tickSpan = max - min;
   const mid = (min + max) / 2;
   const calendarAxis = kind === "line" && (meta.type === "date" || meta.type === "datetime") && tickSpan > 0;
-  if (calendarAxis) {
+  const userTicks = calendarAxis ? userDateTicks(card, min, max, Math.max(3, Math.floor(frame.plotW / (74 * ui)))) : null;
+  if (userTicks !== null) {
+    // The person's interval: exact calendar dates, placed by time.
+    ctx.textAlign = "center";
+    for (const tick of userTicks) {
+      const x = frame.left + ((tick.time - min) / tickSpan) * frame.plotW;
+      drawTickMark(ctx, frame, x, ui, tick.label !== "");
+      if (tick.label === "") continue;
+      const half = ctx.measureText(tick.label).width / 2;
+      ctx.fillText(tick.label, Math.min(frame.left + frame.plotW - half, Math.max(frame.left + half, x)), frame.top + frame.plotH + 16 * ui);
+    }
+  } else if (calendarAxis) {
     // Ticks on calendar boundaries across the whole range, not just three raw dates.
     const dayMs = 86_400_000;
     const stepMs = tickSpan / dayMs > 2000 ? 7 * dayMs : tickSpan / dayMs > 3 ? dayMs : 3_600_000;
@@ -1286,17 +1347,29 @@ export function drawSeries(card: ChartCard, ctx: CanvasRenderingContext2D, frame
     for (let t = Math.ceil(min / stepMs) * stepMs; t <= max && times.length < 6000; t += stepMs) times.push(t);
     const room = Math.max(3, Math.floor(frame.plotW / (74 * ui)));
     ctx.textAlign = "center";
-    for (const tick of calendarTicks(times, room)) {
+    for (const tick of dateTicks(card, times, room)) {
       const x = frame.left + ((times[tick.index]! - min) / tickSpan) * frame.plotW;
       const half = ctx.measureText(tick.label).width / 2;
       ctx.fillText(tick.label, Math.min(frame.left + frame.plotW - half, Math.max(frame.left + half, x)), frame.top + frame.plotH + 16 * ui);
     }
     ctx.textAlign = "left";
   }
+  // A tick every N, when the person set a step: in place of the start, middle and end labels.
+  const stepped = calendarAxis || tickSpan <= 0 ? null : stepTicks(min, max, userXStep(card), Math.max(2, Math.floor(frame.plotW / (40 * ui))));
+  if (stepped !== null) {
+    ctx.textAlign = "center";
+    for (const value of stepped) {
+      const label = formatTick(value, tickKind, tickSpan);
+      const x = frame.left + ((value - min) / tickSpan) * frame.plotW;
+      const half = ctx.measureText(label).width / 2;
+      ctx.fillText(label, Math.min(frame.left + frame.plotW - half, Math.max(frame.left + half, x)), frame.top + frame.plotH + 16 * ui);
+    }
+    ctx.textAlign = "left";
+  }
   const minLabel = formatTick(min, tickKind, tickSpan);
-  if (!calendarAxis) ctx.fillText(minLabel, frame.left, frame.top + frame.plotH + 16 * ui);
+  if (!calendarAxis && stepped === null) ctx.fillText(minLabel, frame.left, frame.top + frame.plotH + 16 * ui);
   // On narrow cards the midpoint label collides with the edge labels.
-  if (!calendarAxis && frame.plotW >= 220 * (ui / 1.25)) {
+  if (!calendarAxis && stepped === null && frame.plotW >= 220 * (ui / 1.25)) {
     const midLabel = formatTick(mid, tickKind, tickSpan);
     ctx.fillText(
       midLabel,
@@ -1305,7 +1378,7 @@ export function drawSeries(card: ChartCard, ctx: CanvasRenderingContext2D, frame
     );
   }
   const maxLabel = formatTick(max, tickKind, tickSpan);
-  if (!calendarAxis) {
+  if (!calendarAxis && stepped === null) {
     ctx.fillText(
       maxLabel,
       frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
@@ -1340,17 +1413,17 @@ export function drawSeries(card: ChartCard, ctx: CanvasRenderingContext2D, frame
 }
 
 /** Shared count-axis grid and baseline for histogram and line kinds. */
-export function drawCountAxis(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, maxCount: number, values?: ArrayLike<number>): void {
-  setRefAxis(card, frame, 0, maxCount, values);
+export function drawCountAxis(card: ChartCard, ctx: CanvasRenderingContext2D, frame: Frame, maxCount: number, values?: ArrayLike<number>, lo = 0): void {
+  setRefAxis(card, frame, lo, maxCount, values);
   const ui = frame.ui;
-  const yTicks = niceTicks(0, maxCount, 4).filter((value, index, all) => index === 0 || formatCount(value) !== formatCount(all[index - 1]));
+  const yTicks = axisTicks(card, "y", lo, maxCount, 4).filter((value, index, all) => index === 0 || formatCount(value) !== formatCount(all[index - 1]));
   ctx.strokeStyle = frame.border;
   ctx.lineWidth = 1;
   ctx.fillStyle = frame.dim;
   card.font(ctx, ui, 10);
   ctx.textAlign = "right";
   for (const value of yTicks) {
-    const y = frame.top + frame.plotH - (value / maxCount) * frame.plotH;
+    const y = valueY(frame, value, lo, maxCount);
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.moveTo(frame.left, y + 0.5);
@@ -1559,16 +1632,22 @@ export function drawGroupedLines(card: ChartCard, ctx: CanvasRenderingContext2D,
   for (const entry of visible) {
     for (const value of entry.bins) if (value > maxCount) maxCount = value;
   }
-  maxCount = refAxisTop(card, maxCount);
+  const lo = axisLo(card);
+  maxCount = valueTop(card, refAxisTop(card, maxCount), lo);
 
-  card.drawCountAxis(ctx, frame, maxCount);
+  card.drawCountAxis(ctx, frame, maxCount, undefined, lo);
   setRefX(card, frame, min, max, false);
 
+  const clipped = axesSet(card.config.axes);
+  if (clipped) {
+    ctx.save();
+    clipToPlot(ctx, frame);
+  }
   for (const entry of visible) {
     ctx.beginPath();
     for (let i = 0; i < binCount; i++) {
       const x = frame.left + (i + 0.5) * slotW;
-      const y = frame.top + frame.plotH - (entry.bins[i] / maxCount) * frame.plotH;
+      const y = valueY(frame, entry.bins[i] ?? 0, lo, maxCount);
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -1578,6 +1657,7 @@ export function drawGroupedLines(card: ChartCard, ctx: CanvasRenderingContext2D,
     ctx.stroke();
     ctx.globalAlpha = 1;
   }
+  if (clipped) ctx.restore();
 
   ctx.fillStyle = frame.dim;
   card.font(ctx, ui, 10);
@@ -1608,7 +1688,7 @@ export function drawGroupedLines(card: ChartCard, ctx: CanvasRenderingContext2D,
     const hi = i === binCount - 1 ? max : lo + binStep;
     const period = `${formatTick(lo, lineTickKind, lineTickSpan)} – ${formatTick(hi, lineTickKind, lineTickSpan)}`;
     const points: LinePoint[] = visible.map((entry) => ({
-      y: frame.top + frame.plotH - ((entry.bins[i] ?? 0) / maxCount) * frame.plotH,
+      y: valueY(frame, entry.bins[i] ?? 0, lo, maxCount),
       color: card.groupColor(entry.index),
       lines: [result.labels[entry.index] ?? "", `${columnName}: ${period}`, `Rows: ${(entry.bins[i] ?? 0).toLocaleString()}`],
       actions: [{ kind: "range", column: card.config.column, min: lo, max: hi }],

@@ -17,6 +17,7 @@ import { axisKindFor, type AxisFormat, type CategoryBar, CHART_KIND_LABELS, form
 import type { ChartCard } from "./chart-card.js";
 import type { Frame } from "./chart-card-types.js";
 import { refAxisRange, refAxisTop, setRefAxis } from "./chart-ref-lines.js";
+import { axisLo, axisTicks, valueTop, valueY } from "./chart-axes.js";
 import { markColor } from "./chart-mark-colors.js";
 import { relLineAxisLabels, relLineOn } from "./chart-rel-line.js";
 import { BORDER_DARKER, BORDER_ALPHA, addMarkerPath, DEFAULT_BIN_COUNT, POINT_LIMIT, GROUP_LINE_LIMIT } from "./chart-card-types.js";
@@ -876,8 +877,9 @@ export function drawBars(card: ChartCard, ctx: CanvasRenderingContext2D, frame: 
   }
   const ui = frame.ui;
   // Headroom above the tallest bar, so its count and share sit on the page, not on the bar.
-  const maxCount = refAxisTop(card, Math.max(1, ...bars.map((bar) => bar.count)) * 1.12);
-  setRefAxis(card, frame, 0, maxCount, bars.filter((bar) => bar.other !== true).map((bar) => bar.count));
+  const lo = axisLo(card);
+  const maxCount = valueTop(card, refAxisTop(card, Math.max(1, ...bars.map((bar) => bar.count)) * 1.12), lo);
+  setRefAxis(card, frame, lo, maxCount, bars.filter((bar) => bar.other !== true).map((bar) => bar.count));
   const slotW = frame.plotW / bars.length;
   const barW = Math.max(4, slotW - Math.min(18 * ui, slotW * 0.25));
   const labels = meta.categories?.labels ?? [];
@@ -903,21 +905,24 @@ export function drawBars(card: ChartCard, ctx: CanvasRenderingContext2D, frame: 
     card.config.column,
   );
 
-  const yTicks = niceTicks(0, maxCount, 4).filter((value, index, all) => index === 0 || formatCount(value) !== formatCount(all[index - 1]));
+  // Counts are whole numbers, unless the person asked for a fractional tick step.
+  const userStep = card.config.axes?.yStep;
+  const yLabel = userStep !== undefined && userStep !== null && !Number.isInteger(userStep) ? formatChartNumber : formatCount;
+  const yTicks = axisTicks(card, "y", lo, maxCount, 4).filter((value, index, all) => index === 0 || yLabel(value) !== yLabel(all[index - 1]));
   ctx.strokeStyle = frame.border;
   ctx.lineWidth = 1;
   ctx.fillStyle = frame.dim;
   card.font(ctx, ui, 10);
   ctx.textAlign = "right";
   for (const value of yTicks) {
-    const y = frame.top + frame.plotH - (value / maxCount) * frame.plotH;
+    const y = valueY(frame, value, lo, maxCount);
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.moveTo(frame.left, y + 0.5);
     ctx.lineTo(frame.left + frame.plotW, y + 0.5);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillText(formatCount(value), frame.left - 6 * ui, y + 3 * ui);
+    ctx.fillText(yLabel(value), frame.left - 6 * ui, y + 3 * ui);
   }
   ctx.textAlign = "left";
   ctx.beginPath();
@@ -928,7 +933,8 @@ export function drawBars(card: ChartCard, ctx: CanvasRenderingContext2D, frame: 
   card.font(ctx, ui, 10);
   bars.forEach((bar, index) => {
     const x = frame.left + index * slotW + (slotW - barW) / 2;
-    const h = (bar.count / maxCount) * frame.plotH;
+    // Within the plot: a range the person set can put a bar's top past either end.
+    const h = Math.max(0, Math.min(frame.plotH, ((bar.count - lo) / (maxCount - lo)) * frame.plotH));
     ctx.fillStyle =
       bar.other === true
         ? frame.dim
@@ -990,8 +996,8 @@ export function drawAxes(card: ChartCard, ctx: CanvasRenderingContext2D, frame: 
   const ui = frame.ui;
   // Tick density follows the actual plot width so narrow cards stay legible.
   const xTarget = Math.max(2, Math.min(6, Math.floor(frame.plotW / (90 * ui))));
-  const xTicks = niceTicks(xMin, xMax, xTarget);
-  const yTicks = niceTicks(yMin, yMax, 4).filter((value, index, all) => index === 0 || formatChartNumber(value) !== formatChartNumber(all[index - 1]));
+  const xTicks = axisTicks(card, "x", xMin, xMax, xTarget);
+  const yTicks = axisTicks(card, "y", yMin, yMax, 4).filter((value, index, all) => index === 0 || formatChartNumber(value) !== formatChartNumber(all[index - 1]));
   const xSpan = xMax - xMin;
   const ySpan = yMax - yMin;
   ctx.strokeStyle = frame.border;
@@ -1109,7 +1115,7 @@ export function drawBox(card: ChartCard, ctx: CanvasRenderingContext2D, frame: F
   // Compact "2k" ticks make no sense for a narrow integer range (birth
   // years): keep plain integers there and compact only wide ranges.
   const valueMeta = card.meta(card.config.x);
-  const ticks = niceTicks(yMin, yMax, 5);
+  const ticks = axisTicks(card, "y", yMin, yMax, 5);
   const plainIntegerTicks =
     valueMeta?.type === "integer" && yMax - yMin <= 100_000;
   const tickLabel = (value: number): string =>

@@ -20,6 +20,7 @@ import { describeScope } from "./scope.js";
 import type { ChartCard } from "./chart-card.js";
 import type { ChartSeriesTarget, ChartCardConfig, ChartSource } from "./chart-card-types.js";
 import { DEFAULT_BIN_COUNT } from "./chart-card-types.js";
+import { cropToXRange, userXRange } from "./chart-axes.js";
 
 /** The chart's numbers as a table: a chart split into series reads across, one column per series. */
 export function dataDrawerRows(card: ChartCard): string[][] {
@@ -161,8 +162,10 @@ export function refreshView(card: ChartCard): void {
 }
 
 export function aggregateResult(card: ChartCard): AggregateMessage | null {
-  const result = card.config.source !== "" ? card.viewResult : card.valueResult;
-  if (result === null) return null;
+  const raw = card.config.source !== "" ? card.viewResult : card.valueResult;
+  if (raw === null) return null;
+  // The dates the X axis was narrowed to, before any sorting.
+  const result = cropToXRange(card, raw);
   const order = card.config.chartSort ?? "none";
   // A small-multiples panel puts its bars in the whole chart's order.
   const rank = order === "none" && result.dimensions.length === 1 ? card.panelOrder : null;
@@ -1005,8 +1008,10 @@ export function refreshBins(card: ChartCard): void {
       card.lineBinResult = null;
       return;
     }
-    const min = card.chartXZoom?.min ?? fullMin;
-    const max = card.chartXZoom?.max ?? fullMax;
+    // A zoom first, then the X range the person set, then the whole column.
+    const set = userXRange(card);
+    const min = card.chartXZoom?.min ?? set.min ?? fullMin;
+    const max = card.chartXZoom?.max ?? set.max ?? fullMax;
     if (!(max > min)) {
       card.lineBinResult = null;
       return;
@@ -1044,21 +1049,28 @@ export function refreshBins(card: ChartCard): void {
     return;
   }
   const meta = card.meta(card.config.column);
-  if (meta === undefined || !isNumericType(meta.type) || card.config.binOptions === null) {
+  const set = userXRange(card);
+  const ranged = set.min !== null || set.max !== null;
+  if (meta === undefined || !isNumericType(meta.type) || (card.config.binOptions === null && !ranged)) {
     card.binResult = null;
     return;
   }
   const generation = ++card.generation;
   const column = card.config.column;
   const zoom = card.chartXZoom;
+  // The bins as chosen (or automatic ones), over a zoom, else over the X range the person set.
+  const base = card.config.binOptions ?? {
+    min: meta.histogram?.min ?? meta.stats.min ?? 0,
+    max: meta.histogram?.max ?? meta.stats.max ?? 1,
+    binCount: meta.histogram?.bins.length ?? DEFAULT_BIN_COUNT,
+    overflow: false,
+  };
   const binOptions =
-    zoom === null
-      ? card.config.binOptions
-      : {
-          ...card.config.binOptions,
-          min: zoom.min,
-          max: zoom.max,
-        };
+    zoom !== null
+      ? { ...base, min: zoom.min, max: zoom.max }
+      : ranged
+        ? { ...base, min: set.min ?? base.min, max: set.max ?? base.max }
+        : base;
   void card.options
     .requestBins(column, binOptions, card.excludes().length > 0 ? card.excludes() : undefined, card.chartScope().chartFilter)
     .then((bins) => {

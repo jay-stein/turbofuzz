@@ -113,6 +113,11 @@ function knownValues(card: ChartCard, axis: "x" | "y"): number[] {
 
 /** The top of a value axis that starts at zero, raised so a line above the data is in view, with a little air over it. */
 export function refAxisTop(card: ChartCard, top: number): number {
+  // A top the person set wins over the data, the reference lines and the other panels.
+  card.axisYUsed = true;
+  const fixedTop = card.config.axes?.yMax;
+  const fixedLo = card.config.axes?.yMin ?? 0;
+  if (typeof fixedTop === "number" && Number.isFinite(fixedTop) && fixedTop > fixedLo) return fixedTop;
   let highest = top;
   for (const value of knownValues(card, "y")) if (value > highest) highest = value * 1.06;
   // A small-multiples panel: report its own top, draw on the one all panels share.
@@ -123,6 +128,23 @@ export function refAxisTop(card: ChartCard, top: number): number {
 
 /** A value axis that need not start at zero (box plots, scatter Y): widened to take in every line, unless the person fixed it. */
 export function refAxisRange(card: ChartCard, axis: "x" | "y", min: number, max: number): { min: number; max: number } {
+  if (axis === "y") card.axisYUsed = true;
+  else card.axisXKind = "number";
+  // Ends the person set win; an unset end stays automatic.
+  const axes = card.config.axes;
+  const setLo = axis === "x" ? axes?.xMin : axes?.yMin;
+  const setHi = axis === "x" ? axes?.xMax : axes?.yMax;
+  const lo = typeof setLo === "number" && Number.isFinite(setLo) ? setLo : null;
+  const hi = typeof setHi === "number" && Number.isFinite(setHi) ? setHi : null;
+  if (lo !== null || hi !== null) {
+    const auto = lo === null || hi === null ? refAxisRangeAuto(card, axis, min, max) : { min, max };
+    const range = { min: lo ?? auto.min, max: hi ?? auto.max };
+    if (range.max > range.min) return range;
+  }
+  return refAxisRangeAuto(card, axis, min, max);
+}
+
+function refAxisRangeAuto(card: ChartCard, axis: "x" | "y", min: number, max: number): { min: number; max: number } {
   if (axis === "y" && card.panelUi !== null) {
     card.panelNatural.lo = min;
     card.panelNatural.hi = max;

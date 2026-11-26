@@ -12,7 +12,8 @@ import type { HitRegion } from "./chart-hit-regions.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import type { RelLineBand, RelLineStat } from "../data/rel-line.js";
 import { INTERVAL_KINDS } from "../data/error-bars.js";
-import { formatChartNumber, formatCompact, isGroupable, isNumericType, niceTicks, plainMeasureName } from "./chart-utils.js";
+import { formatChartNumber, formatCompact, isGroupable, isNumericType, plainMeasureName } from "./chart-utils.js";
+import { axisTicks } from "./chart-axes.js";
 import { markColor } from "./chart-mark-colors.js";
 import { refAxisRange, setRefAxis } from "./chart-ref-lines.js";
 
@@ -147,7 +148,7 @@ export function drawRelLine(card: ChartCard, ctx: CanvasRenderingContext2D, fram
   }
   const pad = (hi - lo) * 0.06;
   ({ min: lo, max: hi } = refAxisRange(card, "y", lo - pad, hi + pad));
-  const yTicks = niceTicks(lo, hi, 5);
+  const yTicks = axisTicks(card, "y", lo, hi, 5);
   lo = Math.min(lo, yTicks[0] ?? lo);
   hi = Math.max(hi, yTicks[yTicks.length - 1] ?? hi);
   const yAt = (value: number): number => frame.top + frame.plotH - ((value - lo) / (hi - lo)) * frame.plotH;
@@ -189,7 +190,7 @@ export function drawRelLine(card: ChartCard, ctx: CanvasRenderingContext2D, fram
     const step = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(frame.plotW / (64 * ui)))));
     for (let i = 0; i < n; i += step) ctx.fillText(card.fit(ctx, labels[i] === "" ? "(blank)" : (labels[i] ?? ""), 60 * ui * step), xAt(i), base);
   } else {
-    const ticks = niceTicks(xMin, xMax, Math.max(2, Math.floor(frame.plotW / (80 * ui))));
+    const ticks = axisTicks(card, "x", xMin, xMax, Math.max(2, Math.floor(frame.plotW / (80 * ui))));
     for (const value of ticks) if (value >= xMin - xPad && value <= xMax + xPad) ctx.fillText(formatCompact(value), xAt(value), base);
   }
   ctx.textAlign = "left";

@@ -17,6 +17,7 @@ import { el } from "./dom.js";
 import type { ChartCard } from "./chart-card.js";
 import type { BubbleLayer, Frame } from "./chart-card-types.js";
 import { refAxisRange } from "./chart-ref-lines.js";
+import { axesSet } from "./chart-axes.js";
 import { panelGrid } from "./chart-extra.js";
 import { BORDER_DARKER, BORDER_ALPHA, addMarkerPath, leastSquares, cropDensityGrid } from "./chart-card-types.js";
 
@@ -443,9 +444,14 @@ function pearson(x: ArrayLike<number>, y: ArrayLike<number>, n: number): number 
   return n < 2 || sxx === 0 || syy === 0 ? Number.NaN : sxy / Math.sqrt(sxx * syy);
 }
 
-/** Points keep their data range unless a reference line lies beyond it; then the axes widen to show the line. */
+/**
+ * Points keep their data range unless a reference line lies beyond it (the axes widen to show the
+ * line) or the person set a range on the Axes settings (it wins).
+ */
 function withRefLines(card: ChartCard, result: SeriesPoints): SeriesPoints {
-  if ((card.config.refLines ?? []).length === 0) return result;
+  card.axisYUsed = true;
+  card.axisXKind = "number";
+  if ((card.config.refLines ?? []).length === 0 && !axesSet(card.config.axes)) return result;
   const x = refAxisRange(card, "x", result.xMin, result.xMax);
   const y = refAxisRange(card, "y", result.yMin, result.yMax);
   return x.min === result.xMin && x.max === result.xMax && y.min === result.yMin && y.max === result.yMax

@@ -240,6 +240,11 @@ export function drawPanelGrid(card: ChartCard, ctx: CanvasRenderingContext2D, fr
     });
   };
   paint();
+  // The Axes settings offer what the panels' axes are.
+  card.axisXKind = set.children[0]?.axisXKind ?? null;
+  card.axisYUsed = set.children.some((child) => child.axisYUsed);
+  card.axisXGrain = set.children[0]?.axisXGrain ?? null;
+  card.axisXTickNote = set.children.find((child) => child.axisXTickNote !== "")?.axisXTickNote ?? "";
   if (shareY) {
     let highest = 0;
     let lo = Infinity;

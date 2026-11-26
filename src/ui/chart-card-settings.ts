@@ -18,6 +18,7 @@ import { MAX_VALUES, SHORT_PALETTES, MORE_PALETTES } from "./chart-card-types.js
 import { panelsSupported } from "./chart-panels.js";
 import { bindTitleEdit } from "./chart-title-edit.js";
 import { lineAxisAllowed, relLineOn } from "./chart-rel-line.js";
+import { buildAxesSettings } from "./chart-axes-settings.js";
 
 /**
  * The settings panel in three parts. What every chart needs stays in view: its type, its fields
@@ -68,8 +69,9 @@ export function groupSettings(card: ChartCard): void {
     card.sidebar.querySelector(".chart-side-map"),
     card.sidebar.querySelector(".chart-side-ref"),
   ]);
+  const axes = group("axes", "Axes", "range, ticks, date labels", [buildAxesSettings(card)]);
   const format = group("format", "Format", "titles and colours", [settings]);
-  card.sidebar.append(refine, format);
+  card.sidebar.append(refine, axes, format);
 }
 
 /**

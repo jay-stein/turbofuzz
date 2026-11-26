@@ -10,6 +10,7 @@ import { type ChartExclusion } from "../data/chart-exclusions.js";
 import type { SeriesGrid, SeriesMode } from "../data/chart-series.js";
 import { type IntervalKind } from "../data/error-bars.js";
 import { type DotScale } from "../data/dot-size.js";
+import type { ChartAxes } from "./chart-axes.js";
 import type { ColumnSuggestion } from "../data/suggestions.js";
 import type { DatePart, TimeGrain, ViewDef } from "../data/aggregate.js";
 import { type FrameStep } from "../data/chart-frames.js";
@@ -619,6 +620,8 @@ export interface ChartCardConfig {
   extraValueColumns?: number[];
 }
 
+  /** Axis ranges, tick spacing and date labels the person set (chart-axes.ts); unset is automatic. */
+  axes?: ChartAxes;
 /** The most values one chart draws as separate series. */
 export const MAX_VALUES = 6;
 

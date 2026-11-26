@@ -8438,6 +8438,86 @@ select.chart-number {
   min-width: 0;
 }
 
+/* The Axes settings: one block per axis, range then ticks. */
+.chart-axes {
+  display: grid;
+  gap: 10px;
+}
+
+.chart-axis-row {
+  display: grid;
+  gap: 6px;
+}
+
+.chart-axis-row.hidden,
+.chart-axis-ticks.hidden,
+.chart-axis-none.hidden {
+  display: none;
+}
+
+.chart-axis-name {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.chart-axis-range,
+.chart-axis-ticks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.chart-axis-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chart-axis-input {
+  width: 96px;
+  min-width: 0;
+}
+
+.chart-axis-input[type="date"] {
+  width: 132px;
+}
+
+.chart-axis-input.chart-axis-every {
+  width: 52px;
+}
+
+.chart-axis-select {
+  max-width: 130px;
+}
+
+.chart-axis-none {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+.chart-axis-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chart-axis-status {
+  font-size: var(--fs-sm);
+  color: var(--danger, #c0392b);
+}
+
+.chart-axis-note {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  line-height: 1.35;
+}
+
 .chart-palette-select {
   max-width: 150px;
 }
@@ -8855,6 +8935,13 @@ select.chart-number {
   width: 0;
   min-width: 0;
   max-width: none;
+}
+
+/* The Axes dropdowns hold short words (months, 2024-01): their own width, not squeezed by the rule above. */
+.chart-card-layout.docked .chart-sidebar .chart-axes .chart-tag > select.chart-axis-select {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 96px;
 }
 
 .chart-card-docked .chart-sidebar-toggle,
