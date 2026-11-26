@@ -21,8 +21,8 @@ import { lineAxisAllowed, relLineOn } from "./chart-rel-line.js";
 import { buildAxesSettings } from "./chart-axes-settings.js";
 
 /**
- * The settings panel in three parts. What every chart needs stays in view: its type, its fields
- * and how they are added up. Refine (calculations, missing periods, top N, a chart's own filter,
+ * The settings panel in parts. What every chart needs stays in view: its type, its fields, how
+ * they are added up, and Calc. Refine (missing periods, top N, a chart's own filter,
  * reference lines) and Format (titles and colours) are one click away and stay as the person
  * left them, on every chart.
  */
@@ -51,9 +51,10 @@ export function groupSettings(card: ChartCard): void {
   };
   const settings = card.sidebar.querySelector(".chart-side-settings");
   settings?.querySelector(".chart-side-title")?.remove();
-  const refine = group("refine", "Refine", "calculations, top N, filter, reference lines", [
+  // Calc is used most of all: always in view, above the folds.
+  const calc = el("div", { class: "chart-side-section chart-side-calc" }, [card.valueCalcWrap]);
+  const refine = group("refine", "Refine", "missing periods, top N, filter, reference lines", [
     el("div", { class: "chart-side-section" }, [
-      card.valueCalcWrap,
       card.valueEveryWrap,
       card.valueFillWrap,
       card.weekStartWrap,
@@ -71,7 +72,7 @@ export function groupSettings(card: ChartCard): void {
   ]);
   const axes = group("axes", "Axes", "range, ticks, date labels", [buildAxesSettings(card)]);
   const format = group("format", "Format", "titles and colours", [settings]);
-  card.sidebar.append(refine, axes, format);
+  card.sidebar.append(calc, refine, axes, format);
 }
 
 /**
