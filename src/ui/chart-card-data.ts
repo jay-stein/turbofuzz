@@ -49,8 +49,13 @@ export function dataDrawerRows(card: ChartCard): string[][] {
 export function undo(card: ChartCard): void {
   const previous = card.undoStack.pop();
   if (previous === undefined) return;
-  card.config = chartConfigWithDefaults(JSON.parse(previous) as Partial<ChartCardConfig>);
-  card.undoBefore = previous;
+  restoreConfig(card, previous);
+}
+
+/** Puts the chart back exactly as a saved config (`JSON.stringify(getConfig())`) had it. */
+export function restoreConfig(card: ChartCard, saved: string): void {
+  card.config = chartConfigWithDefaults(JSON.parse(saved) as Partial<ChartCardConfig>);
+  card.undoBefore = saved;
   card.hiddenGroups.clear();
   card.plotView = null;
   card.mapView = null;

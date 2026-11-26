@@ -15,12 +15,73 @@ import { colourMapRow, markButtons } from "./chart-mark-colors.js";
 import { openMenu, type MenuItem } from "./menu.js";
 import type { ChartCard } from "./chart-card.js";
 import type { ValueScale, BrushRange, BrushSpace, Frame } from "./chart-card-types.js";
+import type { ChartCardKind } from "./chart-utils.js";
 import { addMarkerPath, POINT_LIMIT, SHORT_PALETTES } from "./chart-card-types.js";
 
-/** Every chart type as a picture, grouped by the question it answers; ones the data cannot draw say why. */
-export function openKindPicker(card: ChartCard): void {
-  const anchor = card.kindButton;
-  if (anchor === null) return;
+/** The fields a chart draws, by name. */
+function fieldNames(card: ChartCard): Set<string> {
+  const { measures, dimensions } = card.fieldsInUse();
+  return new Set([...measures, ...dimensions].map((index) => card.meta(index)?.name ?? "").filter((name) => name !== ""));
+}
+
+/**
+ * What a change of type could not carry across, in words: fields the new type has no place for
+ * and settings it cannot use. Excel keeps the data and formatting through a type change; so does
+ * this, and anything that does not survive is named rather than vanishing.
+ */
+function whatDidNotCarry(card: ChartCard, before: { fields: Set<string>; calc: string | undefined; part: unknown }): string[] {
+  const kind = CHART_KIND_LABELS[card.config.kind];
+  const lost: string[] = [];
+  const after = fieldNames(card);
+  const gone = [...before.fields].filter((name) => !after.has(name));
+  if (gone.length > 0) lost.push(`${gone.map((name) => `“${name}”`).join(" and ")} ${gone.length === 1 ? "has" : "have"} no place on a ${kind}`);
+  if (before.calc !== undefined && card.config.valueCalc === undefined) {
+    const label = [...card.valueCalcSelect.options].find((option) => option.value === before.calc)?.textContent ?? before.calc;
+    lost.push(`Calc (${label}) is off: it needs dates along the axis`);
+  }
+  if (before.part !== undefined && card.config.valuePart === undefined) lost.push("the repeating time grouping (weekday, hour, month) is off: it belongs to bars of a date");
+  return lost;
+}
+
+/**
+ * Every chart type as a picture, grouped by the question it answers; ones the data cannot draw
+ * say why. As in Excel's Change Chart Type, the chart keeps its fields and settings, the pointer
+ * over a type previews it on the chart itself, and a click makes it so (one Undo step). Anything
+ * the new type cannot carry is said in a notice, with Undo.
+ */
+export function openKindPicker(card: ChartCard, from?: HTMLElement): void {
+  const anchor = from ?? card.kindButton;
+  if (anchor === null || !card.canChangeKind) return;
+  document.querySelector(".chart-kind-pop")?.remove();
+  // The chart as it was: a preview draws from it, leaving restores it.
+  const base = JSON.stringify(card.getConfig());
+  const baseKind = card.config.kind;
+  const before = { fields: fieldNames(card), calc: card.config.valueCalc, part: card.config.valuePart };
+  let previewing: ChartCardKind | null = null;
+  let restoreTimer = 0;
+  const restoreSoon = (): void => {
+    window.clearTimeout(restoreTimer);
+    restoreTimer = window.setTimeout(() => restore(), 120);
+  };
+  const restore = (): void => {
+    window.clearTimeout(restoreTimer);
+    if (previewing === null) return;
+    previewing = null;
+    card.restoreConfig(base);
+    card.syncKindButton();
+  };
+  const preview = (kind: ChartCardKind): void => {
+    window.clearTimeout(restoreTimer);
+    if (kind === previewing || (kind === baseKind && previewing === null)) return;
+    if (previewing !== null) card.restoreConfig(base);
+    previewing = null;
+    if (kind === baseKind) {
+      card.syncKindButton();
+      return;
+    }
+    previewing = kind;
+    card.setKind(kind);
+  };
   // Bar is one choice: the chart keeps the bar kind it has, or takes the one these columns can make.
   const current = card.config.kind;
   const barKind = current === "bar" || current === "barplot" ? current : barKindFor(card.columns, card.rowCount);
@@ -40,40 +101,80 @@ export function openKindPicker(card: ChartCard): void {
           },
           [kindIcon(kind), el("span", {}, [CHART_KIND_LABELS[kind]])],
         );
+        if (fit.ok && kind !== baseKind) {
+          option.addEventListener("pointerenter", () => preview(kind));
+          option.addEventListener("focus", () => preview(kind));
+          // Off a type, the chart goes back; a moment's wait so passing to the next type does not flash the old one.
+          option.addEventListener("pointerleave", () => restoreSoon());
+        }
         option.addEventListener("click", () => {
-          close();
-          card.noteBeforeChange();
-          card.setKind(kind);
+          close(false);
+          if (kind === baseKind) {
+            restore();
+            anchor.focus();
+            return;
+          }
+          // The preview is the change: keep it as drawn (re-deriving it from a chart still
+          // reloading would lose fields), or make it now when it was not previewed (a key press).
+          window.clearTimeout(restoreTimer);
+          if (previewing !== kind) {
+            restore();
+            card.setKind(kind);
+          }
+          previewing = null;
           card.kindSelect.value = kind;
+          // One Undo step, back to the chart as it was before the picker opened.
+          card.undoBefore = base;
           card.noteAfterChange();
+          const lost = whatDidNotCarry(card, before);
+          const message = `Changed to ${CHART_KIND_LABELS[kind]}${lost.length > 0 ? `: ${lost.join("; ")}` : ""}.`;
+          card.options.onNotice?.(message, () => card.undo());
           anchor.focus();
         });
         return option;
       })),
     ]),
   );
-  const pop = el("div", { class: "chart-kind-pop", role: "dialog", "aria-label": "Chart type" }, groups);
-  const close = (): void => {
+  const pop = el("div", { class: "chart-kind-pop", role: "dialog", "aria-label": "Chart type" }, [
+    el("div", { class: "chart-kind-pop-head" }, ["Change chart type · hover to preview, click to keep"]),
+    ...groups,
+  ]);
+  // Off the types (but still in the picker): the chart goes back to how it was.
+  pop.addEventListener("pointerleave", () => restore());
+  const close = (cancel: boolean): void => {
+    window.clearTimeout(restoreTimer);
     pop.remove();
     document.removeEventListener("pointerdown", outside, true);
     document.removeEventListener("keydown", onKey, true);
+    if (cancel) restore();
   };
   const outside = (event: Event): void => {
-    if (!pop.contains(event.target as Node)) close();
+    if (!pop.contains(event.target as Node)) close(true);
   };
   const onKey = (event: KeyboardEvent): void => {
     if (event.key !== "Escape") return;
     event.stopPropagation();
-    close();
+    close(true);
     anchor.focus();
   };
   document.addEventListener("pointerdown", outside, true);
   document.addEventListener("keydown", onKey, true);
   document.body.append(pop);
+  // Over the settings side of the card, so the chart stays in view for the preview.
   const rect = anchor.getBoundingClientRect();
-  pop.style.top = `${Math.max(8, Math.min(rect.top, window.innerHeight - pop.offsetHeight - 8))}px`;
-  pop.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
-  pop.querySelector<HTMLElement>(".chart-kind-option.active, .chart-kind-option:not([disabled])")?.focus();
+  const cardRect = card.root.getBoundingClientRect();
+  const inBar = anchor === card.kindBarButton || anchor === card.canvas;
+  if (inBar) {
+    // Below the chart's bar, scrolling within itself, so the bar and the plot stay in view.
+    const top = Math.min(rect.bottom + 6, window.innerHeight - 240);
+    pop.style.top = `${Math.max(8, top)}px`;
+    pop.style.maxHeight = `${window.innerHeight - Math.max(8, top) - 8}px`;
+  } else {
+    pop.style.top = `${Math.max(8, Math.min(rect.top, window.innerHeight - pop.offsetHeight - 8))}px`;
+  }
+  pop.style.right = `${Math.max(8, window.innerWidth - (inBar ? cardRect.right : rect.right))}px`;
+  // Focus starts on the chart's own type, which previews nothing.
+  (pop.querySelector<HTMLElement>(".chart-kind-option.active") ?? pop.querySelector<HTMLElement>(".chart-kind-option:not([disabled])"))?.focus({ preventScroll: true });
 }
 
 /** Two regions are the same mark: by its colour key when it has one (labels can repeat across series), else by its name. */
@@ -1254,7 +1355,7 @@ export function handleCanvasContextMenu(card: ChartCard, event: MouseEvent): voi
         : (region.contextActions ?? []);
   const point = actions.length === 0 ? card.dataPointAt(event.clientX, event.clientY) : null;
   const hasExclusions = card.excludes().length > 0;
-  if (actions.length === 0 && point === null && !hasExclusions) return;
+  if (actions.length === 0 && point === null && !hasExclusions && !card.canChangeKind) return;
   event.preventDefault();
   card.openExclusionMenu(actions, { x: event.clientX, y: event.clientY }, point, region);
 }
@@ -1452,6 +1553,14 @@ export function openExclusionMenu(card: ChartCard, actions: readonly HitAction[]
     items.push({
       label: `Bring back everything deleted from this chart (${exclusionChips(card.excludes(), () => "").length})`,
       action: () => card.setExcludes([]),
+    });
+  }
+  // As a right-click on an Excel chart offers: the type, with the fields and settings kept.
+  if (card.canChangeKind) {
+    items.push({
+      label: "Change chart type…",
+      title: "Pick another type for this chart: it keeps your fields and settings; hover a type to preview it",
+      action: () => card.openKindPicker(card.kindBarButton ?? undefined),
     });
   }
   if (items.length === 0) return;

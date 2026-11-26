@@ -1,7 +1,7 @@
 import { buildPart7, buildPart8 } from "./chart-card-build-3.js";
 import { buildPart4, buildPart5, buildPart6 } from "./chart-card-build-2.js";
 import { buildPart1, buildPart2, buildPart3 } from "./chart-card-build-1.js";
-import { dataDrawerRows, undo, setColumns, setSources, refreshView, aggregateResult, valueViewDef, refreshValue, syncScope, syncNote, lintNote, syncSummaryText, issueColumns, syncDataIssues, fieldsInUse, setKind, dropSettingsTheNewKindCannotUse, refreshForConfig, setPrimaryColumn, applyColumnDefaults, defaultStepFor, defaultTitle, seriesTarget, resetBinRange, commitBinOptions, refreshBins, xZoomBase, chartScope, canvasLabel, boundFormatter, canDraw } from "./chart-card-data.js";
+import { dataDrawerRows, undo, restoreConfig, setColumns, setSources, refreshView, aggregateResult, valueViewDef, refreshValue, syncScope, syncNote, lintNote, syncSummaryText, issueColumns, syncDataIssues, fieldsInUse, setKind, dropSettingsTheNewKindCannotUse, refreshForConfig, setPrimaryColumn, applyColumnDefaults, defaultStepFor, defaultTitle, seriesTarget, resetBinRange, commitBinOptions, refreshBins, xZoomBase, chartScope, canvasLabel, boundFormatter, canDraw } from "./chart-card-data.js";
 import { groupSettings, dock, fieldSlots, toggleSidebar, bindSettingsDismiss, renderSourceOptions, syncSourceControls, syncFieldVisibility, toggleExtraValue, syncExtraValues, setViewShape, pivotRailItems, syncViewShapeOptions, syncPivotOptions, allowsPrimary, syncValueAggOptions, syncOptions, syncChartFilterControls, fillColumnSelect, renderControls, fillPaletteOptions, syncPalette, applyPalette, forgetSettingsDisclosure } from "./chart-card-settings.js";
 import { syncAxesSettings } from "./chart-axes-settings.js";
 import type { DateTickUnit } from "./chart-axes.js";
@@ -170,6 +170,8 @@ export class ChartCard {
   pngButton!: HTMLButtonElement;
   statsButton!: HTMLButtonElement;
   kindButton: HTMLButtonElement | null = null;
+  /** "Change chart type" in the chart's own top bar, always in view. */
+  kindBarButton: HTMLButtonElement | null = null;
   undoButton: HTMLButtonElement | null = null;
   /** Earlier settings of this chart, newest last, as JSON. */
   undoStack: string[] = [];
@@ -250,8 +252,6 @@ export class ChartCard {
   plotDrag: { x: number; y: number } | null = null;
   /** Line/histogram x-axis zoom in data units (null = the full range). */
   chartXZoom: { min: number; max: number } | null = null;
-  /** Bar chart category window: start index and count over the sorted bars. */
-  barWindow: { start: number; count: number } | null = null;
   /** What the last draw's X axis was, for the Axes settings to offer the right controls. */
   axisXKind: "date" | "number" | null = null;
   /** Whether the last draw had a value (Y) axis that reads the Axes settings. */
@@ -260,6 +260,8 @@ export class ChartCard {
   axisXGrain: DateTickUnit | null = null;
   /** Why the date ticks drawn differ from the ones asked for, or "". */
   axisXTickNote = "";
+  /** Bar chart category window: start index and count over the sorted bars. */
+  barWindow: { start: number; count: number } | null = null;
   /** Heatmap category windows on both axes. */
   heatWindow: {
     xStart: number;
@@ -505,16 +507,26 @@ export class ChartCard {
     return undo(this);
   }
 
-  syncKindButton(): void {
-    const button = this.kindButton;
-    if (button === null) return;
-    const kind = this.config.kind;
-    button.replaceChildren(kindIcon(kind), el("span", {}, [CHART_KIND_LABELS[kind]]), el("span", { class: "chart-kind-caret", "aria-hidden": "true" }, ["▾"]));
-    button.classList.toggle("hidden", this.config.source !== "");
+  restoreConfig(saved: string): void {
+    return restoreConfig(this, saved);
   }
 
-  openKindPicker(): void {
-    return openKindPicker(this);
+  syncKindButton(): void {
+    const kind = this.config.kind;
+    for (const button of [this.kindButton, this.kindBarButton]) {
+      if (button === null) continue;
+      button.replaceChildren(kindIcon(kind), el("span", { class: "chart-kind-name" }, [CHART_KIND_LABELS[kind]]), el("span", { class: "chart-kind-caret", "aria-hidden": "true" }, ["▾"]));
+      button.classList.toggle("hidden", this.config.source !== "");
+    }
+  }
+
+  /** Whether this chart's type can be changed here (a chart of a pivot follows the pivot's own). */
+  get canChangeKind(): boolean {
+    return this.kindButton !== null && this.config.source === "";
+  }
+
+  openKindPicker(anchor?: HTMLElement): void {
+    return openKindPicker(this, anchor);
   }
 
   /** The places a chart of this type has for a field, each one a setting already on the panel. */
@@ -1743,6 +1755,8 @@ export class ChartCard {
     this.valueScale = null;
     this.drawChart(ctx, cssWidth, cssHeight);
     this.drawReferenceLines(ctx);
+    // The Axes settings offer what this draw's axes are.
+    syncAxesSettings(this);
     this.drawBrushOverlay(ctx);
     this.drawSelection(ctx);
     if (this.selectionSlot !== null) {
@@ -1755,8 +1769,6 @@ export class ChartCard {
     }
     // Drawing can add a legend above the plot; then the height above was worked out too low.
     if (this.options.docked === true && this.focusOverlay === null && wrap !== null) {
-    // The Axes settings offer what this draw's axes are.
-    syncAxesSettings(this);
       const scroller = this.root.closest(".workspace-body");
       const top = wrap.getBoundingClientRect().top + (scroller?.scrollTop ?? 0);
       if (top !== this.dockedTop) this.scheduleRender(true);

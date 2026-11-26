@@ -33,7 +33,7 @@ test("a reference line is drawn at its value, stretches the axis, and stays thro
   await expect(card.locator(".chart-ref-error")).toBeHidden();
   await expect(canvas).toHaveAttribute("data-ref-lines", /^y:500@/);
 
-  await card.getByRole("button", { name: "Chart type" }).click();
+  await card.getByRole("button", { name: "Chart type", exact: true }).click();
   await page.locator(".chart-kind-option:not([disabled])", { hasText: "Line" }).first().click();
   await expect(canvas).toHaveAttribute("data-ref-lines", /y:500@/);
 });

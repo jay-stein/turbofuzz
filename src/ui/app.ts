@@ -3233,6 +3233,10 @@ export class App {
         if (undo !== undefined) this.showToast(message, undo);
       },
       onCardEdited: (message) => this.setAction(message),
+      onNotice: (message, undo) => {
+        this.setAction(message);
+        this.showToast(message, undo);
+      },
       onFilter: (column, filter, preview) =>
         this.changeFilter(column, filter, preview ?? false),
       currentFilter: (column) => this.filters.get(column) ?? null,

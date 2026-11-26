@@ -166,6 +166,8 @@ export interface ChartsPanelOptions {
   /** Applied when a card lands in the grid (status feedback in the app). */
   /** `undo` removes the card that was just added. */
   onCardAdded?(label: string, undo?: () => void): void;
+  /** Something a card did that the person should hear about, with an Undo when it can be taken back. */
+  onNotice?(message: string, undo?: () => void): void;
   /** Applied when an existing card is edited or reset. */
   onCardEdited?(message: string): void;
   /** Applies a filter from a click on a chart region (bars, bins, cells). */
@@ -967,6 +969,7 @@ export class ChartsPanel {
         onRemove: (target) => this.removeCard(target),
         onDuplicate: (target) => this.duplicateCard(target),
         onTitleChange: (target) => this.syncTabLabel(target),
+        onNotice: this.options.onNotice,
         docked: true,
         sectionedSettings: true,
         settingsOpen: this.settingsOpen,

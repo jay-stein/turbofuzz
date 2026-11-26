@@ -111,6 +111,15 @@ export function dock(card: ChartCard, head: HTMLElement, quickRow: HTMLElement, 
   ) as HTMLButtonElement;
   card.undoButton.addEventListener("click", () => card.undo());
   head.insertBefore(card.undoButton, card.focusButton);
+  // Change chart type, in view with the chart as in Excel's Chart Design ribbon: the same pictures,
+  // previewed on the chart as the pointer passes over them.
+  const kindBar = el(
+    "button",
+    { class: "ghost small chart-kind-bar-btn", type: "button", "aria-haspopup": "dialog", "aria-label": "Change chart type", title: "Change chart type: keeps your fields and settings; hover a type to preview it" },
+  ) as HTMLButtonElement;
+  kindBar.addEventListener("click", () => card.openKindPicker(kindBar));
+  card.kindBarButton = kindBar;
+  head.insertBefore(kindBar, card.undoButton);
   head.append(card.sidebarToggle);
 
   // The one chart-type control: a button naming the type, opening the pictures.

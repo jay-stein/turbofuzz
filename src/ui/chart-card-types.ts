@@ -384,6 +384,8 @@ export interface ChartCardOptions {
   onDuplicate(card: ChartCard): void;
   /** The card's title may have changed (typed, or its columns changed): tabs follow it. */
   onTitleChange?(card: ChartCard): void;
+  /** Something the card did that the person should hear about (a toast), with an Undo when it can be taken back. */
+  onNotice?(message: string, undo?: () => void): void;
   onExport(card: ChartCard, anchor?: HTMLElement): void;
   /** Edit this card through the shared setup dialog. */
   onEdit?(card: ChartCard): void;
@@ -618,10 +620,10 @@ export interface ChartCardConfig {
    * up the same way as Value. Not combined with Group by: a chart is split one way at a time.
    */
   extraValueColumns?: number[];
-}
-
   /** Axis ranges, tick spacing and date labels the person set (chart-axes.ts); unset is automatic. */
   axes?: ChartAxes;
+}
+
 /** The most values one chart draws as separate series. */
 export const MAX_VALUES = 6;
 
