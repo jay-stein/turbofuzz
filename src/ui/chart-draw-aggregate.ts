@@ -551,6 +551,22 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
         ctx.restore();
       }
     }
+    // Hover anywhere over a period: every line's value there, largest first.
+    for (let b = 0; b < buckets.length; b++) {
+      const values = shown
+        .map((series) => ({ label: series.label, value: series.values[b] ?? Number.NaN, partial: series.partial[b] === 1 }))
+        .filter((entry) => Number.isFinite(entry.value))
+        .sort((a, c) => c.value - a.value);
+      if (values.length === 0) continue;
+      card.hitRegions.push({
+        x: frame.left + b * slot,
+        y: frame.top,
+        w: slot,
+        h: frame.plotH,
+        lines: [buckets[b] ?? "", ...values.map((entry) => `${entry.label}: ${formatChartNumber(entry.value)}${entry.partial ? " (part period)" : ""}`)],
+        actions: [],
+      });
+    }
   } else if (stacked) {
     for (let b = 0; b < buckets.length; b++) {
       let base = 0;
@@ -1495,6 +1511,30 @@ export function drawGroupedHistogram(card: ChartCard, ctx: CanvasRenderingContex
     frame.left + frame.plotW - 4 * ui - ctx.measureText(maxLabel).width,
     frame.top + frame.plotH + 16 * ui,
   );
+
+  // Hover over a bin: each group's share of its own rows there, and the row count behind it.
+  const binStep = (max - min) / bins;
+  card.hitRegions = [];
+  for (let bin = 0; bin < bins; bin++) {
+    const lo = min + bin * binStep;
+    const hi = bin === bins - 1 ? max : lo + binStep;
+    const rows = groups
+      .map((group, groupIndex) => ({ label: group.label, share: shares[groupIndex]?.[bin] ?? 0, count: group.counts[bin] ?? 0 }))
+      .filter((entry) => entry.count > 0)
+      .sort((a, b) => b.share - a.share);
+    if (rows.length === 0) continue;
+    card.hitRegions.push({
+      x: frame.left + bin * slot,
+      y: frame.top,
+      w: slot,
+      h: frame.plotH,
+      lines: [
+        `${formatTick(lo, histTickKind, histTickSpan)} – ${formatTick(hi, histTickKind, histTickSpan)}`,
+        ...rows.map((entry) => `${entry.label}: ${(entry.share * 100).toFixed(1)}% (${entry.count.toLocaleString()} rows)`),
+      ],
+      actions: [{ kind: "range", column: card.config.column, min: lo, max: hi }],
+    });
+  }
 
   const groupName = card.meta(card.config.groupColumn)?.name ?? "group";
   card.noteEl.textContent = `${groups.length} curves by ${groupName} · share of each group per bin · ${result.total.toLocaleString()} rows`;

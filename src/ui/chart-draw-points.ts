@@ -600,8 +600,8 @@ function pointValueText(meta: ColumnMeta, value: number): string {
 }
 
 /**
- * Hover for each drawn point (up to 5,000, the ones drawn one by one): its colour group, X and Y,
- * and its colour and size values. The interactive web page export carries the same.
+ * Hover for each drawn point: its colour group, X and Y, and its colour and size values.
+ * The interactive web page export carries the same.
  */
 function pointHitRegions(card: ChartCard, frame: Frame, result: SeriesPoints, xMeta: ColumnMeta, yMeta: ColumnMeta, sizes: ArrayLike<number> | null, radius: number, panel: { title: string } | null): void {
   const xScale = frame.plotW / (result.xMax - result.xMin);
@@ -609,10 +609,37 @@ function pointHitRegions(card: ChartCard, frame: Frame, result: SeriesPoints, xM
   const colorMeta = card.config.colorColumn >= 0 ? card.meta(card.config.colorColumn) : undefined;
   const labels = colorMeta?.categories?.labels;
   const sizeMeta = card.config.sizeColumn >= 0 ? card.meta(card.config.sizeColumn) : undefined;
+  // Many points: one hover per 4px cell, the point drawn on top there, saying how many share it.
+  // That bounds the hover list by the plot's area, not the row count.
+  const crowded = result.shown > 5000;
+  const cell = 4;
+  const cols = Math.ceil(frame.plotW / cell) + 1;
+  const topOf = new Map<number, number>();
+  const countOf = new Map<number, number>();
+  const order: number[] = [];
   for (let i = 0; i < result.shown; i++) {
     const x = frame.left + (result.x[i]! - result.xMin) * xScale;
     const y = frame.top + frame.plotH - (result.y[i]! - result.yMin) * yScale;
-    if (x < frame.left || x > frame.left + frame.plotW || y < frame.top || y > frame.top + frame.plotH) continue;
+    if (!(x >= frame.left && x <= frame.left + frame.plotW && y >= frame.top && y <= frame.top + frame.plotH)) continue;
+    if (!crowded) {
+      order.push(i);
+      continue;
+    }
+    const key = Math.floor((y - frame.top) / cell) * cols + Math.floor((x - frame.left) / cell);
+    topOf.set(key, i);
+    countOf.set(key, (countOf.get(key) ?? 0) + 1);
+  }
+  const shared = new Map<number, number>();
+  if (crowded) {
+    for (const [key, i] of topOf) {
+      order.push(i);
+      shared.set(i, countOf.get(key) ?? 1);
+    }
+    order.sort((a, b) => a - b);
+  }
+  for (const i of order) {
+    const x = frame.left + (result.x[i]! - result.xMin) * xScale;
+    const y = frame.top + frame.plotH - (result.y[i]! - result.yMin) * yScale;
     // A little larger than the dot, so a small one can still be found.
     const r = Math.max(4, Math.max(0.5, sizes === null ? radius : sizes[i]!) + 2);
     const code = result.colorCodes?.[i];
@@ -622,6 +649,9 @@ function pointHitRegions(card: ChartCard, frame: Frame, result: SeriesPoints, xM
       lines.push(`${colorMeta.name}: ${formatChartNumber(result.colorValues[i]!)}`);
     }
     if (sizeMeta !== undefined && result.size !== null && Number.isFinite(result.size[i])) lines.push(`${sizeMeta.name}: ${formatChartNumber(result.size[i]!)}`);
+    // Labelled, so the web page export offers it as one hover line to keep, hide or rename.
+    const here = shared.get(i) ?? 1;
+    if (here > 1) lines.push(`Points here: ${here.toLocaleString()}`);
     card.hitRegions.push({ x: x - r, y: y - r, w: 2 * r, h: 2 * r, contains: (px, py) => (px - x) ** 2 + (py - y) ** 2 <= r * r, lines, actions: [] });
   }
 }
@@ -714,7 +744,7 @@ export function drawPoints(card: ChartCard, ctx: CanvasRenderingContext2D, frame
     }
   }
   ctx.globalAlpha = 1;
-  if (detailed) pointHitRegions(card, frame, result, xMeta, yMeta, sizes, radius, panel);
+  pointHitRegions(card, frame, result, xMeta, yMeta, sizes, radius, panel);
   const fit = card.config.fitLine ?? true ? leastSquares(result.x, result.y, result.shown) : null;
   if (fit !== null) {
     // The dashed line of best fit, across the whole plot.

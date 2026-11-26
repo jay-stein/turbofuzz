@@ -13,6 +13,10 @@ function sales(): string {
 
 /** The app in dark colours, with a bar chart of sales by region. */
 async function barChart(page: Page): Promise<void> {
+  await chart(page, ["region", "sales"], "Bar");
+}
+
+async function chart(page: Page, fields: string[], type: string): Promise<void> {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
@@ -21,11 +25,22 @@ async function barChart(page: Page): Promise<void> {
   await page.keyboard.press("Escape");
   await page.locator(".view-tabs button", { hasText: "Chart" }).click();
   await page.locator(".chart-add-panel").waitFor();
-  for (const name of ["region", "sales"]) {
+  for (const name of fields) {
     await page.locator(".chart-add-field").filter({ has: page.locator(".chart-add-field-name", { hasText: new RegExp(`^${name}$`) }) }).click();
   }
-  await page.locator(".chart-add-types > .chart-add-type-group").first().locator(".chart-add-type", { hasText: "Bar" }).click();
+  await page.locator(".chart-add-types > .chart-add-type-group").first().locator(".chart-add-type", { hasText: type }).click();
   await page.locator(".chart-card:not(.hidden) .chart-canvas").waitFor();
+}
+
+/** Hovers across the middle of the plot until a tooltip shows; returns its text. */
+async function hoverPlot(page: Page): Promise<string> {
+  const box = (await page.locator(".chart-card:not(.hidden) canvas.chart-canvas").boundingBox())!;
+  const tip = page.locator(".chart-card:not(.hidden) .chart-tooltip:not(.hidden)");
+  for (let fx = 0.3; fx < 0.9; fx += 0.05) {
+    await page.mouse.move(box.x + box.width * fx, box.y + box.height * 0.5);
+    if (await tip.isVisible()) return tip.innerText();
+  }
+  return "";
 }
 
 async function openExports(page: Page): Promise<void> {
@@ -99,4 +114,33 @@ test("a web page export shows each bar's details on hover, with the lines the an
   await expect(view.locator(".tip")).toBeHidden();
   expect(errors).toEqual([]);
   await view.close();
+});
+
+test("a line split by group hovers every line's value on screen and in the web page", async ({ page, browser }) => {
+  await chart(page, ["date", "sales", "region"], "Line");
+  await page.waitForTimeout(300);
+  const onScreen = await hoverPlot(page);
+  for (const region of ["R0", "R1", "R2", "R3"]) expect(onScreen).toMatch(new RegExp(`${region}: [\\d,.]+`));
+
+  await openExports(page);
+  await page.getByRole("menuitemradio", { name: /Interactive web page/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Interactive web page" });
+  const download = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Download .html" }).click();
+  const file = test.info().outputPath("lines.html");
+  await (await download).saveAs(file);
+  const view = await browser.newPage({ viewport: { width: 1100, height: 760 } });
+  await view.goto(pathToFileURL(file).href);
+  const box = (await view.locator(".chart img").boundingBox())!;
+  await view.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+  await expect(view.locator(".tip")).toBeVisible();
+  const inPage = await view.locator(".tip").innerText();
+  for (const region of ["R0", "R1", "R2", "R3"]) expect(inPage).toMatch(new RegExp(`${region}: [\\d,.]+`));
+  await view.close();
+});
+
+test("a histogram split by group hovers each group's share of its rows in the bin", async ({ page }) => {
+  await chart(page, ["sales", "region"], "Histogram");
+  await page.waitForTimeout(300);
+  expect(await hoverPlot(page)).toMatch(/–[\s\S]*R\d: [\d.]+% \([\d,]+ rows\)/);
 });
