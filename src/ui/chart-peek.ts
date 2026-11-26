@@ -86,6 +86,7 @@ export class ChartPeek {
     this.toggle.addEventListener("click", () => {
       this.setOpen(!this.open, true);
       this.options.onToggle?.();
+      if (this.open) this.reveal();
     });
     this.action = el("button", { class: "link small charts-peek-open", type: "button" }) as HTMLButtonElement;
     this.action.addEventListener("click", () => this.actionRun());
@@ -103,6 +104,20 @@ export class ChartPeek {
     this.context = options.context();
     this.open = readOpen(this.context);
     this.setOpen(this.open, false);
+  }
+
+  /**
+   * Brings the opened peek into view. It opens above the chart, and the page is often scrolled a
+   * little past that point, which leaves the peek behind the pinned bars, so Peek seemed to do nothing.
+   */
+  private reveal(): void {
+    requestAnimationFrame(() => {
+      const scroller = this.root.closest<HTMLElement>(".workspace-body");
+      const bar = this.toggle.closest<HTMLElement>(".charts-toolbar");
+      if (scroller === null || bar === null || this.root.hidden) return;
+      const gap = this.root.getBoundingClientRect().top - bar.getBoundingClientRect().bottom - 6;
+      if (gap < 0) scroller.scrollTop = Math.max(0, scroller.scrollTop + gap);
+    });
   }
 
   private setOpen(open: boolean, remember: boolean): void {

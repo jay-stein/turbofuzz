@@ -86,6 +86,20 @@ test("scrolled to the bottom, the chart's own bar stays pinned under the chart t
   await expect(card(page).getByRole("button", { name: /settings/i }).first()).toBeInViewport();
 });
 
+test("Peek opens in view, under the chart tabs, even with the page scrolled down", async ({ page }) => {
+  await open(page, { width: 1280, height: 600 });
+  await pick(page, "date", "price");
+  await page.locator(".workspace-body").evaluate((node) => { node.scrollTop = node.scrollHeight; });
+  await page.locator(".charts-toolbar").getByRole("button", { name: /Peek/ }).click();
+  const peek = page.locator(".charts-peek");
+  await expect(peek).toBeVisible();
+  await expect.poll(async () => {
+    const tabs = (await page.locator(".charts-tabs").boundingBox())!;
+    const box = (await peek.boundingBox())!;
+    return box.y >= tabs.y + tabs.height - 1 && box.y < 600;
+  }).toBe(true);
+});
+
 test("a click marks a bar; only Filter to this filters every page", async ({ page }) => {
   await open(page);
   await pick(page, "region", "sales");
