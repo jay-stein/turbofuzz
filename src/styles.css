@@ -15089,12 +15089,14 @@ button.qp-tile:hover {
   margin-right: 6px;
 }
 .view-tabs button.active { color: var(--text); font-weight: 600; }
-/* Every tab shows its name when they all fit: five tabs from 1100px, nine (Research on) from 1760px. */
-@media (min-width: 1100px) {
-}
-@media (min-width: 1760px) {
-  .view-tabs .view-tab-label { max-width: none; padding-left: 6px; opacity: 1; }
-}
+/* Every tab shows its icon and name, spread out, whenever they all fit (view-tabs.ts measures);
+   a row too narrow for that falls back to icons only. */
+.view-tabs.labelled button { padding: 0 14px; }
+.view-tabs.labelled .view-tab-label { max-width: none; padding-left: 7px; opacity: 1; transition: none; }
+/* Names still fit if the tabs sit closer and drop their number-key hints (the keys still work). */
+.view-tabs.labelled.tight button { padding: 0 8px; }
+.view-tabs.labelled.tight .view-tab-label { padding-left: 5px; }
+.view-tabs.labelled.tight .view-tab-key { display: none; }
 
 /* ---------- Table: the analyst console grid (DEC-2026-11-01-02) ---------- */
 .th-facts {

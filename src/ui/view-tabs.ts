@@ -123,6 +123,45 @@ export class ViewTabs {
     this.labelResearchLane();
     this.root.addEventListener("keydown", (event) => this.onKeydown(event));
     this.sync();
+    this.watchFit();
+  }
+
+  /**
+   * Every tab shows its icon and its name when they all fit; when the row is too narrow, icons
+   * only (the name opens on the active tab, on hover and on focus). Measured, not a fixed screen
+   * width, so it holds for any zoom, display scaling and toolbar.
+   */
+  fit(): void {
+    if (!this.root.isConnected) return;
+    const fits = (): boolean => this.root.scrollWidth <= this.root.clientWidth + 1;
+    // Roomy first; then names kept but closer together, without the number-key hints; then icons.
+    this.root.classList.add("labelled");
+    this.root.classList.remove("tight");
+    if (fits()) return;
+    this.root.classList.add("tight");
+    if (fits()) return;
+    this.root.classList.remove("labelled", "tight");
+  }
+
+  private watchFit(): void {
+    let frame = 0;
+    const later = (): void => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => this.fit());
+    };
+    window.addEventListener("resize", later);
+    // The row the tabs share with the toolbar: its width does not depend on the tabs' own.
+    const observe = (): void => {
+      const row = this.root.parentElement;
+      if (row === null) {
+        requestAnimationFrame(observe);
+        return;
+      }
+      if (typeof ResizeObserver !== "undefined") new ResizeObserver(later).observe(row);
+      later();
+    };
+    requestAnimationFrame(observe);
+    void document.fonts?.ready.then(later);
   }
 
   /**
@@ -198,11 +237,12 @@ export class ViewTabs {
     const existing = button.querySelector<HTMLElement>(".view-tab-badge");
     if (label === null) {
       existing?.remove();
-      return;
+    } else {
+      const badge = existing ?? el("span", { class: "view-tab-badge" });
+      badge.textContent = label;
+      if (existing === null) button.append(badge);
     }
-    const badge = existing ?? el("span", { class: "view-tab-badge" });
-    badge.textContent = label;
-    if (existing === null) button.append(badge);
+    this.fit();
   }
 
   /** Arrow-key navigation with roving tabindex, per the ARIA tabs pattern. */
