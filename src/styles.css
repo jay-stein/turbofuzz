@@ -1713,6 +1713,12 @@ textarea:focus {
   flex: 0 0 auto;
 }
 
+/* The Overview says the row count in its own header; the table's results bar was a stray strip at the
+   foot of the window here. */
+.workspace.overview-mode .results-bar {
+  display: none;
+}
+
 .workspace.overview-mode .sidebar {
   display: none;
 }
@@ -6527,7 +6533,6 @@ tr.views-drop-after > td {
 
 .triage-open {
   align-self: stretch;
-  justify-content: center;
 }
 
 .triage-list {
@@ -10253,13 +10258,13 @@ label.null-row {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-top: 2px;
-  font-size: var(--fs-md);
+  font-size: var(--fs-sm);
   color: var(--text-dim);
 }
 
+/* The read of the file (header, types, what it looks like) is one quiet block of small lines. */
 .overview-archetype-text {
-  color: var(--text);
+  color: var(--text-dim);
 }
 
 .overview-archetype-change {
@@ -10437,7 +10442,8 @@ label.null-row {
 
 .next-step-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  /* auto-fit: three steps share the row instead of leaving a fourth column empty. */
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 12px;
 }
 
@@ -15761,14 +15767,19 @@ button.qp-tile:hover {
 .header-row-column-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .header-row-column-sample { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
 
-/* The header note on the Overview asks to be looked at: a wrong guess here spoils everything after it. */
-.overview-header-note .ghost {
-  background: var(--qa-warn-soft);
-  border-color: var(--qa-warn-border);
-  color: var(--text);
-  font-weight: 600;
+/* The header note on the Overview asks to be looked at: a wrong guess here spoils everything after it.
+   Theme A: an amber dot flags the guess; the button is the ordinary secondary one. */
+.overview-header-note::before {
+  content: "";
+  align-self: center;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--qa-warn);
 }
-.overview-header-note .ghost:hover { border-color: var(--qa-warn); }
+.overview-header-note { gap: 8px; }
+.overview-header-note .ghost { font-weight: 600; }
 
 /* The mixed-series notice on the tabs after Explore: one slim line that opens the full notice. */
 .ts-mixed.ts-mixed-slim { padding: 6px 12px; align-items: center; gap: 8px; }

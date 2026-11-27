@@ -780,15 +780,19 @@ export class Overview {
     if (unified !== null) {
       const total = unified.fix + unified.review;
       if (total > 0) {
+        // Built like the tiles beside it: the number, what it counts, and the way to act on it.
         const review = el(
           "button",
           {
-            class: "ghost small triage-open",
+            class: `health-tile health-tile-fix triage-open${unified.fix > 0 ? " warn" : ""}`,
+            "data-kind": "issues",
             type: "button",
             title: "Open the Clean page — the same list, with previews and undo",
           },
           [
-            `${unified.fix} ${plural(unified.fix, "issue needs", "issues need")} fixing · ${unified.review} worth reviewing — Review all`,
+            el("span", { class: "health-value" }, [String(unified.fix)]),
+            el("span", { class: "health-label" }, [`${plural(unified.fix, "issue needs", "issues need")} fixing · ${unified.review} worth reviewing`]),
+            el("span", { class: "health-fix" }, ["Review all…"]),
           ],
         ) as HTMLButtonElement;
         review.addEventListener("click", () => this.callbacks.onOpenQuality?.());
