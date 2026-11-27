@@ -20212,7 +20212,8 @@ select.chart-add-agg {
 /* Data Quality issues grouped by the kind of work: one card per group, opening to its issues. */
 .qp-expand-all {
   align-self: flex-end;
-  margin-bottom: 6px;
+  /* Close to the groups it opens, not floating halfway between them and the hero. */
+  margin: -14px 0 -4px;
 }
 
 .qp-group {
@@ -20342,7 +20343,8 @@ select.chart-add-agg {
 .cl-sub { margin: 0; color: var(--text-dim); font-size: var(--fs-md); line-height: 1.5; max-width: 560px; }
 .cl-meter { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .cl-score-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 10px; }
-.cl-score { font-family: var(--font-mono, ui-monospace, monospace); font-size: 34px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+/* Font audit: a headline score is display type, Inter with tabular digits (was an undefined --font-mono, so system mono). */
+.cl-score { font-family: var(--font-sans); font-size: 34px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; font-variant-numeric: tabular-nums; }
 .cl-of { color: var(--text-dim); }
 .cl-score-facts { margin-left: auto; color: var(--text-dim); font-size: var(--fs-sm); }
 .cl-band-reason { margin: 4px 0 6px; font-size: var(--fs-sm); color: var(--qa-warn-text); }
@@ -20381,7 +20383,7 @@ select.chart-add-agg {
 .cl-step-svg { width: 22px; height: 22px; }
 .cl-step-mark {
   position: absolute; top: -6px; right: -6px; display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 3px;
-  border-radius: 9px; border: 2px solid var(--panel); font-size: 10px; font-weight: 700; line-height: 1; background: var(--border); color: var(--text);
+  border-radius: 9px; border: 2px solid var(--panel); font-size: 11px; font-weight: 700; line-height: 1; background: var(--border); color: var(--text);
 }
 .cl-step-bar { display: block; height: 4px; margin-top: 5px; border-radius: 2px; background: color-mix(in srgb, var(--step-hue) 14%, var(--border)); overflow: hidden; }
 .cl-step-fill { display: block; height: 100%; border-radius: 2px; background: var(--step-hue); transition: width 0.4s ease; }
@@ -20497,14 +20499,14 @@ select.chart-add-agg {
 .qc-score { display: flex; flex-direction: column; gap: 4px; }
 .qc-score-label { font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
 .qc-score-row { display: flex; align-items: baseline; gap: 8px; }
-.qc-score-value { font-family: var(--font-mono, ui-monospace, monospace); font-size: 32px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.qc-score-value { font-family: var(--font-sans); letter-spacing: -0.02em; font-size: 32px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
 .qc-before .qc-score-value { color: var(--text-dim); }
-.qc-delta { font-family: var(--font-mono, ui-monospace, monospace); font-size: 18px; font-weight: 600; color: var(--ok-text); }
+.qc-delta { font-family: var(--font-sans); font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 600; color: var(--ok-text); }
 .qc-delta.worse { color: var(--danger); }
 .qc-tiles { flex: 1 1 360px; display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; min-width: 0; }
 .qc-tile { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--border-subtle); border-radius: 8px; }
 .qc-tile-label { font-size: var(--fs-sm); color: var(--text-dim); }
-.qc-tile-value { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 600; font-variant-numeric: tabular-nums; }
+.qc-tile-value { font-family: var(--font-sans); letter-spacing: -0.02em; font-weight: 600; font-variant-numeric: tabular-nums; }
 .qc-tile-value.better { color: var(--ok-text); }
 .qc-tile-value.worse { color: var(--danger); }
 .qc-body { display: flex; flex-wrap: wrap; gap: 14px; }
@@ -20514,7 +20516,7 @@ select.chart-add-agg {
 .qc-legend .qc-dot { position: static; margin: 0; }
 .qc-dim { display: grid; grid-template-columns: 110px minmax(0, 1fr) 110px; align-items: center; gap: 10px; min-height: 30px; border-top: 1px solid var(--border-subtle); }
 .qc-dim-label { font-size: var(--fs-md); }
-.qc-dim-value { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-sm); text-align: right; font-variant-numeric: tabular-nums; }
+.qc-dim-value { font-family: var(--mono); font-size: var(--fs-sm); text-align: right; font-variant-numeric: tabular-nums; }
 .qc-track { position: relative; height: 18px; }
 .qc-track.qc-na { height: auto; color: var(--text-dim); font-size: var(--fs-sm); }
 .qc-grid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); }
@@ -20532,7 +20534,7 @@ select.chart-add-agg {
 .qc-step { display: flex; flex-direction: column; gap: 3px; }
 .qc-step-row { display: flex; justify-content: space-between; gap: 10px; font-size: var(--fs-sm); }
 .qc-step-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qc-step-value { font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; flex: none; }
+.qc-step-value { font-family: var(--mono); font-variant-numeric: tabular-nums; flex: none; }
 .qc-step-value.qc-up { color: var(--ok-text); }
 .qc-step-value.qc-down { color: var(--danger); }
 .qc-bar { position: relative; display: block; height: 9px; border-radius: 2px; background: var(--panel-2); }
@@ -20545,8 +20547,8 @@ select.chart-add-agg {
 .qc-table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
 .qc-table th, .qc-table td { padding: 6px 8px; border-bottom: 1px solid var(--border-subtle); text-align: left; font-weight: 400; }
 .qc-table thead th { color: var(--text-dim); font-size: var(--fs-sm); font-weight: 600; }
-.qc-table tbody th { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-sm); }
-.qc-table td:nth-child(3), .qc-table td:nth-child(4) { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.qc-table tbody th { font-family: var(--mono); font-size: var(--fs-sm); }
+.qc-table td:nth-child(3), .qc-table td:nth-child(4) { font-family: var(--mono); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 @media (max-width: 640px) {
   .qc-dim, .qc-scale { grid-template-columns: 84px minmax(0, 1fr) 92px; }
 }
