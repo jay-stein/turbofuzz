@@ -1571,16 +1571,7 @@ export class ViewsPanel {
     });
     limitLabel.append("Groups", limitInput);
 
-    const chart = el(
-      "button",
-      { class: "ghost small", type: "button", title: "Create a chart of this aggregate view" },
-      ["Chart this"],
-    ) as HTMLButtonElement;
-    chart.disabled = entry === undefined || !isCompleteView(entry.def);
-    chart.addEventListener("click", () => {
-      if (entry !== undefined) this.options.onChart(entry.def);
-    });
-
+    // Charting this view is the "Chart this pivot" button in the view's header, always in view.
     const pivotChart = el(
       "button",
       {
@@ -1930,7 +1921,10 @@ export class ViewsPanel {
     ) as HTMLButtonElement;
     below.disabled = this.views.length >= MAX_VIEWS;
     below.addEventListener("click", () => this.addView(this.active + 1));
-    this.actionsEl.append(limitLabel, chart, pivotChart, slick, csv, pandas, duplicate, below);
+    // Grouped by what they are for, so the row reads as three small sets rather than seven equal buttons.
+    const group = (label: string, items: HTMLElement[]): HTMLElement =>
+      el("div", { class: "views-action-group", role: "group", "aria-label": label }, items);
+    this.actionsEl.append(limitLabel, group("Chart", [pivotChart]), group("Export", [slick, csv, pandas]), group("View", [duplicate, below]));
   }
 
   /** CSV of the current aggregate or pivot matrix. */

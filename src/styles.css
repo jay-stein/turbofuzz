@@ -4494,44 +4494,49 @@ mark {
   border-bottom: 1px solid var(--border);
 }
 
+/* Theme A: the saved views are a segmented control, like Time Series' Explore / Decompose tabs. */
 .views-dock-tabs {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   display: flex;
-  gap: 4px;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--panel-2);
   overflow-x: auto;
   scrollbar-width: thin;
 }
 
 .views-dock-tab {
   flex: 0 0 auto;
-  max-width: 220px;
+  max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 4px 10px;
-  font-size: var(--fs-xs);
+  padding: 5px 12px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
   color: var(--text-dim);
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
+  border: 0;
+  border-radius: 7px;
   cursor: pointer;
 }
 
 .views-dock-tab:hover {
   color: var(--text);
-  background: var(--panel);
 }
 
 .views-dock-tab.active {
   color: var(--text);
   background: var(--panel);
-  border-color: var(--accent);
+  box-shadow: 0 1px 2px rgb(16 24 40 / 12%);
   font-weight: 600;
 }
 
 .views-dock-add {
   flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .map-toolbar .map-export {
@@ -5653,9 +5658,21 @@ tr.views-drop-after > td {
 .views-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 8px 14px;
   flex-wrap: wrap;
-  margin: 4px 0 10px;
+  margin: 10px 0 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-card);
+}
+
+/* Chart / Export / View: a hairline between sets, buttons close together within one. */
+.views-action-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-left: 14px;
+  border-left: 1px solid var(--border-card);
 }
 
 .views-limit {
@@ -5698,11 +5715,13 @@ tr.views-drop-after > td {
   min-width: 0;
 }
 
+/* Sits on the line of the "4 groups · 2 ms" note, not on a row of its own. */
 .views-sidebar-toggle {
-  display: block;
-  margin-bottom: 8px;
-  width: 28px;
-  height: 28px;
+  float: left;
+  margin: 0 10px 4px 0;
+  width: 26px;
+  height: 26px;
+  line-height: 1;
   border: 1px solid var(--border-subtle);
   border-radius: 7px;
   background: var(--panel);
@@ -5845,25 +5864,25 @@ tr.views-drop-after > td {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
-  border-radius: 12px;
-  background: linear-gradient(180deg, var(--accent-soft), var(--panel-2));
-  color: var(--accent);
+  /* Theme A: a plain secondary button; it is one action among the panel's, not its headline. */
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
   font: inherit;
   font-size: var(--fs-md);
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
-  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+  transition: border-color 120ms ease, background 120ms ease;
 }
 
 .views-transpose:hover {
-  border-color: var(--accent);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--text) 30%, var(--border));
+  background: var(--panel-2);
 }
 
 .views-transpose:disabled {
-  opacity: 0.35;
+  opacity: 0.45;
   cursor: default;
   transform: none;
   box-shadow: none;
@@ -11371,12 +11390,11 @@ label.null-row {
 }
 
 .views-transpose {
-  min-height: 36px;
+  min-height: 34px;
   border-radius: 8px;
   font-size: var(--fs-md);
   font-weight: 600;
   gap: 8px;
-  background: var(--accent-soft);
 }
 
 .views-transpose .transpose-icon {
@@ -11580,8 +11598,10 @@ label.null-row {
 .views-sidebar {
   border: none;
   border-radius: 0;
-  background: var(--panel-2);
-  padding: 16px 14px;
+  /* Theme A: one white card, the settings set apart by a hairline rather than a grey box. */
+  background: transparent;
+  border-right: 1px solid var(--border-card);
+  padding: 4px 16px 16px 4px;
   gap: 18px;
 }
 
