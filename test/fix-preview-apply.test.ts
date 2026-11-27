@@ -267,6 +267,39 @@ test("empty columns are dropped together, after every other fix", async () => {
   assert.equal(fixReportText(report), "3 fixes applied");
 });
 
+test("junk text: every value is listed and ticked; an unticked one (NULL as a surname) is kept as text, the rest become empty", async () => {
+  const window = setupDom();
+  const values = ["N/A", "-", "NULL", "?", "n.a.", "none", "missing"];
+  const junk = issue("placeholders.6", "surname", [
+    { kind: "placeholders", column: 6, tokens: values, preview: values.map((from, i) => ({ from, to: "(empty)", count: 7 - i })) },
+  ]);
+  junk.rows = 28;
+  let seen: ReadonlyMap<string, ReadonlySet<string>> = new Map();
+  const result = openFixPreview([junk], (ids, _progress, kept) => {
+    seen = kept;
+    return Promise.resolve(ids);
+  });
+  await tick();
+  const doc = window.document;
+  const boxes = [...doc.querySelectorAll(".fix-token-list input")] as unknown as HTMLInputElement[];
+  assert.equal(boxes.length, 7, "all seven values are shown, not a sample of five");
+  assert.ok(boxes.every((box) => box.checked), "the lot is fixed by default");
+  const nullBox = boxes[2]!;
+  nullBox.checked = false;
+  nullBox.dispatchEvent(new window.Event("change") as unknown as Event);
+  assert.match(doc.querySelector(".fix-token-tally")?.textContent ?? "", /6 of 7 ticked/);
+  assert.match(doc.querySelector(".cast-summary")?.textContent ?? "", /about 23 cells change/);
+  (doc.querySelector(".fix-preview-modal .primary") as unknown as HTMLButtonElement).click();
+  assert.deepEqual(await result, ["placeholders.6"]);
+  assert.deepEqual([...(seen.get("placeholders.6") ?? [])], ["NULL"]);
+
+  const app = new FakeApp();
+  const plan = planFixes([junk], ["placeholders.6"], app.target(), seen);
+  assert.deepEqual(plan.fixes[0]?.missing, [{ column: 6, tokens: values.filter((v) => v !== "NULL"), keep: ["NULL"] }]);
+  const onlyKeep = planFixes([junk], ["placeholders.6"], app.target(), new Map([["placeholders.6", new Set(values)]]));
+  assert.equal(onlyKeep.fixes[0]?.skipped, null, "keeping every value is still a change: they stop counting as missing");
+});
+
 test("the preview stays open while fixes run: Apply shows progress and a second press does nothing", async () => {
   const window = setupDom();
   const issues = sevenFixes();

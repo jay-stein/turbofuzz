@@ -5736,12 +5736,17 @@ export class App {
       return list;
     };
     // The dialog stays open (and Apply stays disabled) until every ticked fix has run.
-    const report = await openFixPreview(issues, (chosen, progress) => {
-      const plan = planFixes(issues, chosen, {
-        name: (column) => this.metas[column]?.name ?? null,
-        cleanOps: (column) => this.cleanedColumns.get(column) ?? [],
-        missingTokens: (column) => this.metas[column]?.nullPolicy.extra ?? [],
-      });
+    const report = await openFixPreview(issues, (chosen, progress, kept) => {
+      const plan = planFixes(
+        issues,
+        chosen,
+        {
+          name: (column) => this.metas[column]?.name ?? null,
+          cleanOps: (column) => this.cleanedColumns.get(column) ?? [],
+          missingTokens: (column) => this.metas[column]?.nullPolicy.extra ?? [],
+        },
+        kept,
+      );
       let dropUndone = false;
       return runFixPlan(plan, {
         // One worker rebuild for every clean; each fix still lands as its own Recipe step and undo action.
@@ -5754,11 +5759,21 @@ export class App {
           this.updateStepsButton();
           undoList(fix).push(() => this.removeCleanOps(fix.cleans));
         },
-        missing: async (fix, column, tokens) => {
+        missing: async (fix, column, tokens, keep) => {
           const meta = this.metas[column];
           if (meta === undefined) return false;
-          const changed = await this.applyNullPolicy(column, [...new Set([...meta.nullPolicy.extra, ...tokens])], [...meta.nullPolicy.keep], {
-            label: `${meta.name}: junk text treated as missing`,
+          // Unticked values are real data ("NULL" as a surname): kept, and no longer counted as missing.
+          const kept = new Set(keep);
+          const extra = [...new Set([...meta.nullPolicy.extra, ...tokens])].filter((token) => !kept.has(token));
+          const keepList = [...new Set([...meta.nullPolicy.keep.filter((token) => !tokens.includes(token)), ...keep])];
+          const label =
+            tokens.length === 0
+              ? `${meta.name}: ${keep.map((t) => `“${t}”`).join(", ")} kept as real values`
+              : keep.length === 0
+                ? `${meta.name}: junk text treated as missing`
+                : `${meta.name}: junk text treated as missing, ${keep.map((t) => `“${t}”`).join(", ")} kept`;
+          const changed = await this.applyNullPolicy(column, extra, keepList, {
+            label,
             ordered: true,
           });
           const edit = this.nullEdits[this.nullEdits.length - 1];

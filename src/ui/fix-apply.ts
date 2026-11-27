@@ -18,7 +18,8 @@ export interface PlannedFix {
   /** The name used in the summary: the column, or the issue title. */
   label: string;
   cleans: { column: number; op: CleanOp }[];
-  missing: { column: number; tokens: string[] }[];
+  /** `tokens` become empty; `keep` are junk-looking values the user unticked, kept as real text ("NULL" as a surname). */
+  missing: { column: number; tokens: string[]; keep: string[] }[];
   drops: number[];
   /** Why nothing will run for this fix, or null. */
   skipped: string | null;
@@ -44,8 +45,15 @@ function cleanOpOf(step: FixStep): CleanOp | null {
  * Turns the ticked issues into one plan, in the order they were listed. Clean
  * steps on the same column stack in that order. A fix whose change is already in
  * place (or whose column is gone) is skipped with the reason, never re-applied.
+ * `kept` holds, per issue id, the junk-text values the user unticked: they are
+ * kept as real values instead of becoming empty.
  */
-export function planFixes(issues: readonly PageIssue[], chosen: readonly string[], target: FixTarget): FixPlan {
+export function planFixes(
+  issues: readonly PageIssue[],
+  chosen: readonly string[],
+  target: FixTarget,
+  kept: ReadonlyMap<string, ReadonlySet<string>> = new Map(),
+): FixPlan {
   const ops = new Map<number, CleanOp[]>();
   const missing = new Map<number, Set<string>>();
   const dropped = new Set<number>();
@@ -70,13 +78,15 @@ export function planFixes(issues: readonly PageIssue[], chosen: readonly string[
           have = new Set(target.missingTokens(step.column));
           missing.set(step.column, have);
         }
-        const tokens = step.tokens.filter((token) => !have.has(token));
-        if (tokens.length === 0) {
+        const keepSet = kept.get(issue.id);
+        const keep = step.tokens.filter((token) => keepSet?.has(token) === true);
+        const tokens = step.tokens.filter((token) => keepSet?.has(token) !== true && !have.has(token));
+        if (tokens.length === 0 && keep.length === 0) {
           reasons.push("already treated as missing");
           continue;
         }
         for (const token of tokens) have.add(token);
-        fix.missing.push({ column: step.column, tokens });
+        fix.missing.push({ column: step.column, tokens, keep });
         continue;
       }
       const op = cleanOpOf(step);
@@ -111,8 +121,8 @@ export interface FixRunner {
   clean(updates: FixPlan["cleans"], record: () => void): Promise<"applied" | "unchanged" | "failed">;
   /** Records one fix's clean steps in the Recipe as their own undoable action. */
   recordCleans(fix: PlannedFix): void;
-  /** Adds text to treat as missing in a column; resolves true when it changed the table. */
-  missing(fix: PlannedFix, column: number, tokens: string[]): Promise<boolean>;
+  /** Adds text to treat as missing in a column, and text to keep as real values; resolves true when it changed the table. */
+  missing(fix: PlannedFix, column: number, tokens: string[], keep: string[]): Promise<boolean>;
   /** Drops columns as one step; resolves true when they were dropped. */
   drop(columns: number[]): Promise<boolean>;
   /** Progress for the button while the fixes run. */
@@ -151,7 +161,7 @@ export async function runFixPlan(plan: FixPlan, runner: FixRunner): Promise<FixR
   const changedByMissing = new Set<PlannedFix>();
   for (const fix of live) {
     for (const step of fix.missing) {
-      if (await runner.missing(fix, step.column, step.tokens)) changedByMissing.add(fix);
+      if (await runner.missing(fix, step.column, step.tokens, step.keep)) changedByMissing.add(fix);
     }
     if (fix.missing.length > 0 && fix.cleans.length === 0) tick();
   }

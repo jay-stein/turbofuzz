@@ -671,7 +671,8 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
           kind: "placeholders",
           column,
           tokens: tokens.map((t) => t.label),
-          preview: tokens.slice(0, 5).map((t) => ({ from: t.label, to: "(empty)", count: t.count })),
+          // Every value, not a sample: the user ticks each one and must see them all.
+          preview: tokens.map((t) => ({ from: t.label, to: "(empty)", count: t.count })),
         },
       ],
       fixLabel: "Convert to empty…",
