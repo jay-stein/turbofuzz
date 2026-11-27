@@ -81,7 +81,7 @@ export class ChartPeek {
     this.toggle = el(
       "button",
       { class: "small charts-peek-toggle", type: "button", title: "Peek at the data: the table's first rows, or the Pivot View the open chart draws", "aria-controls": "charts-peek" },
-      [eyeIcon(), el("span", { class: "charts-peek-label" }, ["Peek"]), el("span", { class: "charts-peek-chevron", "aria-hidden": "true" })],
+      [eyeIcon(), el("span", { class: "charts-peek-label" }, ["Data peek"]), el("span", { class: "charts-peek-chevron", "aria-hidden": "true" })],
     ) as HTMLButtonElement;
     this.toggle.addEventListener("click", () => {
       this.setOpen(!this.open, true);

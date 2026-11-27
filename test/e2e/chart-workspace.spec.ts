@@ -90,7 +90,7 @@ test("Peek opens in view, under the chart tabs, even with the page scrolled down
   await open(page, { width: 1280, height: 600 });
   await pick(page, "date", "price");
   await page.locator(".workspace-body").evaluate((node) => { node.scrollTop = node.scrollHeight; });
-  await page.locator(".charts-toolbar").getByRole("button", { name: /Peek/ }).click();
+  await page.locator(".charts-toolbar").getByRole("button", { name: /Data peek/ }).click();
   const peek = page.locator(".charts-peek");
   await expect(peek).toBeVisible();
   await expect.poll(async () => {
