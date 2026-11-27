@@ -14084,7 +14084,7 @@ button.qp-tile:hover {
 .std-cost { font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 
 /* ===================================================================== Time Series page */
-.timeseries-host { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 24px; }
+.timeseries-host { flex: 1; min-height: 0; overflow-y: auto; padding: var(--page-pad) var(--page-pad) 40px; }
 .ts-page {
   --ts-dim: var(--text-dim);
   --ts-faint: color-mix(in srgb, var(--text-dim) 70%, var(--panel));
@@ -14137,8 +14137,8 @@ button.qp-tile:hover {
 .ts-why { margin: 0; color: var(--ts-dim); font-size: 12.5px; }
 
 /* Cells take the room their content needs; the last one (the forecast and its verdict) is twice as wide and wraps less. */
-.ts-strip { display: flex; flex-wrap: wrap; gap: 1px; margin: 0; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.ts-strip > div { background: var(--panel); padding: 9px 12px; min-width: 0; flex: 1 1 120px; }
+.ts-strip { display: flex; flex-wrap: wrap; gap: 1px; margin: 0; background: var(--border-card); border: 1px solid var(--border-card); border-radius: var(--radius-card); box-shadow: var(--shadow-card); overflow: hidden; }
+.ts-strip > div { background: var(--panel); padding: 12px 14px; min-width: 0; flex: 1 1 120px; }
 .ts-strip > div:last-child { flex: 2 1 250px; }
 .ts-strip dt { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--ts-dim); font-weight: 600; }
 .ts-strip dd { margin: 2px 0 0; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
@@ -14162,7 +14162,7 @@ button.qp-tile:hover {
 
 .ts-work { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
 .ts-stage { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.ts-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); min-width: 0; }
+.ts-card { background: var(--panel); border: 1px solid var(--border-card); border-radius: var(--radius-card); box-shadow: var(--shadow-card); min-width: 0; }
 .ts-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; padding: 9px 14px; border-bottom: 1px solid var(--border-subtle); min-height: 50px; border-top: 3px solid var(--ts-mode); border-radius: var(--radius) var(--radius) 0 0; transition: border-color 200ms; }
 .ts-tb { display: contents; }
 .ts-card-head { display: flex; align-items: center; gap: 10px; padding: 9px 14px 0; flex-wrap: wrap; }
@@ -15225,6 +15225,8 @@ button.qp-tile:hover {
   letter-spacing: -0.02em;
 }
 .ts-strip dd { font-size: 14px; }
+/* The words under a figure are prose, not values: back to Inter. */
+.ts-strip dd small { font-family: var(--font-sans); letter-spacing: 0; }
 .overview-heading, .quality-section-title, .qp-section-title, .outliers-section-title, .ts-kick {
   font-size: var(--fs-xs);
   font-weight: 600;
@@ -15232,7 +15234,12 @@ button.qp-tile:hover {
   text-transform: uppercase;
   color: var(--text-dim);
 }
-.health-tile, .qp-tile, .ts-card, .overview-card, .filter-card, .views-card, .chart-card {
+/* Theme A: page cards carry the front page's soft shadow (none in dark). The sidebar's filter cards
+   sit on the Table page too, so they stay flat. */
+.health-tile, .qp-tile, .ts-card, .overview-card, .views-card {
+  box-shadow: var(--shadow-card);
+}
+.filter-card, .chart-card {
   box-shadow: none;
 }
 .view-tabs { font-feature-settings: "tnum"; }
