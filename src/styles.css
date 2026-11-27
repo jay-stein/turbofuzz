@@ -13502,15 +13502,28 @@ body:has(.th-filter-popover) .hint-callout {
   opacity: 0.6;
 }
 
-/* Excel report: the workbook green, so it reads as the same thing as the big box at the foot. */
+/* Excel report: a plain secondary button; a small workbook-green mark ties it to the box at the foot. */
 .qp-hero-actions .qp-excel-button {
-  border: 1px solid #107c41;
-  background: #107c41;
-  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
   font-weight: 600;
 }
-.qp-hero-actions .qp-excel-button:hover {
-  background: #21a366;
+.qp-hero-actions .qp-excel-button::before {
+  content: "";
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: #107c41;
+}
+.qp-hero-actions .qp-excel-button:hover:not(:disabled) {
+  background: var(--panel-2);
+  border-color: color-mix(in srgb, #107c41 45%, var(--border));
 }
 .qp-excel-raw {
   margin: 0 0 6px 4px;
@@ -18024,21 +18037,22 @@ mark.cmp-ch {
 .cmp-excel {
   display: flex;
   align-items: center;
-  gap: 22px;
+  gap: 18px;
   width: 100%;
-  padding: 22px 28px;
-  border: 1px solid #107c41;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #107c41, #21a366);
-  color: #fff;
+  padding: 18px 22px;
+  /* Theme A: a calm card like the rest of the report; the green lives only in the logo and the Download chip. */
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  color: var(--text);
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 6px 20px rgba(16, 124, 65, 0.28);
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.12s ease, background 0.12s ease;
 }
 .cmp-excel:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 28px rgba(16, 124, 65, 0.4);
+  border-color: color-mix(in srgb, #107c41 45%, var(--border-card));
+  background: color-mix(in srgb, #107c41 4%, var(--panel));
 }
 .cmp-excel:focus-visible {
   outline: 3px solid var(--accent);
@@ -18050,8 +18064,13 @@ mark.cmp-ch {
 }
 .cmp-excel-logo {
   flex: none;
-  width: 72px;
-  height: 72px;
+  width: 52px;
+  height: 52px;
+  padding: 6px;
+  box-sizing: content-box;
+  border-radius: 10px;
+  /* A pale green tile, so the logo's white sheet still shows on a white card. */
+  background: color-mix(in srgb, #107c41 14%, var(--panel));
 }
 .cmp-excel-text {
   display: flex;
@@ -18061,20 +18080,21 @@ mark.cmp-ch {
   min-width: 0;
 }
 .cmp-excel-title {
-  font-size: 22px;
+  font-size: var(--fs-xl);
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
 .cmp-excel-sub {
   font-size: var(--fs-sm);
-  opacity: 0.92;
+  color: var(--text-dim);
 }
 .cmp-excel-go {
   flex: none;
-  padding: 9px 16px;
+  padding: 8px 16px;
   border-radius: 8px;
-  /* A darker tint, not a lighter one: white text stays above 4.5:1 on the green. */
-  background: rgba(0, 0, 0, 0.22);
+  /* The workbook green, dark enough that white text stays above 4.5:1. */
+  background: #107c41;
+  color: #fff;
   font-weight: 600;
   white-space: nowrap;
 }
