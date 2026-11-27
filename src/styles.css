@@ -4549,9 +4549,12 @@ mark {
 .map-page input.map-title-input {
   width: 100%;
   padding: 4px 8px;
+  margin-left: -9px;
   font: inherit;
-  font-size: 18px;
-  font-weight: 650;
+  font-size: var(--fs-page-title);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
   color: var(--text);
   background: transparent;
   border: 1px solid transparent;
