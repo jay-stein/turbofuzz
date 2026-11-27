@@ -319,7 +319,8 @@ test("Smart Deduplicate: rows that repeat once the id is ignored are spotlit and
   await preview.locator("[data-qp='dedupe-confirm']").click();
   await expect(page.locator("[data-qp='smart-spotlight']")).toHaveCount(0, { timeout: 15_000 });
   await expect(page.locator(".cl-step[data-step='duplicates']")).toHaveClass(/done/);
-  await expect(page.getByText(/^40 rows/).first()).toBeVisible();
+  // Visible matches only: the hidden Overview also says "40 rows × 3 columns".
+  await expect(page.getByText(/^40 rows/).filter({ visible: true }).first()).toBeVisible();
 });
 
 test("a start/end column pair gets a suggested consistency check that can be turned off", async ({ page }) => {
