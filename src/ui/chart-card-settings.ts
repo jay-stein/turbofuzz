@@ -18,6 +18,7 @@ import { MAX_VALUES, SHORT_PALETTES, MORE_PALETTES } from "./chart-card-types.js
 import { panelsSupported } from "./chart-panels.js";
 import { bindTitleEdit } from "./chart-title-edit.js";
 import { lineAxisAllowed, relLineOn } from "./chart-rel-line.js";
+import { ROW_ORDER } from "../data/rel-line.js";
 import { buildAxesSettings } from "./chart-axes-settings.js";
 
 /**
@@ -648,14 +649,16 @@ export function syncOptions(card: ChartCard): void {
   card.kindSelect.value = card.config.kind;
 
   const primary = card.allowedIndexes((meta) => card.allowsPrimary(meta));
-  if (!primary.includes(card.config.column)) card.config.column = primary[0] ?? -1;
-  card.fillColumnSelect(card.primarySelect, primary, card.config.kind === "kpi" ? 1 : 0);
-  if (primary.length === 0) {
+  // A Line can also run in row order, like Excel's line of one column: no date or index needed.
+  const rowOrder = card.config.kind === "line" && card.config.source === "";
+  if (!primary.includes(card.config.column) && !(rowOrder && card.config.column === ROW_ORDER)) card.config.column = primary[0] ?? (rowOrder ? ROW_ORDER : -1);
+  card.fillColumnSelect(card.primarySelect, primary, card.config.kind === "kpi" ? 1 : 0, rowOrder ? [card.option(String(ROW_ORDER), "Row order (as in the table)")] : []);
+  if (primary.length === 0 && !rowOrder) {
     const placeholder = card.option("-1", "No matching column");
     placeholder.disabled = true;
     card.primarySelect.append(placeholder);
   }
-  if (card.config.column >= 0) card.primarySelect.value = String(card.config.column);
+  if (card.config.column >= 0 || card.config.column === ROW_ORDER) card.primarySelect.value = String(card.config.column);
 
   const groupable = card.allowedIndexes((meta) => isGroupable(meta));
   if (!groupable.includes(card.config.groupColumn)) card.config.groupColumn = -1;

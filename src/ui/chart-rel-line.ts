@@ -10,7 +10,7 @@ import type { ChartCard } from "./chart-card.js";
 import type { Frame } from "./chart-card-types.js";
 import type { HitRegion } from "./chart-hit-regions.js";
 import type { ColumnMeta } from "../worker/protocol.js";
-import type { RelLineBand, RelLineStat } from "../data/rel-line.js";
+import { ROW_ORDER, type RelLineBand, type RelLineStat } from "../data/rel-line.js";
 import { INTERVAL_KINDS } from "../data/error-bars.js";
 import { formatChartNumber, formatCompact, isGroupable, isNumericType, plainMeasureName } from "./chart-utils.js";
 import { axisTicks } from "./chart-axes.js";
@@ -22,9 +22,13 @@ const MAX_HUES = 8;
 /** Up to this many points per line get a dot unless the person says otherwise. */
 const AUTO_MARKERS = 30;
 
-/** A Line whose x is numbers or categories (not dates) is drawn here. */
+/** The x axis name of a Line in row order. */
+export const ROW_ORDER_NAME = "Row";
+
+/** A Line whose x is numbers, categories or row order (not dates) is drawn here. */
 export function relLineOn(card: ChartCard): boolean {
   if (card.config.kind !== "line" || card.config.source !== "") return false;
+  if (card.config.column === ROW_ORDER) return true;
   const meta = card.meta(card.config.column);
   return meta !== undefined && !card.isDateLike(meta) && (isNumericType(meta.type) || isGroupable(meta));
 }
@@ -43,7 +47,8 @@ function stat(card: ChartCard): RelLineStat {
 
 /** The band asked for: on at first (seaborn draws one), the Error bars choice otherwise; bootstrap uses the formula. */
 export function relBand(card: ChartCard): RelLineBand {
-  if (card.config.errorBars === false || (card.config.valueColumn ?? -1) < 0) return "none";
+  // In row order each point is one row: there is nothing to put a band round.
+  if (card.config.errorBars === false || (card.config.valueColumn ?? -1) < 0 || card.config.column === ROW_ORDER) return "none";
   const kind = card.config.errorBarKind ?? "ci";
   return kind === "bootstrap" ? "ci" : kind;
 }
@@ -78,9 +83,12 @@ export function refreshRelLine(card: ChartCard): void {
 
 /** Axis names: x is the column, y the statistic of the Value (or Rows). */
 export function relLineAxisLabels(card: ChartCard): { x: string | null; y: string | null } {
-  const x = card.meta(card.config.column)?.name ?? null;
+  const rowOrder = card.config.column === ROW_ORDER;
+  const x = rowOrder ? ROW_ORDER_NAME : (card.meta(card.config.column)?.name ?? null);
   const value = card.meta(card.config.valueColumn ?? -1)?.name;
-  return { x, y: value === undefined ? "Rows" : plainMeasureName(`${stat(card)}(${value})`) };
+  // One row per point: the value itself, not "Average of".
+  const y = value === undefined ? "Rows" : rowOrder && card.relLineResult?.binned !== true ? value : plainMeasureName(`${stat(card)}(${value})`);
+  return { x, y };
 }
 
 /** The line's numbers for the data drawer: one row per point and group, with its band and rows. */
@@ -246,7 +254,8 @@ export function drawRelLine(card: ChartCard, ctx: CanvasRenderingContext2D, fram
   });
 
   // Hover: one strip per x, naming every line's value there.
-  const xName = card.meta(card.config.column)?.name ?? "x";
+  const rowOrder = card.config.column === ROW_ORDER;
+  const xName = rowOrder ? ROW_ORDER_NAME : (card.meta(card.config.column)?.name ?? "x");
   const regions: HitRegion[] = [];
   for (let i = 0; i < n; i++) {
     const center = xAt(categorical ? i : result.xs[i]!);
@@ -268,7 +277,13 @@ export function drawRelLine(card: ChartCard, ctx: CanvasRenderingContext2D, fram
   card.splitLegend = result.series.length > 1 || result.series[0]?.label !== "" ? result.series.map((series, index) => ({ label: series.label, color: markColor(card, card.groupColor(index), null, series.label) })) : null;
   const notes: string[] = [];
   const statName = relLineAxisLabels(card).y ?? "Rows";
-  notes.push(`${statName} at each ${xName}${result.binned ? ` (gathered into ${n} bands of ${xName})` : ""}`);
+  notes.push(
+    rowOrder
+      ? result.binned
+        ? `${statName} in row order, each point the average of a run of rows (${n} runs)`
+        : `${statName} in row order, one point per row`
+      : `${statName} at each ${xName}${result.binned ? ` (gathered into ${n} bands of ${xName})` : ""}`,
+  );
   const band = relBand(card);
   if (result.bandBlock !== null) notes.push(`no band: ${result.bandBlock}`);
   else if (band !== "none") notes.push(`band: ${INTERVAL_KINDS.find((entry) => entry.id === band)?.label ?? band}`);

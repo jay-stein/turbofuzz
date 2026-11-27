@@ -56,3 +56,29 @@ test("a Line without dates draws y at each x with a 95% band and one line per gr
   await pick(page, "Split into panels by", "site");
   await expect(note).toContainText("2 panels by site");
 });
+
+test("a Line of one column needs no setup: it draws the values in row order, as Excel does", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 950 });
+  await page.addInitScript(() => localStorage.setItem("turbofuzz.charts.refineOpen", "1"));
+  await page.goto("/");
+  const lines = ["reading,site"];
+  for (let i = 0; i < 300; i++) lines.push(`${(50 + 20 * Math.sin(i / 15) + (i % 7)).toFixed(2)},${["north", "south"][i % 2]}`);
+  await page.locator('input[type="file"]').setInputFiles({ name: "readings.csv", mimeType: "text/csv", buffer: Buffer.from(lines.join("\n")) });
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator(".view-tabs button", { hasText: "Chart" }).click();
+  const lineTile = page.locator(".chart-add-type", { has: page.locator(".chart-add-type-name", { hasText: /^Line$/ }) }).first();
+  await lineTile.click();
+  await page.locator("canvas.chart-canvas").waitFor();
+  const note = page.locator(".chart-note").first();
+  await expect(note).toContainText("reading in row order, one point per row");
+  await expect(note).toContainText("300 rows");
+  const x = page.getByLabel("Chart column", { exact: true }).first();
+  await expect(x).toHaveValue("-2");
+  await expect(x.locator("option:checked")).toHaveText("Row order (as in the table)");
+  // Another x is one choice away, and row order comes back the same way.
+  await pick(page, "Chart column", "site");
+  await expect(note).toContainText("at each site");
+  await x.selectOption("-2");
+  await expect(note).toContainText("in row order");
+});

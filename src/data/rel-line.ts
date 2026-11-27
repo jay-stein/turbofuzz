@@ -14,6 +14,15 @@ export type RelLineBand = Exclude<IntervalKind, "bootstrap"> | "none";
 export const RELLINE_EXACT = 200;
 export const RELLINE_BINS = 80;
 
+/**
+ * A Line's x as "Row order": each value in the order the table holds it, numbered like the table's
+ * rows, the way Excel draws a line of one column. No date or index column is needed.
+ */
+export const ROW_ORDER = -2;
+/** In row order every row is its own point up to this many; a longer column is drawn in ROW_ORDER_BINS stretches. */
+export const ROW_ORDER_EXACT = 5000;
+export const ROW_ORDER_BINS = 1000;
+
 export interface RelLineInput {
   ids: ArrayLike<number>;
   /** x for each row: a number, or for categorical x the category's code (NaN where missing). */
@@ -29,6 +38,9 @@ export interface RelLineInput {
   maxHues: number;
   stat: RelLineStat;
   band: RelLineBand;
+  /** Distinct x values drawn one point each before x is gathered into `bins` bands (RELLINE_EXACT, RELLINE_BINS by default). */
+  exact?: number;
+  bins?: number;
 }
 
 export interface RelLineSeries {
@@ -98,25 +110,27 @@ export function computeRelLine(input: RelLineInput): RelLineResult {
     xLabels = order.map((code) => labels[code] ?? "");
     keyOf = (value) => slot.get(value) ?? -1;
   } else {
+    const exact = input.exact ?? RELLINE_EXACT;
+    const bins = input.bins ?? RELLINE_BINS;
     const distinct = new Set<number>();
     let min = Infinity;
     let max = -Infinity;
     for (let i = 0; i < ids.length; i++) {
       const value = x[ids[i]!]!;
       if (!Number.isFinite(value)) continue;
-      if (distinct.size <= RELLINE_EXACT) distinct.add(value);
+      if (distinct.size <= exact) distinct.add(value);
       if (value < min) min = value;
       if (value > max) max = value;
     }
-    if (distinct.size <= RELLINE_EXACT) {
+    if (distinct.size <= exact) {
       positions = [...distinct].sort((a, b) => a - b);
       const slot = new Map(positions.map((value, index) => [value, index]));
       keyOf = (value) => slot.get(value) ?? -1;
     } else {
       binned = true;
-      const width = (max - min) / RELLINE_BINS;
-      positions = Array.from({ length: RELLINE_BINS }, () => 0);
-      keyOf = (value) => (Number.isFinite(value) ? Math.min(RELLINE_BINS - 1, Math.floor((value - min) / width)) : -1);
+      const width = (max - min) / bins;
+      positions = Array.from({ length: bins }, () => 0);
+      keyOf = (value) => (Number.isFinite(value) ? Math.min(bins - 1, Math.floor((value - min) / width)) : -1);
     }
   }
 

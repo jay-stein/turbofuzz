@@ -51,7 +51,7 @@ import { compileFormula, evaluateFormula } from "../data/column-formula.js";
 import { formulasFromExamples } from "../data/formula-examples.js";
 import { missingnessGrid } from "../data/missingness.js";
 import { categoryCodes, computeSeries, groupPlaces } from "../data/chart-series.js";
-import { computeRelLine } from "../data/rel-line.js";
+import { computeRelLine, ROW_ORDER, ROW_ORDER_BINS, ROW_ORDER_EXACT } from "../data/rel-line.js";
 import { auditDates } from "../data/date-audit.js";
 import {
   computeBoxStats,
@@ -1759,12 +1759,16 @@ function handleGetChartBins(message: GetChartBinsRequest): void {
 function handleGetRelLine(message: GetRelLineRequest): void {
   const started = performance.now();
   const { dataset } = state();
+  const rowOrder = message.xColumn === ROW_ORDER;
   const xColumn = dataset.columns[message.xColumn];
-  if (xColumn === undefined) throw new Error("Unknown column");
+  if (xColumn === undefined && !rowOrder) throw new Error("Unknown column");
   const ids = chartScopedIds(message.respectFilters, message.chartFilter, message.chartExclude);
   let x: ArrayLike<number>;
   let xLabels: readonly string[] | null = null;
-  if (isNumericLikeType(xColumn.type)) {
+  if (rowOrder || xColumn === undefined) {
+    // Row order: each row at its row number, as the table numbers it (file order, 1-based).
+    x = Float64Array.from({ length: dataset.rowCount }, (_, id) => id + 1);
+  } else if (isNumericLikeType(xColumn.type)) {
     x = xColumn.numbers();
   } else {
     const categories = xColumn.categories();
@@ -1785,6 +1789,7 @@ function handleGetRelLine(message: GetRelLineRequest): void {
     maxHues: message.maxHues,
     stat: message.stat,
     band: message.band,
+    ...(rowOrder ? { exact: ROW_ORDER_EXACT, bins: ROW_ORDER_BINS } : {}),
   });
   post({ type: "relLine", requestId: message.requestId, ms: performance.now() - started, ...result });
 }

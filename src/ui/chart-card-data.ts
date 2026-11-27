@@ -15,7 +15,8 @@ import type { AggregateMessage, ColumnMeta } from "../worker/protocol.js";
 import { CHART_KIND_LABELS, type ChartCardKind, defaultChartTitle, autoShortStep, isGroupable, isNumericType, isPairKind, parseChartNumber, plainMeasureName, SPLIT_KINDS, GROUP_REQUIRED_KINDS, VALUE_AGGREGATE_KINDS, toRecColumn, suggestedBinRange } from "./chart-utils.js";
 import { clear, el } from "./dom.js";
 import { dismissedClusterCount } from "./similar-dismissals.js";
-import { lineAxisAllowed, refreshRelLine, relLineOn, relLineRows } from "./chart-rel-line.js";
+import { lineAxisAllowed, refreshRelLine, relLineOn, relLineRows, ROW_ORDER_NAME } from "./chart-rel-line.js";
+import { ROW_ORDER, ROW_ORDER_EXACT } from "../data/rel-line.js";
 import { describeScope } from "./scope.js";
 import type { ChartCard } from "./chart-card.js";
 import type { ChartSeriesTarget, ChartCardConfig, ChartSource } from "./chart-card-types.js";
@@ -501,9 +502,14 @@ export function syncSummaryText(card: ChartCard): void {
     card.summaryEl.textContent = `${kind}: ${name(card.config.y)} vs ${name(card.config.x)}${card.options.docked === true ? "" : ` from ${source}`}`;
     return;
   }
+  // A Line in row order with a point per row shows the values themselves: nothing is averaged.
+  const rowOrder = card.config.kind === "line" && card.config.column === ROW_ORDER;
+  const values = [card.config.valueColumn ?? -1, ...card.extraValues()].map(name).join(", ");
   const agg =
     card.config.valueColumn !== undefined && card.config.valueColumn >= 0
-      ? `${card.aggPhrase()} of ${[card.config.valueColumn, ...card.extraValues()].map(name).join(", ")}`
+      ? rowOrder && card.rowCount <= ROW_ORDER_EXACT
+        ? `${values} in row order`
+        : `${card.aggPhrase()} of ${values}${rowOrder ? " in row order" : ""}`
       : "rows";
   const overTime =
     card.config.valueColumn !== undefined &&
@@ -794,8 +800,13 @@ export function setKind(card: ChartCard, kind: ChartCardKind): void {
     // Without a date among the fields in use, a Line runs over the category it had rather than a
     // date nobody picked.
     const column = lead.find((index) => dates.includes(index)) ?? lead.find((index) => primary.includes(index)) ?? dates[0];
-    if (column !== undefined) card.config.column = column;
-    if (!primary.includes(card.config.column)) {
+    // Only numbers in use and no date: a Line of them as they unfold, row by row, the way Excel draws one column.
+    const unfold = kind === "line" && card.config.source === "" && dimensions.length === 0 && measures.length > 0 && !lead.some((index) => dates.includes(index));
+    if (unfold) {
+      card.config.column = ROW_ORDER;
+      card.config.valueColumn = measures[0];
+    } else if (column !== undefined) card.config.column = column;
+    if (!unfold && !primary.includes(card.config.column)) {
       // Nothing in use fits: bars are laid out by a category before a date nobody picked.
       const category = kind === "barplot" ? primary.find((index) => !card.isDateLike(card.meta(index))) : undefined;
       card.config.column = category ?? primary[0] ?? -1;
@@ -1130,9 +1141,10 @@ export function canvasLabel(card: ChartCard): string {
   switch (card.config.kind) {
     case "line": {
       const group = card.meta(card.config.groupColumn);
+      const x = card.config.column === ROW_ORDER ? `${name(card.config.valueColumn ?? -1)} in ${ROW_ORDER_NAME.toLowerCase()} order` : name(card.config.column);
       return group === undefined
-        ? `Line chart of ${name(card.config.column)}, ${rows} rows shown`
-        : `Line chart of ${name(card.config.column)} by ${group.name}, ${rows} rows shown`;
+        ? `Line chart of ${x}, ${rows} rows shown`
+        : `Line chart of ${x} by ${group.name}, ${rows} rows shown`;
     }
     case "bar":
       return `Bar chart of ${name(card.config.column)} (a count of rows), ${rows} rows shown`;

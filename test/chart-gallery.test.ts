@@ -71,7 +71,10 @@ test("gallery tiles explain what a disabled chart needs", () => {
   const onlyText = [meta({ name: "notes", type: "string" })];
   assert.equal(fitChartKind("histogram", onlyText, 10).ok, false);
   assert.equal(fitChartKind("histogram", onlyText, 10).reason, "needs a numeric column");
-  assert.equal(fitChartKind("line", onlyText, 10).reason, "needs a date, or a number to plot along another column");
+  assert.equal(fitChartKind("line", onlyText, 10).reason, "needs a number to draw");
+  // One number and nothing else: a line of it in row order, as Excel draws one column.
+  const oneNumber = [meta({ name: "sales", type: "number" })];
+  assert.deepEqual(fitChartKind("line", oneNumber, 10), { kind: "line", ok: true, reason: "", preset: { kind: "line", column: -2, valueColumn: 0, valueAgg: "mean" } });
   assert.equal(fitChartKind("bar", onlyText, 10).reason, "needs a grouping column (few distinct values)");
   assert.equal(fitChartKind("heatmap", onlyText, 10).reason, "needs two grouping columns (few distinct values)");
   assert.equal(fitChartKind("correlation", onlyText, 10).reason, "needs two numeric columns");
