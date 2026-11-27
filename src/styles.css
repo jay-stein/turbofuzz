@@ -6761,14 +6761,12 @@ tr.views-drop-after > td {
   color: var(--accent);
 }
 
+/* Theme A: what ran and how is a caption, not two boxed panels. */
 .outliers-status,
 .outliers-recipe {
   font-size: var(--fs-sm);
   color: var(--text-dim);
-  padding: 6px 9px;
-  border-radius: 7px;
-  background: var(--panel);
-  border: 1px solid var(--border-subtle);
+  padding: 0 2px;
 }
 
 .outliers-recipe { line-height: 1.55; }
@@ -6784,17 +6782,18 @@ tr.views-drop-after > td {
   flex-direction: column;
   gap: 3px;
   padding: 12px 14px;
+  /* Theme A card: the same edge all round, like every other card. */
   border: 1px solid var(--border-card);
-  border-left: 3px solid var(--accent);
   border-radius: var(--radius-card);
   background: var(--panel);
+  box-shadow: var(--shadow-card);
   text-align: left;
   color: var(--text);
   font: inherit;
 }
 
 .outliers-insight.clickable { cursor: pointer; }
-.outliers-insight.clickable:hover { border-color: var(--accent); }
+.outliers-insight.clickable:hover { border-color: color-mix(in srgb, var(--text) 30%, var(--border-card)); }
 .outliers-insight-label {
   font-size: var(--fs-xs);
   font-weight: 700;

@@ -953,7 +953,7 @@ export class OutliersPanel {
         type: "button",
         title: "Thorough analysis; typically 10–30 seconds. Quick results stay visible.",
       },
-      [this.running?.mode === "deep" ? "Deep compute running…" : "🧠 Deep compute"],
+      [this.running?.mode === "deep" ? "Deep compute running…" : "Deep compute"],
     ) as HTMLButtonElement;
     deep.disabled =
       this.running !== null || !multivariate || this.selectedFeatures.size < 2;
