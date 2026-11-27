@@ -7172,10 +7172,18 @@ tr.views-drop-after > td {
 }
 .column-matrix-wrap {
   overflow-x: auto;
-  padding: 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  /* Theme A card, as wide as its grid: a few columns no longer leave a wide empty frame. */
+  width: fit-content;
+  max-width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-card);
   background: var(--panel);
+}
+.column-matrix-none {
+  margin: 0 0 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
 }
 .column-matrix {
   display: grid;

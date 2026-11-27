@@ -2330,15 +2330,23 @@ export class OutliersPanel {
       const edge = network.edges[this.selectedColumnEdge];
       if (edge !== undefined) section.append(this.buildColumnNetworkDetail(edge, network));
     }
-    section.append(this.buildTextLinkCards(network));
+    const textCards = this.buildTextLinkCards(network);
+    if (textCards !== null) section.append(textCards);
     return section;
   }
 
   private buildColumnNetworkMatrix(network: ColumnNetworkMessage): HTMLElement {
     const wrap = el("div", { class: "column-matrix-wrap" });
+    // An empty grid reads as broken: say plainly that nothing links before showing it.
+    const shown = new Set(network.nodes.map((node) => node.column));
+    const linkedHere = (this.dependencies?.pairs ?? []).some((pair) => shown.has(pair.determinantColumn) && shown.has(pair.dependentColumn));
+    if (network.edges.length === 0 && !linkedHere) {
+      wrap.append(el("p", { class: "column-matrix-none" }, ["No links between these columns: each one varies on its own."]));
+    }
     const matrix = el("div", { class: "column-matrix" });
     const nodes = network.nodes;
-    matrix.style.gridTemplateColumns = `minmax(100px, 150px) repeat(${nodes.length}, minmax(34px, 1fr))`;
+    // Cells stop at a readable width, so a few columns make a compact grid rather than bars across the page.
+    matrix.style.gridTemplateColumns = `minmax(100px, 150px) repeat(${nodes.length}, minmax(34px, 96px))`;
     matrix.append(el("span", { class: "column-matrix-corner" }, [""]));
 
     const edgeIndex = new Map<string, number>();
@@ -2551,18 +2559,12 @@ export class OutliersPanel {
     return aside;
   }
 
-  private buildTextLinkCards(network: ColumnNetworkMessage): HTMLElement {
+  /** Cards for the free-text columns; none at all leaves the section out rather than a heading over nothing. */
+  private buildTextLinkCards(network: ColumnNetworkMessage): HTMLElement | null {
     const textNodes = network.nodes.filter((node) => node.role === "text");
+    if (textNodes.length === 0) return null;
     const section = el("section", { class: "text-link-section" });
     section.append(el("h4", {}, ["Text columns"]));
-    if (textNodes.length === 0) {
-      section.append(
-        el("p", { class: "outliers-hint" }, [
-          "No free-text columns were found; category columns appear in the matrix above.",
-        ]),
-      );
-      return section;
-    }
     const grid = el("div", { class: "text-link-grid" });
     for (const node of textNodes) {
       const card = el("div", { class: "text-link-card" });
@@ -3245,7 +3247,7 @@ export class OutliersPanel {
     );
     const n = correlation.labels.length;
     const grid = el("div", { class: "outliers-heatmap" });
-    grid.style.gridTemplateColumns = `minmax(110px, 150px) repeat(${n}, minmax(34px, 1fr))`;
+    grid.style.gridTemplateColumns = `minmax(110px, 150px) repeat(${n}, minmax(34px, 96px))`;
     grid.append(el("span", { class: "outliers-heatmap-corner" }, [""]));
     for (const label of correlation.labels) {
       grid.append(
