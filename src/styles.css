@@ -19502,10 +19502,12 @@ mark.cmp-ch {
   border-radius: 8px;
   transition: box-shadow 160ms ease, background 160ms ease;
 }
+/* The research lane lights faintly under the pointer or the keyboard. It used :focus-within, so a mouse
+   click left a green box round the four tabs for as long as one held focus. */
 .view-tabs-research:hover,
-.view-tabs-research:focus-within {
-  background: color-mix(in srgb, var(--research) 7%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--research) 30%, transparent), 0 0 14px color-mix(in srgb, var(--research) 28%, transparent);
+.view-tabs-research:has(:focus-visible) {
+  background: color-mix(in srgb, var(--research) 6%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--research) 22%, transparent);
 }
 .research-lane-tip {
   position: fixed;
