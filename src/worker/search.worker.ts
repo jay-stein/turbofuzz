@@ -1,6 +1,5 @@
 import "../data/display-locale.js";
 import { setNumberLocale } from "../data/display-locale.js";
-import { planTidyColumn, tidyableType, type TidyColumn } from "../data/tidy-text.js";
 import { setDateTieBreak } from "../parse/conventions.js";
 import { createProgressThrottle } from "../parse/progress-throttle.js";
 import { detectSuggestions } from "../data/suggestions.js";
@@ -605,20 +604,6 @@ async function handle(message: WorkerRequest): Promise<void> {
     case "previewClean":
       handlePreviewClean(message);
       break;
-    case "previewTidyText": {
-      // Every text column, as it is now: the tidy steps go on after any cleaning already done.
-      const { dataset } = state();
-      const columns: TidyColumn[] = [];
-      dataset.columns.forEach((column, index) => {
-        if (column.role === "provenance" || !tidyableType(column.type)) return;
-        const counts = new Map<string, number>();
-        for (const value of column.raw) if (!column.isNull(value)) counts.set(value, (counts.get(value) ?? 0) + 1);
-        const groups = planTidyColumn(counts);
-        if (groups.length > 0) columns.push({ column: index, name: column.name, groups, rows: groups.reduce((sum, group) => sum + group.rows, 0) });
-      });
-      post({ type: "tidyTextPreview", requestId: message.requestId, columns });
-      break;
-    }
     case "startExport":
       if (message.scope === "all") {
         const { dataset: current } = state();
@@ -4015,7 +4000,7 @@ function handlePreviewClean(message: PreviewCleanRequest): void {
     const index = update.column;
     const column = current.columns[index];
     if (column === undefined) return { column: index, changed: 0, total: 0, failed: 0 };
-    const source = cleanSource.get(index) ?? column;
+    const source = message.fromCurrent === true ? column : (cleanSource.get(index) ?? column);
     const raw = update.ops.length === 0 ? source.raw : applyCleanOps(source.raw, update.ops);
     let changed = 0;
     for (let i = 0; i < raw.length; i++) if (raw[i] !== source.raw[i]) changed++;

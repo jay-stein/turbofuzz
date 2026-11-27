@@ -53,7 +53,6 @@ import type { ColumnSchema, TransformOp } from "../data/transform-ops.js";
 import type { DateOrder } from "../parse/dates.js";
 import type { DateAuditResult } from "../data/date-audit.js";
 import type { Delimiter } from "../parse/delimiter.js";
-import type { TidyColumn } from "../data/tidy-text.js";
 import type { FileEncoding } from "../parse/encoding.js";
 import type { ColumnStats, TypeDowngrade } from "../parse/infer.js";
 import type { NumberLocale } from "../parse/numbers.js";
@@ -715,19 +714,9 @@ export type PreviewCleanRequest = {
   type: "previewClean";
   requestId: number;
   updates: CleanUpdate[];
+  /** Apply the ops to the column as it is now (after earlier cleaning), not to its loaded values. */
+  fromCurrent?: boolean;
 };
-
-/** Tidy text: every change trimming and consistent capitals would make, in every text column. */
-export type PreviewTidyTextRequest = {
-  type: "previewTidyText";
-  requestId: number;
-};
-
-export interface TidyTextPreviewMessage {
-  type: "tidyTextPreview";
-  requestId: number;
-  columns: TidyColumn[];
-}
 
 export type SetNullPolicyRequest = {
   type: "setNullPolicy";
@@ -1714,7 +1703,6 @@ export type WorkerRequest =
   | KnnEvaluateRequest
   | PreviewTransformRequest
   | PreviewCleanRequest
-  | PreviewTidyTextRequest
   | SetNullPolicyRequest
   | ResolveNullsAllRequest
   | GetAggregateRequest
@@ -2055,7 +2043,6 @@ export type WorkerResponse =
   | KnnEvaluationMessage
   | ExcludedRowsMessage
   | CleanPreviewMessage
-  | TidyTextPreviewMessage
   | CompareSetupMessage
   | CompareResultMessage
   | CompareClearedMessage

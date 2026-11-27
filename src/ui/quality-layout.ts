@@ -245,7 +245,7 @@ export interface CleanHeroInput {
  */
 export function buildCleanHero(
   input: CleanHeroInput,
-  actions: { fixAllSafe: () => void; fixNext: () => void; openNext: () => void; openStep: (id: string) => void; openReport: () => void; tidyText?: () => void },
+  actions: { fixAllSafe: () => void; fixNext: () => void; openNext: () => void; openStep: (id: string) => void; openReport: () => void; textHammer?: (mode: "trim" | "case") => void },
 ): HTMLElement {
   const root = el("section", { class: "cl-hero", "aria-label": "Cleaning progress" });
   const now = input.overall;
@@ -308,6 +308,26 @@ export function buildCleanHero(
   }
   root.append(intro, meter);
 
+  // The two big hammers, before any step: stray spaces and mixed capitals cause most spelling issues,
+  // so clearing them across every text column first leaves Standardise only the real differences.
+  if (actions.textHammer !== undefined) {
+    const hammer = actions.textHammer;
+    const big = (mode: "trim" | "case", icon: string, title: string, sub: string): HTMLElement => {
+      const button = el("button", { class: "cl-hammer", type: "button", "data-qp": `hammer-${mode}` }, [
+        el("span", { class: "cl-hammer-icon", "aria-hidden": "true" }, [icon]),
+        el("span", { class: "cl-hammer-text" }, [el("b", {}, [title]), el("span", {}, [sub])]),
+      ]);
+      button.addEventListener("click", () => hammer(mode));
+      return button;
+    };
+    root.append(
+      el("div", { class: "cl-hammers", role: "group", "aria-label": "Quick fixes for every text column" }, [
+        big("trim", "⇥⇤", "Trim spaces", "Remove spaces at the start and end of every text value"),
+        big("case", "Aa", "Change case", "Make every text column UPPER, lower or Title Case"),
+      ]),
+    );
+  }
+
   const steps = input.steps;
   const doneCount = steps.filter((step) => step.state === "done").length;
   const allDone = steps.length > 0 && doneCount === steps.length;
@@ -364,22 +384,6 @@ export function buildCleanHero(
         ]),
         smart.points !== null && smart.points >= 0.1 ? el("span", { class: "cl-next-pts" }, [pointsLabel(smart.points)]) : "",
         look,
-      ]),
-    );
-  }
-
-  // The big hammer: stray spaces and inconsistent capitals cause most spelling issues, so one button fixes them everywhere.
-  if (actions.tidyText !== undefined) {
-    const tidy = el("button", { class: "primary cl-tidy-go", type: "button", "data-qp": "tidy-text" }, ["Tidy text…"]);
-    tidy.addEventListener("click", actions.tidyText);
-    root.append(
-      el("div", { class: "cl-tidy" }, [
-        el("span", { class: "cl-tidy-icon", "aria-hidden": "true" }, ["Aa"]),
-        el("span", { class: "cl-tidy-text" }, [
-          el("b", {}, ["Tidy text in every column"]),
-          el("span", {}, ["Trim stray spaces and make capitals consistent in one go. You see every change first."]),
-        ]),
-        tidy,
       ]),
     );
   }

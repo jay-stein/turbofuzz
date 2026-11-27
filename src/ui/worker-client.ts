@@ -41,7 +41,6 @@ import type {
   CrosstabMessage,
   CleanedMessage,
   CleanPreviewMessage,
-  TidyTextPreviewMessage,
   CleanUpdate,
   CoMissingnessMessage,
   ColumnMetaMessage,
@@ -768,12 +767,8 @@ export class SearchWorkerClient {
     return this.request<TransformPreviewMessage>({ type: "previewTransform", ops, ...(samples > 0 ? { samples } : {}) });
   }
 
-  previewTidyText(): Promise<TidyTextPreviewMessage> {
-    return this.request<TidyTextPreviewMessage>({ type: "previewTidyText" });
-  }
-
-  previewClean(updates: CleanUpdate[]): Promise<CleanPreviewMessage> {
-    return this.request<CleanPreviewMessage>({ type: "previewClean", updates });
+  previewClean(updates: CleanUpdate[], fromCurrent = false): Promise<CleanPreviewMessage> {
+    return this.request<CleanPreviewMessage>({ type: "previewClean", updates, ...(fromCurrent ? { fromCurrent } : {}) });
   }
 
   startExport(scope: ExportScope = "filtered"): Promise<ExportStartedMessage> {
