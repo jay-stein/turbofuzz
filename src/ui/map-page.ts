@@ -17,6 +17,7 @@ import { cityOverlay } from "./map-cities.js";
 import { createMarkersPanel, type MarkersState } from "./map-markers-panel.js";
 import { MAX_MARKER_SIZE, MIN_MARKER_SIZE } from "../data/map-markers.js";
 import { drawSymbol } from "./map-symbols.js";
+import { LAYER_ICONS, layerSwitch, mapLayer, pinIcon } from "./map-layers.js";
 
 export interface MapPageOptions {
   /** A map card fed by the Chart panel's data (see ChartsPanel.createDetachedCard). */
@@ -40,8 +41,10 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   // What kind of map: pictures, as the Chart page has for its chart types.
   type MapType = "markers" | "heat" | "regions";
   const typeButtons = new Map<MapType, HTMLButtonElement>();
+  const TYPE_NAMES: Record<MapType, string> = { markers: "dots", heat: "heat grid", regions: "choropleth" };
   const typeOf = (mode: string | undefined): MapType => (mode === "heat" ? "heat" : mode === "regions" ? "regions" : "markers");
   const syncType = (mode: string | undefined): void => {
+    dataLayer.setMeta(TYPE_NAMES[typeOf(mode)]);
     for (const [type, button] of typeButtons) {
       const on = type === typeOf(mode);
       button.classList.toggle("active", on);
@@ -84,9 +87,11 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   const titleInput = el("input", { class: "map-title-input", type: "text", maxlength: "160", placeholder: "Add a title for this map…", "aria-label": "Map title", spellcheck: "true" }) as HTMLInputElement;
   titleInput.addEventListener("input", () => card?.setMapTitle(titleInput.value));
 
-  // The dock floats on the map itself, so its layers and marker tools are in view
-  // whenever the map is: cities, marker size, click-to-add and the Add window.
-  const citiesToggle = el("input", { type: "checkbox", role: "switch", class: "map-switch-input", "aria-label": "Show world cities" }) as HTMLInputElement;
+  // The side panel opens with the map's layers: your data, your markers, cities and boundaries. Each opens its own
+  // settings under it, so nothing floats over the map.
+  const citiesToggle = el("input", { type: "checkbox", "aria-label": "Show world cities" }) as HTMLInputElement;
+  const markersToggle = el("input", { type: "checkbox", "aria-label": "Show your markers", checked: "" }) as HTMLInputElement;
+  markersToggle.checked = true;
   const sizeSlider = el("input", {
     type: "range",
     min: String(MIN_MARKER_SIZE),
@@ -110,38 +115,20 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     { type: "button", class: "map-dock-btn", "aria-pressed": "false", title: "Each click on the map adds a marker there; click again to stop" },
     ["Click map to add"],
   ) as HTMLButtonElement;
-  const addMarkers = el("button", { type: "button", class: "map-dock-btn primary", title: "Paste rows, load a CSV or find a city" }, ["+ Add markers…"]);
+  const addMarkers = el("button", { type: "button", class: "map-dock-btn primary", title: "Paste rows, load a CSV or find a city", "aria-label": "+ Add markers…" }, [
+    pinIcon("map-btn-pin"),
+    "Add markers…",
+  ]);
   const boundaries = el("button", { type: "button", class: "map-dock-btn", title: "Colour regions from a boundary file: a GeoJSON file or a zipped Shapefile (you can also drop one on the map)" }, ["Boundaries…"]) as HTMLButtonElement;
   const clearBoundaries = el("button", { type: "button", class: "map-dock-btn hidden", title: "Remove the loaded boundaries and go back to the plain map" }, ["Clear boundaries"]) as HTMLButtonElement;
-  const fitMarkers = el("button", { type: "button", class: "map-dock-btn", title: "Zoom to show everything plotted and all your markers (the Cities layer is ignored)" }, ["Fit all"]) as HTMLButtonElement;
-  const dock = el("div", { class: "map-dock", role: "toolbar", "aria-label": "Map layers and markers" }, [
-    el("label", { class: "map-dock-item map-switch", title: "The largest cities in view, with names (bundled, offline)" }, [
-      citiesToggle,
-      el("span", { class: "map-switch-track", "aria-hidden": "true" }),
-      el("span", {}, ["Cities"]),
-    ]),
-    citySizeLabel,
-    cityInsideLabel,
-    el("span", { class: "map-dock-sep", "aria-hidden": "true" }),
-    boundaries,
-    clearBoundaries,
-    el("span", { class: "map-dock-sep", "aria-hidden": "true" }),
-    // Everything about markers you place yourself sits together; the dots from your data are
-    // sized in the Dots row under the map's settings, and this slider does not touch them.
-    el("div", { class: "map-dock-group", role: "group", "aria-label": "Your markers" }, [
-      el("span", { class: "map-dock-caption" }, ["Your markers"]),
-      sizeLabel,
-      pickToggle,
-      addMarkers,
-    ]),
-    el("span", { class: "map-dock-sep", "aria-hidden": "true" }),
-    fitMarkers,
-  ]);
+  const fitMarkers = el("button", { type: "button", class: "ghost small map-fit", title: "Zoom to show everything plotted and all your markers (the Cities layer is ignored)" }, ["Fit all"]) as HTMLButtonElement;
   const empty = el("div", { class: "map-empty hidden" });
   const cardHost = el("section", { class: "map-card" });
   let markerState: MarkersState = { markers: [], customs: [] };
   const markersPanel = createMarkersPanel({
     onChange(state) {
+      // New markers open their layer, so the rows just added are in view.
+      if (state.markers.length > markerState.markers.length) markersLayer.setOpen(true);
       markerState = state;
       syncSize();
       applyMarkers();
@@ -156,13 +143,70 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     datasetName: options.datasetName,
     cities: loadCities,
   });
-  // The map comes first; the marker table for editing sits under it.
-  host.append(toolbar, titleInput, empty, cardHost, markersPanel.root);
+  // The layers. Your data holds the map card's own settings, moved in when the card is made (see placeLayers).
+  const dataLayer = mapLayer({ key: "data", icon: svgIcon(LAYER_ICONS.data, "map-layer-icon map-layer-icon-data"), name: "Your data", body: [], open: true });
+  const markersLayer = mapLayer({
+    key: "markers",
+    icon: pinIcon(),
+    name: "Your markers",
+    toggle: layerSwitch(markersToggle, "Show or hide the markers you placed"),
+    body: [
+      // Everything about markers you place yourself sits together; the dots from your data are sized under
+      // Your data (Dots), and this slider does not touch them.
+      el("div", { class: "map-layer-tools", role: "group", "aria-label": "Your markers" }, [el("div", { class: "map-layer-row" }, [addMarkers, pickToggle]), sizeLabel]),
+      markersPanel.root,
+    ],
+    // Open from the start: with no markers it is two buttons, and it is where adding one begins.
+    open: true,
+  });
+  const citiesLayer = mapLayer({
+    key: "cities",
+    icon: svgIcon(LAYER_ICONS.cities, "map-layer-icon"),
+    name: "Cities",
+    toggle: layerSwitch(citiesToggle, "The largest cities in view, with names (bundled, offline)"),
+    body: [
+      el("p", { class: "map-layer-note" }, ["The largest cities in view, with their names. Bundled with the app, so nothing is fetched."]),
+      citySizeLabel,
+      cityInsideLabel,
+    ],
+    open: false,
+  });
+  const boundsLayer = mapLayer({
+    key: "boundaries",
+    icon: svgIcon(LAYER_ICONS.boundaries, "map-layer-icon"),
+    name: "Boundaries",
+    body: [
+      el("p", { class: "map-layer-note" }, ["Regions from a GeoJSON file or a zipped Shapefile, matched to your table by name. You can also drop the file on the map."]),
+      el("div", { class: "map-layer-row" }, [boundaries, clearBoundaries]),
+    ],
+    open: true,
+  });
+  // The short layers you add on top come first; Your data, with the map's full settings, closes the list.
+  const layers = el("div", { class: "map-layers", role: "group", "aria-label": "Map layers" }, [markersLayer.root, citiesLayer.root, boundsLayer.root, dataLayer.root]);
+  markersToggle.addEventListener("change", () => applyMarkers());
+  // Switching cities on opens the layer, so its text size and options are in view.
+  citiesToggle.addEventListener("change", () => {
+    if (citiesToggle.checked) citiesLayer.setOpen(true);
+  });
+
+  /** Puts the layers at the top of a new map card's side panel, with the card's own settings under Your data. */
+  function placeLayers(target: ChartCard): void {
+    const side = target.sidebar;
+    const head = side.querySelector(".chart-dock-head");
+    head?.querySelector("b")?.replaceChildren("Layers");
+    head?.querySelector(".chart-dock-hide")?.before(fitMarkers);
+    dataLayer.body.replaceChildren(...[...side.children].filter((child) => child !== head && child !== layers));
+    if (head !== null) head.after(layers);
+    else side.prepend(fitMarkers, layers);
+  }
+
+  host.append(toolbar, titleInput, empty, cardHost);
   const syncSize = (): void => {
     sizeSlider.value = String(markersPanel.size());
     sizeOut.textContent = `${markersPanel.size()}px`;
     // With no markers there is nothing for it to size.
     const none = markerState.markers.length === 0;
+    markersLayer.setMeta(none ? "none" : String(markerState.markers.length));
     sizeSlider.disabled = none;
     sizeLabel.classList.toggle("map-dock-off", none);
     sizeLabel.title = none ? "Add a marker first: this sizes the markers you add" : "Resize every marker you added; new markers get this size too. The dots from your data are sized under the map's settings (Dots).";
@@ -202,6 +246,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     const loaded = card?.mapRegions?.ready === true;
     clearBoundaries.classList.toggle("hidden", !loaded);
     boundaries.textContent = loaded ? "Replace boundaries…" : "Boundaries…";
+    boundsLayer.setMeta(loaded ? "loaded" : "none");
     syncCityInside();
   }
 
@@ -262,7 +307,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
     else if (card !== null && card.getConfig().x === -1 && geo !== null) card.applyConfig({ ...card.getConfig(), ...auto });
     if (card === null) {
       card = options.createCard(cardHost, { ...(pending !== null && valid(pending) ? pending : auto), kind: "map" });
-      card.canvasHost.prepend(dock);
+      placeLayers(card);
       card.onMapModeChange = syncType;
       syncType(card.mapMode);
       card.mapRegions?.root.addEventListener("regionschange", syncBoundaryButtons);
@@ -367,7 +412,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   function applyMarkers(): void {
     const customs = markersPanel.customs();
     card?.setMapMarkers(
-      markerState.markers.map((m) => ({
+      (markersToggle.checked ? markerState.markers : []).map((m) => ({
         lon: m.lon,
         lat: m.lat,
         label: m.label,
@@ -390,6 +435,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
   } catch {
     // Storage blocked: cities start off.
   }
+  if (citiesToggle.checked) citiesLayer.setOpen(true);
   const syncCitySize = (): void => {
     citySizeOut.textContent = `${citySize.value}px`;
   };
@@ -445,6 +491,7 @@ export function createMapPage(host: HTMLElement, options: MapPageOptions): MapPa
             if (saved === undefined || key !== datasetKey) return;
             markerState = { markers: saved.markers, customs: saved.customs };
             markersPanel.set(markerState);
+            if (markerState.markers.length > 0) markersLayer.setOpen(true);
             syncSize();
             applyMarkers();
           });

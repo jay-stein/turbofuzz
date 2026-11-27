@@ -4538,14 +4538,6 @@ mark {
   align-self: center;
 }
 
-/* With cities on there is more than fits one line on a narrower map: it wraps rather than running off. */
-.map-page .map-dock {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  max-width: calc(100% - 20px);
-  border-radius: 14px;
-}
-
 .map-page input.map-title-input {
   width: 100%;
   padding: 4px 8px;
@@ -14481,23 +14473,280 @@ button.qp-tile:hover {
   bottom: 16px;
 }
 
-.map-dock {
-  position: absolute;
-  top: 14px;
-  right: 18px;
-  z-index: 6;
+/* ---------- Map page: the Layers list at the top of the side panel (option D, 2026-11-27) ---------- */
+.map-page { --map-pin: #e5484d; }
+
+/* The Chart page pins its card head under the chart tabs; the Map page has no tabs there, so the pinned head
+   slid over the map and the panel on scroll. It stays in place here. */
+.map-page .chart-card-docked .chart-card-head {
+  position: static;
+}
+
+/* The drawn track never takes the click: it goes to the switch's own checkbox. */
+.map-switch-track {
+  pointer-events: none;
+}
+
+.map-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.map-layer {
+  border: 1px solid var(--border-card);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.map-layer.open {
+  border-color: color-mix(in srgb, var(--text) 18%, var(--border-card));
+}
+
+.map-layer-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  max-width: calc(100% - 36px);
-  padding: 5px 6px 5px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--panel) 90%, transparent);
-  backdrop-filter: blur(8px);
-  box-shadow: var(--shadow-pop);
-  font-size: var(--fs-sm);
+  gap: 8px;
+  padding-right: 10px;
+}
+
+.map-layer-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 4px 9px 10px;
+  border: 0;
+  background: none;
   color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.map-layer-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+
+.map-layer-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--text-dim);
+}
+
+.map-layer-icon-data {
+  color: var(--accent);
+}
+
+.map-layer-name {
+  white-space: nowrap;
+}
+
+.map-layer-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-weight: 400;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.map-layer-chevron {
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--text-dim);
+  border-bottom: 1.5px solid var(--text-dim);
+  transform: rotate(-45deg);
+  transition: transform 160ms ease;
+}
+
+.map-layer.open .map-layer-chevron {
+  transform: rotate(45deg);
+}
+
+.map-layer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 10px 12px;
+}
+
+.map-layer-body[hidden] {
+  display: none;
+}
+
+/* Your data holds the chart card's own settings: they keep their look, without a second frame. */
+.map-layer[data-layer="data"] .map-layer-body {
+  padding: 0 4px 6px;
+}
+
+.map-layer-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.map-layer-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Buttons share the row and, when they wrap in a narrow panel, each fills its own line. */
+.map-layer-row > button {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
+.map-layer-note {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+
+.map-layer-switch {
+  display: inline-flex;
+  flex: none;
+}
+
+.map-layer .map-dock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: var(--fs-sm);
+}
+
+/* Theme A: the primary button is ink, so the red pin on it reads. */
+.map-layer .map-dock-btn.primary {
+  background: var(--primary-bg);
+  border-color: var(--primary-bg);
+  color: var(--primary-fg);
+}
+
+.map-layer .map-dock-btn.primary:hover {
+  background: var(--primary-bg);
+  filter: brightness(1.12);
+}
+
+.map-btn-pin {
+  width: 15px;
+  height: 15px;
+}
+
+/* Click to add is on: red like the pin, so the next click on the map plainly places one. */
+.map-layer .map-dock-btn[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--map-pin) 10%, var(--panel));
+  border-color: var(--map-pin);
+  color: var(--map-pin);
+}
+
+.map-layer .map-dock-size input[type="range"] {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  accent-color: var(--map-pin);
+}
+
+.map-layer .map-dock-item {
+  font-size: var(--fs-sm);
+}
+
+/* The markers, as small cards in the panel: symbol, colour, label and remove on top; size and the coordinates under. */
+.map-layer .map-markers {
+  padding: 0;
+  border: 0;
+  background: none;
+  gap: 8px;
+}
+
+.map-layer .map-markers > summary,
+.map-layer .map-mk-hint,
+.map-layer .map-mk-bar .primary,
+.map-layer .map-mk-table thead {
+  display: none;
+}
+
+.map-layer .map-mk-bar {
+  order: 2;
+  gap: 6px;
+}
+
+.map-layer .map-mk-table,
+.map-layer .map-mk-table tbody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: none;
+}
+
+.map-layer .map-mk-table.hidden {
+  display: none;
+}
+
+.map-layer .map-mk-table tr {
+  display: grid;
+  grid-template-columns: 28px 34px minmax(0, 1fr) minmax(0, 1fr) 22px;
+  grid-template-areas:
+    "sym colour label label del"
+    "size size lat lon .";
+  gap: 5px;
+  padding: 6px;
+  border: 1px solid var(--border-card);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.map-layer .map-mk-table td {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+}
+
+.map-layer .map-mk-table td:nth-child(1) { grid-area: sym; }
+.map-layer .map-mk-table td:nth-child(2) { grid-area: colour; }
+.map-layer .map-mk-table td:nth-child(3) { grid-area: size; }
+.map-layer .map-mk-table td:nth-child(4) { grid-area: label; }
+.map-layer .map-mk-table td:nth-child(5) { grid-area: lat; }
+.map-layer .map-mk-table td:nth-child(6) { grid-area: lon; }
+.map-layer .map-mk-table td:nth-child(7) { grid-area: del; justify-content: center; }
+
+.map-layer .map-cell {
+  font-size: var(--fs-sm);
+  background: var(--panel);
+}
+
+.map-layer .map-cell-label {
+  font-weight: 600;
+}
+
+.map-layer .map-cell-lat,
+.map-layer .map-cell-lon,
+.map-layer .map-cell-size {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+
+.map-layer .map-cell-size {
+  width: 100%;
+}
+
+.map-layer .map-color {
+  width: 34px;
+  height: 26px;
 }
 
 .map-dock-item {
@@ -14508,29 +14757,7 @@ button.qp-tile:hover {
   cursor: pointer;
 }
 
-.map-dock-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.map-dock-caption {
-  font-family: var(--mono);
-  font-size: var(--fs-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-
-.map-dock-sep {
-  width: 1px;
-  align-self: stretch;
-  margin: 4px 0;
-  background: var(--border);
-}
-
-/* A real switch for the cities layer: the checkbox stays for keyboards and readers. */
+/* A real switch for each layer that can be hidden: the checkbox stays for keyboards and readers. */
 .map-switch {
   position: relative;
 }
@@ -14623,18 +14850,6 @@ button.qp-tile:hover {
 
 .map-dock-btn.primary:hover {
   background: color-mix(in srgb, var(--accent) 88%, var(--text));
-}
-
-/* Narrow maps: the dock sits above the map instead of over it. */
-@media (max-width: 860px) {
-  .map-dock {
-    position: static;
-    flex-wrap: wrap;
-    max-width: none;
-    margin-bottom: 8px;
-    border-radius: var(--radius);
-    box-shadow: none;
-  }
 }
 
 .map-cell-size {

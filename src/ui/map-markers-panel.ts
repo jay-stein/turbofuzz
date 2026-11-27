@@ -148,7 +148,7 @@ export function createMarkersPanel(options: MarkersPanelOptions): MarkersPanel {
         const color = el("input", { type: "color", value: row.color, class: "map-color", "aria-label": `Colour for row ${i + 1}` }) as HTMLInputElement;
         color.addEventListener("input", () => { row.color = color.value; sym.replaceChildren(symbolSvg(row.symbol, row.color, customs)); emit(); });
         const text = (key: "label" | "lat" | "lon", aria: string, check: ((t: string) => number | null) | null): HTMLInputElement => {
-          const input = el("input", { type: "text", value: row[key], "aria-label": `${aria}, row ${i + 1}`, class: `map-cell map-cell-${key}` }) as HTMLInputElement;
+          const input = el("input", { type: "text", value: row[key], placeholder: aria, title: aria, "aria-label": `${aria}, row ${i + 1}`, class: `map-cell map-cell-${key}` }) as HTMLInputElement;
           const mark = (): void => { input.classList.toggle("invalid", check !== null && check(input.value) === null); };
           mark();
           input.addEventListener("input", () => { row[key] = input.value; mark(); emit(); });

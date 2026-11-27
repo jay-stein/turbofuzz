@@ -75,8 +75,8 @@ test("cities: search adds a marker, names alone become markers, and the layer dr
   await dialog.getByRole("button", { name: "Add 3 markers" }).click();
   await expect(page.locator(".map-mk-count")).toHaveText("3 / 100");
   await expect.poll(() => values(page, ".map-cell-label")).toEqual(["Tokyo", "Nairobi", "London"]);
-  // The cities switch sits on the map, in the dock.
-  await page.locator(".map-dock").getByLabel("Show world cities").check();
+  // The cities switch sits on the Cities layer, in the map's side panel.
+  await page.locator('.map-layer[data-layer="cities"]').getByLabel("Show world cities").check();
   await expect(page.getByLabel("Show world cities")).toBeChecked();
 });
 
@@ -104,9 +104,10 @@ test("marker size: set in the Add window, per row, and for every marker from the
   await page.getByLabel("Size in pixels, row 2").fill("5");
   await expect.poll(() => values(page, ".map-cell-size")).toEqual(["16", "5"]);
 
-  await page.locator(".map-dock").getByLabel("Size of your markers").fill("20");
+  const markersLayer = page.locator('.map-layer[data-layer="markers"]');
+  await markersLayer.getByLabel("Size of your markers").fill("20");
   await expect.poll(() => values(page, ".map-cell-size")).toEqual(["20", "20"]);
-  await expect(page.locator(".map-dock-group .map-size-out")).toHaveText("20px");
+  await expect(markersLayer.locator(".map-size-out")).toHaveText("20px");
 });
 
 test("an uploaded SVG becomes a symbol; its scripts are never run", async ({ page }) => {
