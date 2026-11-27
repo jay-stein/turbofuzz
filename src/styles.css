@@ -15260,12 +15260,21 @@ button.qp-tile:hover {
 
 /* ---------- Every page: the analyst console look (phase 3, DEC-2026-11-01-02) ----------
    Numbers are monospace and tabular; section labels are small, spaced capitals; cards are flat with hairline borders. */
-.stat-value, .health-value, .qp-ring-value, .qp-dim-score, .qp-tile-value, .quality-score,
-.ts-strip dd, .score-tile-value, .chart-kpi-value, .views-card-count {
+.stat-value, .score-tile-value {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
 }
+/* Font audit: big headline figures (scores, tile counts, KPIs) read as display type, in Inter like the front
+   page's title, with tabular digits so they still line up. Mono stays for values inside text and tables. */
+.health-value, .qp-ring-value, .qp-dim-score, .qp-tile-value, .quality-score,
+.ts-strip dd, .chart-kpi-value, .views-card-count, .cmp-tile-value, .lc-rows {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+/* Words are not values: verdicts and headings go back to Inter. */
+.ts-pill.ts-verdict { font-family: var(--font-sans); }
 .ts-strip dd { font-size: 14px; }
 /* The words under a figure are prose, not values: back to Inter. */
 .ts-strip dd small { font-family: var(--font-sans); letter-spacing: 0; }
@@ -15329,7 +15338,7 @@ button.qp-tile:hover {
 .ts-arima-pending td { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .ts-donut { animation: ts-pulse 1.4s ease-in-out infinite; } }
 .ts-arima-out { margin: 10px 0 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
-.ts-arima-out h4 { margin: 0 0 6px; font-family: var(--mono); font-size: 16px; }
+.ts-arima-out h4 { margin: 0 0 6px; font-size: 16px; }
 .ts-arima-out h4 small { font-family: var(--font-sans); font-weight: 400; font-size: 12px; color: var(--text-dim); }
 .ts-arima-out h5 { margin: 14px 0 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
 .ts-arima-out h5 small { text-transform: none; letter-spacing: 0; font-weight: 400; }
