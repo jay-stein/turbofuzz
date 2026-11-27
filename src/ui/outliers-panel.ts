@@ -34,6 +34,7 @@ import {
 } from "../data/force-layout.js";
 import { votesForRow, type RowVotes } from "../data/outlier-votes.js";
 import { clear, el } from "./dom.js";
+import { pageHead } from "./page-head.js";
 import { describeScope } from "./scope.js";
 
 export type OutliersPage = "outliers" | "relationships";
@@ -376,7 +377,11 @@ export class OutliersPanel {
   ) {
     this.root.classList.add("outliers-panel");
     this.contentEl = el("div", { class: "outliers-content" });
-    this.root.append(this.contentEl);
+    const head =
+      page === "outliers"
+        ? pageHead("Outliers", "Rows that look unlike the rest. Check each one before you change anything.")
+        : pageHead("Relationships", "How the columns move together: which ones repeat, predict or depend on another.");
+    this.root.append(head, this.contentEl);
   }
 
   setData(

@@ -10183,6 +10183,28 @@ label.null-row {
   white-space: nowrap;
 }
 
+/* The page heading (page-head.ts): the front page's title type, one plain line under it. */
+.page-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.page-title {
+  margin: 0;
+  font-size: var(--fs-page-title);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+.page-sub {
+  margin: 0;
+  max-width: 72ch;
+  font-size: var(--fs-lg);
+  color: var(--text-dim);
+}
+
 .overview-facts-line {
   font-size: var(--fs-lg);
   color: var(--text-dim);
