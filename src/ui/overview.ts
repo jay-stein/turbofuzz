@@ -663,12 +663,17 @@ export class Overview {
   ): HTMLElement {
     const line = el("div", { class: "overview-dataset" });
     const facts = [
-      loaded.name,
       `${loaded.rowCount.toLocaleString()} rows × ${loaded.columnCount.toLocaleString()} columns`,
     ];
     if (source !== undefined && source.sizeLabel !== null) facts.push(source.sizeLabel);
     facts.push(`${Math.round(loaded.ingestMs)} ms`);
-    line.append(el("span", { class: "overview-facts" }, [facts.join(" · ")]));
+    // The file name is the page's title, front-page style; the facts sit under it.
+    line.append(
+      el("div", { class: "overview-facts" }, [
+        el("h1", { class: "overview-title", title: loaded.name }, [loaded.name]),
+        el("span", { class: "overview-facts-line" }, [facts.join(" · ")]),
+      ]),
+    );
 
     const format = formatLabelFor(loaded.name);
     if (format !== null) {
