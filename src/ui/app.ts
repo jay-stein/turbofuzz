@@ -92,6 +92,7 @@ import type { WorkBook } from "xlsx";
 import { TYPE_LABELS, isTemporalType, type ColumnType } from "../types.js";
 import type { AggregateMessage, CleanUpdate, ColumnMeta, PivotMessage, CorrelationMessage, ExportScope, CompareSideInfo, LoadedMessage, ProgressMessage, ResultsMessage, SpecialKind, TransformedMessage, RowLimit } from "../worker/protocol.js";
 import { clear, el, svgIcon } from "./dom.js";
+import { checkIcon, diceIcon, lockIcon, tilesChartIcon, tilesIcon, uploadIcon } from "./app-icons.js";
 import { openDedupeMenu } from "./dedupe-menu.js";
 import { openMenu, type MenuItem } from "./menu.js";
 import { cleanFillOptions, fillMenuItems, runFill, type FillMenuContext } from "./fill-menu.js";
@@ -403,58 +404,6 @@ function setButtonLabel(button: HTMLElement, label: string): void {
   const span = button.querySelector(".xbtn-label");
   if (span === null) button.textContent = label;
   else span.textContent = label;
-}
-
-function uploadIcon(): SVGElement {
-  return svgIcon(
-    '<path d="M12 15V4"/><path d="m7 9 5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
-    "dropzone-icon",
-  );
-}
-
-function lockIcon(): SVGElement {
-  return svgIcon(
-    '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
-    "privacy-icon",
-  );
-}
-
-/** Dice icon for the shuffle control: a die with pips. */
-function diceIcon(): SVGElement {
-  return svgIcon(
-    '<rect x="3.5" y="3.5" width="17" height="17" rx="4"/>' +
-      '<circle cx="8.4" cy="8.4" r="1.25" fill="currentColor" stroke="none"/>' +
-      '<circle cx="15.6" cy="15.6" r="1.25" fill="currentColor" stroke="none"/>' +
-      '<circle cx="12" cy="12" r="1.25" fill="currentColor" stroke="none"/>',
-    "shuffle-icon",
-  );
-}
-
-/** 2×2 grid icon for the column-tiles toggle. */
-function tilesIcon(): SVGElement {
-  return svgIcon(
-    '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/>' +
-      '<rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/>' +
-      '<rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/>' +
-      '<rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
-    "tiles-icon",
-  );
-}
-
-/** Check mark shown in place of the grid while the tiles strip is on. */
-function checkIcon(): SVGElement {
-  return svgIcon('<path d="m5 12.5 4.5 4.5L19 7"/>', "tiles-check");
-}
-
-/** Mini bar chart shown while hovering the Info Tiles toggle. */
-function tilesChartIcon(): SVGElement {
-  return svgIcon(
-    '<path d="M4 19.5h16"/>' +
-      '<rect x="5" y="11" width="3.4" height="8.5" rx="1"/>' +
-      '<rect x="10.3" y="6.5" width="3.4" height="13" rx="1"/>' +
-      '<rect x="15.6" y="13.5" width="3.4" height="6" rx="1"/>',
-    "tiles-chart",
-  );
 }
 
 const CLIPBOARD_ROW_LIMIT = 100_000;
