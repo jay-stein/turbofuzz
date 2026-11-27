@@ -162,10 +162,9 @@ test("views panel renders the active view, drills and charts", async () => {
   (rows[0] as unknown as { click(): void }).click();
   assert.deepEqual(drills, [{ column: 1, label: "a" }]);
 
-  const chart = [...host.querySelectorAll(".views-actions button")].find(
-    (button) => button.textContent === "Chart this",
-  );
-  assert.ok(chart !== undefined);
+  // Charting a view is the "Chart this pivot" button in its header (the action row no longer repeats it).
+  const chart = host.querySelector(".views-card.expanded .views-chart-this");
+  assert.ok(chart !== null);
   (chart as unknown as { click(): void }).click();
   assert.equal(charts.length, 1);
   assert.equal(charts[0].name, "Sum of amount by city");
