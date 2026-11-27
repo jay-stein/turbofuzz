@@ -647,8 +647,25 @@ export function drawSplitAggregate(card: ChartCard, ctx: CanvasRenderingContext2
   }
   ctx.textAlign = "left";
   const measureName = plainMeasureName(result.measureNames[0] ?? "measure");
+  // Bars too thin to aim at (a hundred weeks of two series is a pixel each): the whole column of a
+  // bucket answers the pointer instead, naming every series there, as a line's hover does.
+  const thin = splitMarks.length > 0 && splitMarks.every((mark) => mark.w < 6 * ui);
+  if (thin) {
+    for (let b = 0; b < buckets.length; b++) {
+      const here = shown.filter((series) => Number.isFinite(series.values[b] ?? Number.NaN));
+      if (here.length === 0) continue;
+      card.hitRegions.push({
+        x: frame.left + b * slot,
+        y: frame.top,
+        w: Math.max(1, slot),
+        h: frame.plotH,
+        lines: [`${buckets[b] ?? ""} · ${measureName}`, ...here.map((series) => `${series.label}: ${formatChartNumber(series.values[b]!)}`)],
+        actions: [],
+      });
+    }
+  }
   for (const mark of splitMarks) {
-    card.hitRegions.push({ x: mark.x, y: mark.y, w: mark.w, h: mark.h, lines: [`${mark.bucket} · ${mark.series}`, `${measureName}: ${formatChartNumber(mark.value)}`], actions: [], mark: markKey(mark.bucket, mark.series) });
+    if (!thin) card.hitRegions.push({ x: mark.x, y: mark.y, w: mark.w, h: mark.h, lines: [`${mark.bucket} · ${mark.series}`, `${measureName}: ${formatChartNumber(mark.value)}`], actions: [], mark: markKey(mark.bucket, mark.series) });
     if (markLabelled(card, mark.bucket, mark.series)) {
       card.font(ctx, ui, 10);
       ctx.textAlign = "center";
