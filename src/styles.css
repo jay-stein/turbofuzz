@@ -7860,7 +7860,8 @@ tr.views-drop-after > td {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 12px 14px;
+  /* Vertical room is tight: the whole chart must fit a 720px laptop screen (chart-workspace spec). */
+  padding: 12px var(--page-pad) 32px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -9256,9 +9257,9 @@ select.chart-number {
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-  padding: 10px 12px 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  padding: 10px 14px 14px;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-card);
   background: var(--panel);
 }
 
@@ -12619,10 +12620,11 @@ body:has(.th-filter-popover) .hint-callout {
   flex-direction: column;
   gap: var(--sp-3);
   margin: var(--sp-2) 0;
-  padding: var(--sp-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  padding: 18px 20px;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-card);
   background: var(--panel);
+  box-shadow: var(--shadow-card);
 }
 
 .chart-add-panel.hidden {
@@ -12637,7 +12639,9 @@ body:has(.th-filter-popover) .hint-callout {
 
 .chart-add-head h3 {
   margin: 0;
-  font-size: var(--fs-lg);
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .chart-add-source {
@@ -15236,10 +15240,10 @@ button.qp-tile:hover {
 }
 /* Theme A: page cards carry the front page's soft shadow (none in dark). The sidebar's filter cards
    sit on the Table page too, so they stay flat. */
-.health-tile, .qp-tile, .ts-card, .overview-card, .views-card {
+.health-tile, .qp-tile, .ts-card, .overview-card, .views-card, .chart-card {
   box-shadow: var(--shadow-card);
 }
-.filter-card, .chart-card {
+.filter-card {
   box-shadow: none;
 }
 .view-tabs { font-feature-settings: "tnum"; }
