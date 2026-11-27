@@ -723,7 +723,11 @@ export class Overview {
 
     const note = el("div", { class: "overview-header-note" });
     note.append(el("span", { class: "overview-header-note-text" }, [this.headerNote ?? ""]));
-    const change = el("button", { class: "ghost small", type: "button", title: "Change where the header row is, which rows to skip, and where the data ends" }, ["Not right? Change how it was read…"]);
+    const change = el(
+      "button",
+      { class: "small overview-read-fix", type: "button", title: "Change what the columns are split on, where the header row is, which rows to skip, and where the data ends" },
+      ["Not right? Change how it was read…"],
+    );
     change.addEventListener("click", () => this.callbacks.onImportSettings?.());
     note.append(change);
     note.hidden = this.headerNote === null;

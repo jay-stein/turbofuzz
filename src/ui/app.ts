@@ -4,7 +4,7 @@ import { readSettings, updateSettings } from "./settings.js";
 import type { DateOrder } from "../parse/dates.js";
 import { clearReviewed, getReviewed, setReviewed } from "./reviewed-issues.js";
 import { clearOptionalMark, getOptionalMarks, setOptionalMark } from "./optional-marks.js";
-import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
+import { DELIMITER_LABELS, detectDelimiter, type Delimiter } from "../parse/delimiter.js";
 import {
   listArchiveEntries,
   readArchiveEntry,
@@ -17,7 +17,7 @@ import { parseDelimited } from "../parse/parse.js";
 import { detectTable, rowLooksLikeData, statedMissingCodes, type HeaderLayout } from "../parse/header-detect.js";
 import { combineSheets, type SheetGrid } from "../parse/combine-sheets.js";
 import { renderSheetPicker } from "./sheet-picker.js";
-import { openHeaderRowDialog } from "./header-row-dialog.js";
+import { openHeaderRowDialog, type SplitChoice } from "./header-row-dialog.js";
 import { bufferLayoutSource, checkLayoutBeforeLoad, type LayoutCheckSource } from "./layout-check.js";
 import { LoadCard } from "./load-card.js";
 import { QaNudge } from "./qa-nudge.js";
@@ -504,6 +504,8 @@ interface ImportSource {
   complete?: boolean;
   /** The last rows of a source too big to read whole, as parsed. */
   readTail?: () => Promise<string[][]>;
+  /** The start of the source as text, exactly as written: delimited text only (not a sheet or a grid). */
+  readText?: () => Promise<string>;
   /** Re-reads the source with a new layout (null = automatic) and rebuilds the table. */
   reload: (layout: HeaderLayout | null) => Promise<void>;
 }
@@ -898,6 +900,8 @@ export class App {
   private triage: TriagePanelHandle | null = null;
   private archetypeOverride: ArchetypeId | null = null;
   private lastLoaded: LoadedMessage | TransformedMessage | null = null;
+  /** The separator the source was split on at its last read (null for sheets, JSON and grids). */
+  private readDelimiter: Delimiter | null = null;
   private workspaceTitle!: HTMLElement;
   private tabHost!: HTMLElement;
   private hints: Hints | null = null;
@@ -1832,6 +1836,7 @@ export class App {
           preview: HEADER_PREVIEW_ROWS,
         }).rows,
       readTail: async () => this.tailOf(text.slice(-HEADER_PREVIEW_BYTES), text.length > HEADER_PREVIEW_BYTES),
+      readText: async () => text.slice(0, HEADER_PREVIEW_BYTES),
       reload: (next) =>
         this.load({
           text,
@@ -1871,7 +1876,10 @@ export class App {
     // A first read of one source with no layout chosen yet: an unusual table is checked before it loads.
     const source = options.importSource;
     const firstRead = options.reuseSource !== true && options.append !== true && (options.files?.length ?? 1) <= 1;
-    const checked = source !== undefined && source.layout === null && options.headerLayout === undefined && firstRead ? await this.checkLayoutBeforeLoad(source) : null;
+    const checked =
+      source !== undefined && source.layout === null && options.headerLayout === undefined && firstRead
+        ? await this.checkLayoutBeforeLoad({ ...source, ...(await this.preloadSplitting(source)) })
+        : null;
     if (checked === "cancel" || this.loading) return;
     if (checked !== null && source !== undefined) options = { ...options, headerLayout: checked, importSource: { ...source, layout: checked } };
     this.loading = true;
@@ -2108,6 +2116,7 @@ export class App {
         layout: current,
         note: MULTI_FILE_HEADER_NOTE,
         readPreview: () => this.readFilePreview(sorted[0]),
+        readText: async () => decodeText(await sorted[0].prefix(HEADER_PREVIEW_BYTES)).text,
         reload: async (next) => {
           const again: { name: string; buffer: ArrayBuffer }[] = [];
           for (const file of sorted) again.push({ name: file.name, buffer: await file.all() });
@@ -2225,6 +2234,7 @@ export class App {
           }).rows,
         readTail: async () =>
           this.tailOf(decodeText(await file.slice(Math.max(0, file.size - HEADER_PREVIEW_BYTES)).arrayBuffer()).text, file.size > HEADER_PREVIEW_BYTES),
+        readText: async () => decodeText(await file.slice(0, HEADER_PREVIEW_BYTES).arrayBuffer()).text,
         reload: async (next) =>
           this.load({
             buffer: await file.arrayBuffer(),
@@ -2466,6 +2476,7 @@ export class App {
         const all = await reopen();
         return this.tailOf(decodeText(all.slice(Math.max(0, all.byteLength - HEADER_PREVIEW_BYTES))).text, all.byteLength > HEADER_PREVIEW_BYTES);
       },
+      readText: async () => decodeText((await reopen()).slice(0, HEADER_PREVIEW_BYTES)).text,
       reload: async (next) =>
         this.load({
           buffer: await reopen(),
@@ -6431,6 +6442,7 @@ export class App {
 
   /** Remembers where the table that just loaded came from; a re-read of the same source keeps its files. */
   private recordSource(loaded: LoadedMessage): void {
+    this.readDelimiter = loaded.delimiter;
     const context = this.loadContext;
     this.loadContext = null;
     const pending = context?.reuse === true ? null : this.pendingUpload;
@@ -7588,6 +7600,12 @@ export class App {
         if (this.importSource === source) {
           this.recipeRead = { source, preview, tail, whole, hasHeaders };
           note = describeHeader(preview, source.layout, whole, hasHeaders);
+          // The separator is a guess too: say which one, and whether it was chosen.
+          const split = source.readText === undefined ? null : this.readDelimiter;
+          if (note !== null && split !== null) {
+            const how = this.delimiterSelect.value === "auto" ? "assumed" : "chosen by you";
+            note = `${note} Columns split on ${(DELIMITER_LABELS[split] ?? split).toLowerCase()}s (${how}).`;
+          }
           // The notes above the table sometimes say what a code means ("A value of '-9' is used for a missing value").
           this.overview?.setStatedCodes(statedMissingCodes(preview.slice(0, detectTable(preview, source.layout ?? undefined).skipRows)));
         }
@@ -7620,6 +7638,48 @@ export class App {
     return checked;
   }
 
+  /**
+   * Delimited text can be split another way: the import dialogs re-read the preview
+   * with each separator offered. Null for a sheet, JSON or a grid (no readText).
+   */
+  private splitChoice(source: ImportSource, found: Delimiter): SplitChoice | null {
+    const readText = source.readText;
+    if (readText === undefined) return null;
+    return {
+      found,
+      current: this.delimiterSelect.value as Delimiter | "auto",
+      readText,
+      reparse: async (choice) => {
+        // Every read of the source goes through the front-page choice; swap it for this read only.
+        const saved = this.delimiterSelect.value;
+        this.delimiterSelect.value = choice;
+        try {
+          const rows = await source.readPreview();
+          const whole = source.complete === true || rows.length < HEADER_PREVIEW_ROWS;
+          const end = !whole && source.readTail !== undefined ? await source.readTail().catch(() => []) : [];
+          return { preview: rows, tail: end, complete: whole };
+        } finally {
+          this.delimiterSelect.value = saved;
+        }
+      },
+    };
+  }
+
+  /** Before a first load: the separator the read will use, offered in the check with the choice kept for the load. */
+  private async preloadSplitting(source: ImportSource): Promise<{ splitting?: LayoutCheckSource["splitting"] }> {
+    if (source.readText === undefined) return {};
+    const current = this.delimiterSelect.value as Delimiter | "auto";
+    let found: Delimiter;
+    try {
+      found = current === "auto" ? detectDelimiter(await source.readText()) : current;
+    } catch {
+      return {};
+    }
+    const choice = this.splitChoice(source, found);
+    if (choice === null) return {};
+    return { splitting: { ...choice, choose: (next) => { this.delimiterSelect.value = next; } } };
+  }
+
   /** Opens the header-row chooser for the current table and reloads with the choice. */
   private async openHeaderRowOverride(): Promise<void> {
     const source = this.importSource;
@@ -7639,6 +7699,7 @@ export class App {
     if (!complete && source.readTail !== undefined) {
       try { tail = await source.readTail(); } catch { tail = []; }
     }
+    const splitting = this.readDelimiter === null ? null : this.splitChoice(source, this.readDelimiter);
     const result = await openHeaderRowDialog({
       name: source.name,
       preview,
@@ -7647,16 +7708,18 @@ export class App {
       current: source.layout ?? { skipRows: auto.skipRows, headerRows: auto.headerRows, skipAfter: auto.skipAfter },
       overridden: source.layout !== null,
       ...(source.note === undefined ? {} : { note: source.note }),
+      ...(splitting === null ? {} : { splitting }),
     });
     if (result === null) return;
     if (this.stepEntries().length > 0) {
       const confirmed = await openConfirm({
-        title: "Reload with a different header row?",
+        title: "Reload the file with these settings?",
         body: "Reloading re-reads the file, so the changes in the Recipe will be discarded.",
         confirmLabel: "Reload",
       });
       if (!confirmed) return;
     }
+    if (result.delimiter !== undefined) this.delimiterSelect.value = result.delimiter;
     await source.reload(result.kind === "auto" ? null : result.layout);
   }
 

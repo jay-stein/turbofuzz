@@ -1,8 +1,25 @@
+import { DELIMITERS, DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
 import { detectTable, type DataEnd, type HeaderLayout } from "../parse/header-detect.js";
 import { setupDialog } from "./dialog.js";
 import { el } from "./dom.js";
 
-export type HeaderRowResult = { kind: "layout"; layout: HeaderLayout } | { kind: "auto" } | null;
+/** `delimiter` is set when the separator was changed in the dialog ("auto" = back to detection). */
+export type HeaderRowResult =
+  | { kind: "layout"; layout: HeaderLayout; delimiter?: Delimiter | "auto" }
+  | { kind: "auto"; delimiter?: Delimiter | "auto" }
+  | null;
+
+/** For delimited text: which separator split the columns, and how to re-split the preview with another. */
+export interface SplitChoice {
+  /** The separator in use (detected or chosen). */
+  found: Delimiter;
+  /** "auto" while detection is in use, else the separator chosen. */
+  current: Delimiter | "auto";
+  /** The start of the file exactly as written, for the "Original text" view. */
+  readText(): Promise<string>;
+  /** The preview rows re-read with another separator. */
+  reparse(choice: Delimiter | "auto"): Promise<{ preview: string[][]; tail: string[][]; complete: boolean }>;
+}
 
 export interface HeaderRowInput {
   name: string;
@@ -23,6 +40,8 @@ export interface HeaderRowInput {
    * dialog then asks "is this right?" and loads with what the person settles on (Cancel stops the load).
    */
   reasons?: string[];
+  /** Offered for delimited text only: change the separator the columns are split on. */
+  splitting?: SplitChoice;
 }
 
 type EndMode = "auto" | "file" | "blank" | "row";
@@ -33,6 +52,8 @@ const MAX_NAMES = 14;
 /** How much of a whole source is drawn from each end; the rest is a gap you can still reach with the numbers. */
 const HEAD_ROWS = 60;
 const TAIL_ROWS = 30;
+/** Lines of the original text shown; the start is where a separator problem shows. */
+const RAW_LINES = 80;
 
 function clip(value: string): string {
   return value.length > MAX_CELL_CHARS ? `${value.slice(0, MAX_CELL_CHARS - 1)}…` : value;
@@ -64,6 +85,15 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
   return new Promise((resolve) => {
     const overlay = el("div", { class: "modal-overlay" });
     const modal = el("div", { class: "modal header-row-modal" });
+    // Replaced when the separator changes: the same file, split another way.
+    let preview = input.preview;
+    let tail = input.tail;
+    let complete = input.complete;
+    const splitting = input.splitting;
+    let delimiter: Delimiter | "auto" = splitting?.current ?? "auto";
+    let delimiterChanged = false;
+    let view: "columns" | "text" = "columns";
+    let rawText: string | null = null;
 
     const checking = input.reasons !== undefined && input.reasons.length > 0;
     const head = el("div", { class: "modal-head" });
@@ -73,10 +103,11 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
     modal.append(head);
 
     const body = el("div", { class: "chart-setup-body" });
+    const reasonsList = el("ul", { class: "header-row-reasons" }, (input.reasons ?? []).map((reason) => el("li", {}, [reason])));
     if (checking) {
       body.append(
         el("p", { class: "confirm-body" }, ["This isn't laid out as a plain table, so nothing is loaded until you check it. Our best reading:"]),
-        el("ul", { class: "header-row-reasons" }, (input.reasons ?? []).map((reason) => el("li", {}, [reason]))),
+        reasonsList,
         el("p", { class: "confirm-body" }, ["If that is right, load it. If not, click the row that holds your column names, or adjust the numbers below; the preview shows what will be read."]),
       );
     } else {
@@ -132,6 +163,50 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
     ]);
     const endRowControl = numberField("Last row to keep", "1");
     const endRowInput = endRowControl.input;
+    // Delimited text only: the separator is a guess too, so it can be changed here, with the preview re-split live.
+    const splitSelect = el("select", { class: "chart-select", "aria-label": "Columns split on" }) as HTMLSelectElement;
+    if (splitting !== undefined) {
+      splitSelect.append(el("option", { value: "auto" }, [`Automatic (found: ${DELIMITER_LABELS[splitting.found]})`]) as HTMLOptionElement);
+      for (const choice of DELIMITERS) splitSelect.append(el("option", { value: choice }, [DELIMITER_LABELS[choice]]) as HTMLOptionElement);
+      splitSelect.value = delimiter;
+      controls.append(
+        el("label", { class: "chart-setup-field header-row-split" }, [el("span", { class: "chart-field-label" }, ["Columns split on"]), splitSelect]),
+      );
+      splitSelect.addEventListener("change", () => {
+        const choice = splitSelect.value as Delimiter | "auto";
+        splitSelect.disabled = true;
+        void splitting
+          .reparse(choice)
+          .then((next) => {
+            delimiter = choice;
+            delimiterChanged = choice !== splitting.current;
+            // The reasons were about the earlier split; the preview below now shows the new one.
+            if (checking) {
+              const name = choice === "auto" ? `${DELIMITER_LABELS[splitting.found]} (automatic)` : DELIMITER_LABELS[choice];
+              reasonsList.replaceChildren(el("li", {}, [`Now split on: ${name}. Check the preview below.`]));
+            }
+            preview = next.preview;
+            tail = next.tail;
+            complete = next.complete;
+            // A new split makes new rows: start again from the automatic layout for them.
+            const fresh = detectTable(preview);
+            skip = fresh.skipRows;
+            levels = fresh.headerRows;
+            after = fresh.skipAfter;
+            endMode = "auto";
+            endRow = preview.length;
+            skippedCols.clear();
+            columnKey = "";
+            render();
+          })
+          .catch(() => {
+            splitSelect.value = delimiter;
+          })
+          .finally(() => {
+            splitSelect.disabled = false;
+          });
+      });
+    }
     controls.append(skipControl.field, levelField, afterControl.field, endField, endRowControl.field);
     body.append(controls);
 
@@ -149,13 +224,52 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
     body.append(columnsBox);
 
     const grid = el("div", { class: "header-row-grid", role: "grid", "aria-label": "File preview" });
-    const jump = el("div", { class: "header-row-jump" }, [el("span", { class: "chart-field-label" }, ["Look at"])]);
+    const lookAt = el("span", { class: "chart-field-label" }, ["Look at"]);
+    const jump = el("div", { class: "header-row-jump" }, [lookAt]);
     const toTop = el("button", { class: "ghost small", type: "button" }, ["Top of the file"]);
     const toBottom = el("button", { class: "ghost small", type: "button" }, ["Bottom of the file"]);
     toTop.addEventListener("click", () => { grid.scrollTop = 0; });
     toBottom.addEventListener("click", () => { grid.scrollTop = grid.scrollHeight; });
     jump.append(toTop, toBottom);
-    body.append(jump, grid);
+    // "Original text" shows the file exactly as written, so a wrong separator is plain to see.
+    const raw = el("pre", { class: "header-row-raw hidden", "aria-label": "The start of the file as written" });
+    if (splitting !== undefined) {
+      const asColumns = el("button", { type: "button", "aria-pressed": "true" }, ["As columns"]);
+      const asText = el("button", { type: "button", "aria-pressed": "false" }, ["Original text"]);
+      const setView = (next: "columns" | "text"): void => {
+        view = next;
+        asColumns.setAttribute("aria-pressed", String(next === "columns"));
+        asText.setAttribute("aria-pressed", String(next === "text"));
+        grid.classList.toggle("hidden", next === "text");
+        raw.classList.toggle("hidden", next !== "text");
+        for (const part of [toTop, toBottom, lookAt]) part.classList.toggle("hidden", next === "text");
+        if (next === "text" && rawText === null) {
+          raw.textContent = "Reading…";
+          void splitting
+            .readText()
+            .then((text) => {
+              const lines = text.split(/\r?\n/).slice(0, RAW_LINES);
+              rawText = lines.join("\n");
+              raw.replaceChildren(
+                ...lines.map((line, index) =>
+                  el("span", { class: "header-row-raw-line" }, [
+                    el("span", { class: "header-row-num" }, [String(index + 1)]),
+                    // Tabs are invisible: mark them so a tab-separated file shows its separator.
+                    ...line.split("\t").flatMap((part, i) => (i === 0 ? [part] : [el("span", { class: "header-row-tab", title: "Tab" }, ["⇥"]), part])),
+                  ]),
+                ),
+              );
+            })
+            .catch(() => {
+              raw.textContent = "Could not read the file again.";
+            });
+        }
+      };
+      asColumns.addEventListener("click", () => setView("columns"));
+      asText.addEventListener("click", () => setView("text"));
+      jump.prepend(el("div", { class: "header-row-view", role: "group", "aria-label": "Preview" }, [asColumns, asText]));
+    }
+    body.append(jump, grid, raw);
     const names = el("div", { class: "cast-summary", role: "status" });
     body.append(names);
     modal.append(body);
@@ -174,7 +288,7 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
     let after = input.current.skipAfter ?? 0;
     const startEnd = input.current.dataEnd ?? "auto";
     let endMode: EndMode = typeof startEnd === "number" ? "row" : startEnd;
-    let endRow = typeof startEnd === "number" ? startEnd : input.preview.length;
+    let endRow = typeof startEnd === "number" ? startEnd : preview.length;
     const skippedCols = new Set<number>(input.current.skipColumns ?? []);
     let columnKey = "";
     let allHeaders: string[] = [];
@@ -207,9 +321,9 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
       endSelect.value = endMode;
       endRowInput.value = String(endRow);
       endRowControl.field.classList.toggle("hidden", endMode !== "row");
-      const detected = detectTable(input.preview, layout());
+      const detected = detectTable(preview, layout());
       // The columns offered are the ones this layout finds before any are left out.
-      const found = detectTable(input.preview, { ...layout(), skipColumns: [] }).headers;
+      const found = detectTable(preview, { ...layout(), skipColumns: [] }).headers;
       const key = found.join("\u0001");
       if (key !== columnKey) {
         columnKey = key;
@@ -223,7 +337,7 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
             else skippedCols.add(index);
             render();
           });
-          const sample = input.preview.slice(skip + levels + after).map((row) => (row[index] ?? "").trim()).find((cell) => cell !== "");
+          const sample = preview.slice(skip + levels + after).map((row) => (row[index] ?? "").trim()).find((cell) => cell !== "");
           columnList.append(
             el("label", { class: "header-row-column", "data-name": (name || `Column ${index + 1}`).toLowerCase() }, [
               box,
@@ -240,8 +354,8 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
       const dataStart = skip + levels + after;
       const dataStop = dataStart + detected.rows.length;
       grid.replaceChildren();
-      const total = input.preview.length;
-      const whole = input.complete === true;
+      const total = preview.length;
+      const whole = complete === true;
       const headEnd = whole ? Math.min(total, HEAD_ROWS) : total;
       const tailStart = whole && total > headEnd ? Math.max(headEnd, total - TAIL_ROWS) : total;
       const roleOf = (index: number): string =>
@@ -265,10 +379,11 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
         // Columns left out do not appear, so the preview shows what will be read.
         const kept = skippedCols.size === 0 ? row : row.filter((_, column) => !skippedCols.has(column));
         const cells = kept.slice(0, MAX_CELLS).map((cell) => clip(cell.trim()));
+        // One box per column, so the preview reads as a table, not as text with "|" in it.
         line.append(
           el("span", { class: "header-row-cells" }, [
-            cells.map((cell) => (cell === "" ? "·" : cell)).join("  |  ") +
-              (kept.length > MAX_CELLS ? `  | +${kept.length - MAX_CELLS} more` : ""),
+            ...cells.map((cell) => el("span", { class: cell === "" ? "header-row-cell header-row-cell-empty" : "header-row-cell" }, [cell === "" ? "·" : cell])),
+            ...(kept.length > MAX_CELLS ? [el("span", { class: "header-row-cell header-row-cell-more" }, [`+${kept.length - MAX_CELLS} more`])] : []),
           ]),
         );
         const blank = row.every((cell) => cell.trim() === "");
@@ -317,31 +432,31 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
       const gap = (text: string): void => {
         grid.append(el("div", { class: "header-row-gap", role: "separator" }, [text]));
       };
-      for (let index = 0; index < headEnd; index++) addRow(input.preview[index]!, index);
+      for (let index = 0; index < headEnd; index++) addRow(preview[index]!, index);
       if (whole && tailStart > headEnd) {
         gap(`${(tailStart - headEnd).toLocaleString()} rows not shown · the bottom of the file follows`);
-        for (let index = tailStart; index < total; index++) addRow(input.preview[index]!, index);
-      } else if (!whole && input.tail !== undefined && input.tail.length > 0) {
+        for (let index = tailStart; index < total; index++) addRow(preview[index]!, index);
+      } else if (!whole && tail !== undefined && tail.length > 0) {
         gap("the file continues · the last rows follow (they cannot be numbered)");
-        for (const row of input.tail) addRow(row, null);
+        for (const row of tail) addRow(row, null);
       }
       const shown = detected.headers
         .slice(0, MAX_NAMES)
         .map((name) => (name === "" ? "(blank)" : name));
       const more = detected.headers.length - shown.length;
-      const ignored = input.preview.length - dataStop;
+      const ignored = preview.length - dataStop;
       names.textContent =
         detected.headers.length === 0
           ? "No columns found with this layout."
           : `${detected.headers.length} columns: ${shown.join(", ")}${more > 0 ? `, +${more} more` : ""}. ` +
-            `${detected.rows.length.toLocaleString()} data rows${input.complete === true ? "" : " in this preview"}` +
+            `${detected.rows.length.toLocaleString()} data rows${complete === true ? "" : " in this preview"}` +
             (ignored > 0 ? `, ${ignored.toLocaleString()} after them left out.` : ".");
       apply.disabled = detected.headers.length === 0;
     };
 
     skipInput.addEventListener("input", () => {
       const value = Math.floor(Number(skipInput.value));
-      skip = Number.isFinite(value) ? Math.max(0, Math.min(value, input.preview.length - 1)) : 0;
+      skip = Number.isFinite(value) ? Math.max(0, Math.min(value, preview.length - 1)) : 0;
       render();
       skipInput.focus();
     });
@@ -351,7 +466,7 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
     });
     afterInput.addEventListener("input", () => {
       const value = Math.floor(Number(afterInput.value));
-      after = Number.isFinite(value) ? Math.max(0, Math.min(value, input.preview.length)) : 0;
+      after = Number.isFinite(value) ? Math.max(0, Math.min(value, preview.length)) : 0;
       render();
       afterInput.focus();
     });
@@ -379,10 +494,21 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
     });
     closeButton.addEventListener("click", () => finish(null));
     cancel.addEventListener("click", () => finish(null));
-    auto.addEventListener("click", () => finish({ kind: "auto" }));
+    // Back to the built-in detection for everything, the separator included.
+    auto.addEventListener("click", () => finish(splitting === undefined ? { kind: "auto" } : { kind: "auto", delimiter: "auto" }));
     apply.addEventListener("click", () => {
       if (apply.disabled) return;
-      finish({ kind: "layout", layout: layout() });
+      const split = delimiterChanged ? { delimiter } : {};
+      // Only the separator changed and the layout is still the automatic one for it: keep it automatic.
+      const fresh = detectTable(preview);
+      const untouched =
+        delimiterChanged &&
+        skip === fresh.skipRows &&
+        levels === fresh.headerRows &&
+        after === fresh.skipAfter &&
+        endMode === "auto" &&
+        skippedCols.size === 0;
+      finish(untouched ? { kind: "auto", ...split } : { kind: "layout", layout: layout(), ...split });
     });
     overlay.addEventListener("click", (event) => {
       if (event.target === overlay) finish(null);

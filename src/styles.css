@@ -15870,7 +15870,74 @@ button.qp-tile:hover {
   background: var(--qa-warn);
 }
 .overview-header-note { gap: 8px; }
-.overview-header-note .ghost { font-weight: 600; }
+/* The import guess's override: light orange so a wrong read is easy to act on. */
+.overview-read-fix {
+  --read-fix-bg: #fff1e3;
+  --read-fix-border: #f6c48f;
+  --read-fix-text: #9a4b05;
+  background: var(--read-fix-bg);
+  border: 1px solid var(--read-fix-border);
+  color: var(--read-fix-text);
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 3px 12px;
+}
+.overview-read-fix:hover { background: #ffe4c7; border-color: #ef9f4c; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .overview-read-fix { --read-fix-bg: #3a2410; --read-fix-border: #7a4a1c; --read-fix-text: #ffc58a; }
+  :root:not([data-theme="light"]) .overview-read-fix:hover { background: #4a2e12; border-color: #a8662a; }
+}
+:root[data-theme="dark"] .overview-read-fix { --read-fix-bg: #3a2410; --read-fix-border: #7a4a1c; --read-fix-text: #ffc58a; }
+:root[data-theme="dark"] .overview-read-fix:hover { background: #4a2e12; border-color: #a8662a; }
+
+/* Import settings preview: one box per column, and the original text on request. */
+.header-row-cells { display: flex; }
+.header-row-cell {
+  flex: none;
+  width: 14ch;
+  padding: 0 8px;
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header-row-cell:first-child { border-left: 0; padding-left: 0; }
+.header-row-cell-empty, .header-row-cell-more { color: var(--text-dim); }
+.header-row-view {
+  display: inline-flex;
+  padding: 2px;
+  margin-right: auto;
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.header-row-view button {
+  border: 0;
+  background: transparent;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.header-row-view button[aria-pressed="true"] {
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.header-row-raw {
+  margin: 0;
+  max-height: 420px;
+  overflow: auto;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  white-space: pre;
+}
+.header-row-raw-line { display: block; }
+.header-row-raw .header-row-num { display: inline-block; width: 4ch; margin-right: 8px; color: var(--text-dim); text-align: right; user-select: none; }
+.header-row-tab { color: var(--qa-warn); padding: 0 2px; }
 
 /* The mixed-series notice on the tabs after Explore: one slim line that opens the full notice. */
 .ts-mixed.ts-mixed-slim { padding: 6px 12px; align-items: center; gap: 8px; }

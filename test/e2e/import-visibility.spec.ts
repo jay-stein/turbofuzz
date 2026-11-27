@@ -85,6 +85,39 @@ test("Import settings can leave columns out, and the Overview note says so", asy
   await expect(page.locator(".overview-header-note")).toContainText("1 column left out");
 });
 
+test("a wrong separator guess can be put right: the note names it, the original text shows it, and Pipe re-reads the file", async ({ page }) => {
+  // Commas inside the values outnumber the pipes, so the automatic guess is commas.
+  const rows = ["name|amount"];
+  for (let i = 1; i <= 20; i++) rows.push(`Smith, J${i}|1,${String(i).padStart(3, "0")}`);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "pipes.txt", mimeType: "text/plain", buffer: Buffer.from(rows.join("\n")) });
+  // Split on commas the read looks odd, so it is checked before loading: the separator can be fixed right there.
+  const check = page.locator(".header-row-modal");
+  await check.getByRole("button", { name: "Original text" }).click();
+  await expect(check.locator(".header-row-raw")).toContainText("Smith, J1|1,001");
+  await check.getByRole("button", { name: "As columns" }).click();
+  await check.getByLabel("Columns split on").selectOption("|");
+  await expect(check.locator(".cast-summary")).toContainText("2 columns: name, amount");
+  await expect(check.locator(".header-row-reasons")).toContainText("Now split on: Pipe");
+  await check.getByRole("button", { name: "Load with these settings" }).click();
+  await page.locator(".nav-row").waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("tab", { name: "Overview" }).click();
+  await expect(page.locator(".overview-facts")).toContainText("20 rows × 2 columns", { timeout: 15_000 });
+  const note = page.locator(".overview-header-note");
+  await expect(note).toContainText("Columns split on pipes (chosen by you)");
+  // Only the separator was chosen: the header row is still the automatic read.
+  await expect(note).toContainText("Header: row 1 (assumed)");
+  // And it can be changed again later from the Overview.
+  await note.getByRole("button", { name: /Change how it was read/ }).click();
+  const dialog = page.locator(".header-row-modal");
+  await expect(dialog.getByLabel("Columns split on")).toHaveValue("|");
+  await dialog.getByLabel("Columns split on").selectOption(",");
+  await expect(dialog.locator(".cast-summary")).toContainText("3 columns");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+});
+
 test("a table that is not plain is checked before it loads, and Don't load leaves nothing loaded", async ({ page }) => {
   const rows = ["Road deaths", "", "id,age,speed", "1,20,50", "2,30,60", "3,40,70"];
   await page.setViewportSize({ width: 1440, height: 900 });

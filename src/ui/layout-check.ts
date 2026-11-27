@@ -1,7 +1,8 @@
 import { decodeText } from "../parse/encoding.js";
 import { detectTable, type DetectedTable, type HeaderLayout } from "../parse/header-detect.js";
 import { parseDelimited } from "../parse/parse.js";
-import { openHeaderRowDialog } from "./header-row-dialog.js";
+import type { Delimiter } from "../parse/delimiter.js";
+import { openHeaderRowDialog, type SplitChoice } from "./header-row-dialog.js";
 
 /** A delimited file held in memory (B in Compare), read from its first and last `bytes` for the check. */
 export function bufferLayoutSource(name: string, buffer: ArrayBuffer, bytes: number, rows: number): LayoutCheckSource {
@@ -30,6 +31,8 @@ export interface LayoutCheckSource {
   readTail?: () => Promise<string[][]>;
   /** Extra line in the dialog, e.g. that one layout applies to several files. */
   note?: string;
+  /** Delimited text: the separator can be changed in the check too; `choose` keeps the one settled on. */
+  splitting?: SplitChoice & { choose(choice: Delimiter | "auto"): void };
 }
 
 /**
@@ -76,7 +79,9 @@ export async function checkLayoutBeforeLoad(
     overridden: false,
     reasons,
     ...(source.note === undefined ? {} : { note: source.note }),
+    ...(source.splitting === undefined ? {} : { splitting: source.splitting }),
   });
   if (result === null) return "cancel";
+  if (result.delimiter !== undefined) source.splitting?.choose(result.delimiter);
   return result.kind === "layout" ? result.layout : null;
 }
