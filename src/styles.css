@@ -6594,7 +6594,7 @@ tr.views-drop-after > td {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 14px 24px;
+  padding: var(--page-pad) var(--page-pad) 40px;
 }
 
 .outliers-panel {
@@ -6630,8 +6630,8 @@ tr.views-drop-after > td {
 
 .outliers-scope-label {
   font-size: var(--fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: 600;
+  letter-spacing: var(--label-track);
   text-transform: uppercase;
   color: var(--text-dim);
 }
@@ -6712,10 +6712,11 @@ tr.views-drop-after > td {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-card);
   background: var(--panel);
+  box-shadow: var(--shadow-card);
   color: var(--text);
   cursor: pointer;
 }
@@ -6763,10 +6764,10 @@ tr.views-drop-after > td {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding: 9px 11px;
-  border: 1px solid var(--border-subtle);
+  padding: 12px 14px;
+  border: 1px solid var(--border-card);
   border-left: 3px solid var(--accent);
-  border-radius: 9px;
+  border-radius: var(--radius-card);
   background: var(--panel);
   text-align: left;
   color: var(--text);
@@ -6800,10 +6801,10 @@ tr.views-drop-after > td {
 .outliers-section h3,
 .outliers-detail h3 {
   margin: 0;
-  font-size: var(--fs-sm);
-  font-weight: 700;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--label-track);
   color: var(--text-dim);
 }
 
@@ -11681,11 +11682,12 @@ label.null-row {
 .outliers-journey {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-card);
   background: var(--panel);
+  box-shadow: var(--shadow-card);
 }
 
 .outliers-steps {
