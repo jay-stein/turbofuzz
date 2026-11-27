@@ -20408,6 +20408,17 @@ select.chart-add-agg {
   padding-right: 12px;
 }
 
+/* An open group keeps its bar, and its "Fix all" button, in view while its cards scroll by. */
+.qp-group.open > .qp-group-bar {
+  position: sticky;
+  /* The page's own top padding would leave a strip of the cards showing above the bar. */
+  top: calc(-1 * var(--page-pad));
+  z-index: 5;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border-card);
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+}
+
 .qp-group-head {
   flex: 1 1 auto;
   display: flex;

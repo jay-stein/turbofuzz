@@ -942,9 +942,10 @@ function buildIssueGroup(group: IssueGroup, issues: readonly PageIssue[], open: 
   const bar = el("div", { class: "qp-group-bar" }, [head]);
   // Every safe fix in the group at once, previewed together like Apply all.
   const safe = issues.filter((issue) => issue.batchSafe && issue.fixes.length > 0);
-  if (safe.length > 1 && actions.fixGroup !== undefined) {
-    const fixAll = el("button", { class: "ghost small qp-group-fix", type: "button" }, [`Fix ${n(safe.length)} safe\u2026`]);
-    fixAll.title = "Whitespace, case and standard formats only. One combined preview; each fix stays its own undoable step.";
+  // A quick scan that says "looks good" fixes the lot from here; the bar stays in view while the cards scroll.
+  if (safe.length > 0 && actions.fixGroup !== undefined) {
+    const fixAll = el("button", { class: "primary small qp-group-fix", type: "button" }, [safe.length === 1 ? "Fix 1 safe\u2026" : `Fix all ${n(safe.length)} safe\u2026`]);
+    fixAll.title = "Every safe fix in this group in one combined preview; each fix stays its own undoable step. Fixes that need a judgement call are left for you.";
     fixAll.addEventListener("click", () => actions.fixGroup?.(safe));
     bar.append(fixAll);
   }

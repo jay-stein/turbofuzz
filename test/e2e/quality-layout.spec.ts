@@ -456,3 +456,20 @@ test("Fill the gaps fills one column the chosen way, as a step that undoes", asy
   await page.locator(".nav-actions button", { hasText: /^Undo$/ }).click();
   await expect(recipe).toHaveText("Recipe");
 });
+
+test("an open group keeps its Fix all button in view while its cards scroll by, so a quick scan can fix the lot", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openClean(page);
+  const group = page.locator('.qp-group[data-group="standardise"]');
+  const fixAll = group.locator(".qp-group-fix");
+  await expect(fixAll).toBeVisible();
+  // Scroll the page down to the group's last card: the bar and its button are still on screen.
+  await group.locator(".issue-card").last().scrollIntoViewIfNeeded();
+  const box = await fixAll.boundingBox();
+  const host = await page.locator(".clean-host").boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.y).toBeGreaterThanOrEqual(host!.y - 1);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(host!.y + host!.height);
+  await fixAll.click();
+  await expect(page.locator(".fix-preview-modal")).toBeVisible();
+});
