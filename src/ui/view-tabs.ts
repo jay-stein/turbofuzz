@@ -144,6 +144,8 @@ export class ViewTabs {
   }
 
   private watchFit(): void {
+    // Fitting names is layout polish; with no animation frames (a headless DOM) the icons alone stay.
+    if (typeof requestAnimationFrame !== "function") return;
     let frame = 0;
     const later = (): void => {
       cancelAnimationFrame(frame);
