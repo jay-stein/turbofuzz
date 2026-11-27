@@ -44,6 +44,13 @@
   --shadow: 0 1px 2px rgb(16 24 40 / 5%), 0 4px 12px rgb(16 24 40 / 6%);
   --radius: 8px;
   --radius-sm: 5px;
+  /* The front page look, carried to every page but the Table (DEC 2026-11-27, theme A). */
+  --radius-card: 12px;
+  --border-card: color-mix(in srgb, var(--border) 72%, var(--panel));
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 4%), 0 6px 16px rgb(16 24 40 / 5%);
+  --fs-page-title: 26px;
+  --page-pad: 24px;
+  --label-track: 0.08em;
   --fs-xs: 11px;
   --fs-sm: 12px;
   --fs-md: 13px;
@@ -59,7 +66,7 @@
   --tab-h: 36px;
   --tab-fg: var(--text-dim);
   --tab-fg-active: var(--text);
-  --tab-indicator: var(--accent);
+  --tab-indicator: var(--text);
   --tab-hover-bg: color-mix(in srgb, var(--text) 6%, transparent);
   --chart-1: var(--accent);
   --chart-2: #7c3aed;
@@ -129,6 +136,7 @@
     --primary-fg: #11161d;
     --chrome-bg: #0b0f14;
     --chrome-2: #141a21;
+    --shadow-card: none;
   }
 }
 
@@ -175,6 +183,7 @@
   --primary-fg: #11161d;
   --chrome-bg: #0b0f14;
   --chrome-2: #141a21;
+  --shadow-card: none;
 }
 
 * {
@@ -14850,16 +14859,17 @@ button.qp-tile:hover {
 }
 
 /* Clear data is the one irreversible button on the bar, so it is red all the time, not only on hover. */
+/* Clear data says red in its words, not a solid red block: it asks first, so it need not shout. */
 .topbar .ghost.danger-ghost {
-  color: #fff;
-  border-color: #d92d20;
-  background: #d92d20;
+  color: #ff8a80;
+  border-color: var(--chrome-border);
+  background: transparent;
   font-weight: 600;
 }
 .topbar .ghost.danger-ghost:hover:not(:disabled) {
   color: #fff;
-  border-color: #f04438;
-  background: #f04438;
+  border-color: #d92d20;
+  background: #d92d20;
 }
 
 /* Date format picker: the suggestion first, your own format always there, strftime codes. */
