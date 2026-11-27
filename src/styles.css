@@ -18232,6 +18232,17 @@ mark.cmp-ch {
   color: var(--text);
 }
 
+/* Dark mode: the header colour sits almost on the page, so the thumb vanished. Mirror light mode instead:
+   a light thumb with dark text on the dark track. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .front-switch-thumb { background: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 12px rgb(0 0 0 / 30%); }
+  :root:not([data-theme="light"]) .front-switch-option[aria-checked="true"] { color: var(--bg); }
+  :root:not([data-theme="light"]) .front-switch-option[aria-checked="true"] .front-switch-caption { color: color-mix(in srgb, var(--bg) 68%, var(--text)); }
+}
+:root[data-theme="dark"] .front-switch-thumb { background: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 12px rgb(0 0 0 / 30%); }
+:root[data-theme="dark"] .front-switch-option[aria-checked="true"] { color: var(--bg); }
+:root[data-theme="dark"] .front-switch-option[aria-checked="true"] .front-switch-caption { color: color-mix(in srgb, var(--bg) 68%, var(--text)); }
+
 .front-pane {
   display: flex;
   flex-direction: column;
