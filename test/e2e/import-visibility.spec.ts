@@ -118,6 +118,39 @@ test("a wrong separator guess can be put right: the note names it, the original 
   await dialog.getByRole("button", { name: "Cancel" }).click();
 });
 
+test("the Table page says how the file was read only when it matters: nothing for a plain file, orange for a close call, quiet once chosen", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  const plain = ["region,units", ...Array.from({ length: 20 }, (_, i) => `North,${i}`)].join("\n");
+  await page.locator('input[type="file"]').setInputFiles({ name: "plain.csv", mimeType: "text/csv", buffer: Buffer.from(plain) });
+  await page.locator(".nav-row").waitFor();
+  await expect(page.locator(".table-host .th").first()).toBeVisible();
+  await expect(page.locator(".table-read-note")).toBeHidden();
+
+  // A close call: loaded as guessed (commas), the Table page flags it.
+  const rows = ["name|amount", ...Array.from({ length: 20 }, (_, i) => `Smith, J${i}|1,${String(i).padStart(3, "0")}`)];
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "pipes.txt", mimeType: "text/plain", buffer: Buffer.from(rows.join("\n")) });
+  await page.locator(".header-row-modal").getByRole("button", { name: "Load with these settings" }).click();
+  await page.locator(".nav-row").waitFor();
+  const note = page.locator(".table-read-note");
+  await expect(note).toBeVisible({ timeout: 10_000 });
+  await expect(note).toHaveClass(/table-read-note-flag/);
+  await expect(note).toContainText("pipes fit almost as well");
+
+  // Fixed from the note: now a choice, so the note is quiet.
+  await note.getByRole("button", { name: "Change how it was read…" }).click();
+  const dialog = page.locator(".header-row-modal");
+  await dialog.getByLabel("Columns split on").selectOption("|");
+  await dialog.getByRole("button", { name: "Apply and reload" }).click();
+  await page.getByRole("tab", { name: "Table" }).click();
+  await expect(note).toContainText("Columns split on pipes (chosen by you)", { timeout: 15_000 });
+  await expect(note).not.toHaveClass(/table-read-note-flag/);
+  // × hides it for this file; the Overview still says it.
+  await note.getByRole("button", { name: "Hide this note" }).click();
+  await expect(note).toBeHidden();
+});
+
 test("a table that is not plain is checked before it loads, and Don't load leaves nothing loaded", async ({ page }) => {
   const rows = ["Road deaths", "", "id,age,speed", "1,20,50", "2,30,60", "3,40,70"];
   await page.setViewportSize({ width: 1440, height: 900 });

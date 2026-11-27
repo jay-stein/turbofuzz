@@ -1,9 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { detectDelimiter } from "../src/parse/delimiter.js";
+import { detectDelimiter, rivalDelimiter } from "../src/parse/delimiter.js";
 import { parseDelimited, sameHeaderRow } from "../src/parse/parse.js";
 import { parseNumber } from "../src/parse/numbers.js";
 import { detectDateOrder, parseDate } from "../src/parse/dates.js";
+
+test("a second separator that splits the lines just as evenly is named as a close call; a plain file has none", () => {
+  const pipes = ["name|amount", "Smith, J1|1,001", "Jones, A|1,250", "Lee, K|2,000"].join("\n");
+  assert.equal(detectDelimiter(pipes), ",", "commas outnumber the pipes, so the guess is commas");
+  assert.equal(rivalDelimiter(pipes, ","), "|");
+  assert.equal(rivalDelimiter("a,b,c\n1,2,3\n4,5,6", ","), null);
+  // A comma in one free-text cell is not a rival.
+  assert.equal(rivalDelimiter("id;note\n1;fine\n2;late, sorry\n3;ok\n4;ok", ";"), null);
+});
 
 test("detectDelimiter finds common delimiters", () => {
   assert.equal(detectDelimiter("a,b,c\n1,2,3"), ",");

@@ -4,7 +4,8 @@ import { readSettings, updateSettings } from "./settings.js";
 import type { DateOrder } from "../parse/dates.js";
 import { clearReviewed, getReviewed, setReviewed } from "./reviewed-issues.js";
 import { clearOptionalMark, getOptionalMarks, setOptionalMark } from "./optional-marks.js";
-import { DELIMITER_LABELS, detectDelimiter, type Delimiter } from "../parse/delimiter.js";
+import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
+import { describeHeader, preloadSplitting, renderReadNote, splitChoiceFor, splitNotes } from "./import-read.js";
 import {
   listArchiveEntries,
   readArchiveEntry,
@@ -14,10 +15,10 @@ import {
 import { decompressBzip2 } from "../parse/bz2.js";
 import { decodeText } from "../parse/encoding.js";
 import { parseDelimited } from "../parse/parse.js";
-import { detectTable, rowLooksLikeData, statedMissingCodes, type HeaderLayout } from "../parse/header-detect.js";
+import { detectTable, statedMissingCodes, type HeaderLayout } from "../parse/header-detect.js";
 import { combineSheets, type SheetGrid } from "../parse/combine-sheets.js";
 import { renderSheetPicker } from "./sheet-picker.js";
-import { openHeaderRowDialog, type SplitChoice } from "./header-row-dialog.js";
+import { openHeaderRowDialog } from "./header-row-dialog.js";
 import { bufferLayoutSource, checkLayoutBeforeLoad, type LayoutCheckSource } from "./layout-check.js";
 import { LoadCard } from "./load-card.js";
 import { QaNudge } from "./qa-nudge.js";
@@ -535,34 +536,6 @@ interface LoadContext {
   sampled: string | null;
 }
 
-/**
- * The header row and the table's edges in one plain line, for under the Overview title: where the column names were taken from
- * and whether anything above, under or after the data was left out. `whole` says the rows seen are the whole source, so what is
- * left out at the end can be counted.
- */
-function describeHeader(preview: string[][], layout: HeaderLayout | null, whole: boolean, hasHeaders = true): string {
-  const t = detectTable(preview, layout ?? undefined);
-  const rows = (n: number): string => `${n} row${n === 1 ? "" : "s"}`;
-  const how = layout === null ? "assumed" : "chosen by you";
-  const head =
-    t.headerRows === 0
-      ? `No header row (${how}): columns are named Column 1, 2…`
-      : t.headerRows === 1
-        ? `Header: row ${t.skipRows + 1} (${how}).`
-        : `Header: rows ${t.skipRows + 1}–${t.skipRows + t.headerRows}, joined (${how}).`;
-  const left: string[] = [];
-  if (t.skipRows > 0) left.push(`${rows(t.skipRows)} above it skipped`);
-  if (t.skipAfter > 0) left.push(`${rows(t.skipAfter)} under it skipped`);
-  if (whole && t.footerRows > 0) left.push(`${rows(t.footerRows)} of totals or notes after the data left out`);
-  const dropped = layout?.skipColumns?.length ?? 0;
-  if (dropped > 0) left.push(`${dropped} column${dropped === 1 ? "" : "s"} left out`);
-  const asData =
-    hasHeaders && layout === null && t.headerRows > 0 && rowLooksLikeData(preview, t.skipRows)
-      ? " The first row looks like data, not a header: untick “First row is header” to use it as data."
-      : "";
-  return `${head}${left.length > 0 ? ` ${left.join("; ")}.` : t.headerRows > 0 && t.skipRows === 0 ? " Nothing skipped." : ""}${asData}`;
-}
-
 /** Where the table on screen was read from, for a report's provenance. */
 interface SourceFacts {
   kind: ReportProvenance["source"]["kind"];
@@ -902,6 +875,10 @@ export class App {
   private lastLoaded: LoadedMessage | TransformedMessage | null = null;
   /** The separator the source was split on at its last read (null for sheets, JSON and grids). */
   private readDelimiter: Delimiter | null = null;
+  /** Table page note on how the file was read (see renderReadNote). */
+  private readonly readNoteBar: HTMLElement = el("div", { class: "table-read-note", role: "note", hidden: "" });
+  /** The source whose Table note was hidden with ×; a new file shows it again. */
+  private readNoteHidden: ImportSource | null = null;
   private workspaceTitle!: HTMLElement;
   private tabHost!: HTMLElement;
   private hints: Hints | null = null;
@@ -1649,7 +1626,7 @@ export class App {
       el("span", { class: "table-return-note" }, ["Showing the rows you asked for. The filter stays until you clear it."]),
     ]);
     // First in the host: the table and its bar are appended after it.
-    this.tableHost.append(this.returnBar);
+    this.tableHost.append(this.returnBar, this.readNoteBar);
     this.chartHost = el("div", { class: "chart-host hidden" });
     this.viewsHost = el("div", { class: "views-host hidden" });
     this.outliersHost = el("div", { class: "outliers-host hidden" });
@@ -1878,7 +1855,7 @@ export class App {
     const firstRead = options.reuseSource !== true && options.append !== true && (options.files?.length ?? 1) <= 1;
     const checked =
       source !== undefined && source.layout === null && options.headerLayout === undefined && firstRead
-        ? await this.checkLayoutBeforeLoad({ ...source, ...(await this.preloadSplitting(source)) })
+        ? await this.checkLayoutBeforeLoad({ ...source, ...(await preloadSplitting(source, this.delimiterSelect, HEADER_PREVIEW_ROWS)) })
         : null;
     if (checked === "cancel" || this.loading) return;
     if (checked !== null && source !== undefined) options = { ...options, headerLayout: checked, importSource: { ...source, layout: checked } };
@@ -2965,8 +2942,8 @@ export class App {
     this.table?.dispose();
     this.table = null;
     clear(this.tableHost);
-    // The way back to Clean stays first in the host, over the new table.
-    this.tableHost.append(this.returnBar);
+    // The way back to Clean stays first in the host, over the new table, then the note on how it was read.
+    this.tableHost.append(this.returnBar, this.readNoteBar);
 
     this.chartsPanel?.dispose();
     this.chartsPanel = null;
@@ -7588,6 +7565,8 @@ export class App {
     const hasHeaders = this.headersCheckbox.checked;
     this.recipeRead = null;
     let note: string | null = null;
+    // For the Table page's note: a close call on the separator, or settings the person chose.
+    let tableNote: { closeCall: string | null; chosen: string | null } | null = null;
     if (source !== null) {
       try {
         const preview = await source.readPreview();
@@ -7599,13 +7578,11 @@ export class App {
         }
         if (this.importSource === source) {
           this.recipeRead = { source, preview, tail, whole, hasHeaders };
-          note = describeHeader(preview, source.layout, whole, hasHeaders);
-          // The separator is a guess too: say which one, and whether it was chosen.
+          // The separator is a guess too: say which one, whether it was chosen, and if another fits nearly as well.
           const split = source.readText === undefined ? null : this.readDelimiter;
-          if (note !== null && split !== null) {
-            const how = this.delimiterSelect.value === "auto" ? "assumed" : "chosen by you";
-            note = `${note} Columns split on ${(DELIMITER_LABELS[split] ?? split).toLowerCase()}s (${how}).`;
-          }
+          const notes = await splitNotes(describeHeader(preview, source.layout, whole, hasHeaders), source, split, this.delimiterSelect.value === "auto");
+          note = notes.overview;
+          tableNote = notes;
           // The notes above the table sometimes say what a code means ("A value of '-9' is used for a missing value").
           this.overview?.setStatedCodes(statedMissingCodes(preview.slice(0, detectTable(preview, source.layout ?? undefined).skipRows)));
         }
@@ -7615,6 +7592,11 @@ export class App {
     }
     if (this.importSource !== source) return;
     this.overview?.setHeaderNote(note);
+    // × hides the Table note until the next file; the Overview note keeps saying it.
+    renderReadNote(this.readNoteBar, source === null || this.readNoteHidden === source ? null : tableNote, {
+      change: () => void this.openHeaderRowOverride(),
+      hide: () => { this.readNoteHidden = source; },
+    });
   }
 
   /** The last rows of a text slice taken from the end of a source (its first line is cut mid-way, so it is dropped). */
@@ -7638,48 +7620,6 @@ export class App {
     return checked;
   }
 
-  /**
-   * Delimited text can be split another way: the import dialogs re-read the preview
-   * with each separator offered. Null for a sheet, JSON or a grid (no readText).
-   */
-  private splitChoice(source: ImportSource, found: Delimiter): SplitChoice | null {
-    const readText = source.readText;
-    if (readText === undefined) return null;
-    return {
-      found,
-      current: this.delimiterSelect.value as Delimiter | "auto",
-      readText,
-      reparse: async (choice) => {
-        // Every read of the source goes through the front-page choice; swap it for this read only.
-        const saved = this.delimiterSelect.value;
-        this.delimiterSelect.value = choice;
-        try {
-          const rows = await source.readPreview();
-          const whole = source.complete === true || rows.length < HEADER_PREVIEW_ROWS;
-          const end = !whole && source.readTail !== undefined ? await source.readTail().catch(() => []) : [];
-          return { preview: rows, tail: end, complete: whole };
-        } finally {
-          this.delimiterSelect.value = saved;
-        }
-      },
-    };
-  }
-
-  /** Before a first load: the separator the read will use, offered in the check with the choice kept for the load. */
-  private async preloadSplitting(source: ImportSource): Promise<{ splitting?: LayoutCheckSource["splitting"] }> {
-    if (source.readText === undefined) return {};
-    const current = this.delimiterSelect.value as Delimiter | "auto";
-    let found: Delimiter;
-    try {
-      found = current === "auto" ? detectDelimiter(await source.readText()) : current;
-    } catch {
-      return {};
-    }
-    const choice = this.splitChoice(source, found);
-    if (choice === null) return {};
-    return { splitting: { ...choice, choose: (next) => { this.delimiterSelect.value = next; } } };
-  }
-
   /** Opens the header-row chooser for the current table and reloads with the choice. */
   private async openHeaderRowOverride(): Promise<void> {
     const source = this.importSource;
@@ -7699,7 +7639,7 @@ export class App {
     if (!complete && source.readTail !== undefined) {
       try { tail = await source.readTail(); } catch { tail = []; }
     }
-    const splitting = this.readDelimiter === null ? null : this.splitChoice(source, this.readDelimiter);
+    const splitting = this.readDelimiter === null ? null : splitChoiceFor(source, this.readDelimiter, this.delimiterSelect, HEADER_PREVIEW_ROWS);
     const result = await openHeaderRowDialog({
       name: source.name,
       preview,
@@ -7734,6 +7674,7 @@ export class App {
     this.scoreTile.classList.add("hidden");
     this.importSource = null;
     this.overview?.setHeaderNote(null);
+    renderReadNote(this.readNoteBar, null, { change: () => undefined, hide: () => undefined });
     this.headerRowButton.disabled = true;
     this.lastLoaded = null;
     this.datasetName = "";

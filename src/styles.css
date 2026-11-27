@@ -15890,6 +15890,23 @@ button.qp-tile:hover {
 :root[data-theme="dark"] .overview-read-fix { --read-fix-bg: #3a2410; --read-fix-border: #7a4a1c; --read-fix-text: #ffc58a; }
 :root[data-theme="dark"] .overview-read-fix:hover { background: #4a2e12; border-color: #a8662a; }
 
+/* Table page: how the file was read, only when it matters (a close call, or settings you chose). */
+.table-read-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.table-read-note[hidden] { display: none; }
+.table-read-note-flag { background: color-mix(in srgb, var(--qa-warn) 9%, var(--panel)); }
+.table-read-note-text { min-width: 0; }
+.table-read-note-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--qa-warn); }
+.table-read-note-hide { margin-left: auto; }
+
 /* Import settings preview: one box per column, and the original text on request. */
 .header-row-cells { display: flex; }
 .header-row-cell {
