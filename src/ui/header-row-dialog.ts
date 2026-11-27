@@ -92,7 +92,6 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
     const splitting = input.splitting;
     let delimiter: Delimiter | "auto" = splitting?.current ?? "auto";
     let delimiterChanged = false;
-    let view: "columns" | "text" = "columns";
     let rawText: string | null = null;
 
     const checking = input.reasons !== undefined && input.reasons.length > 0;
@@ -237,7 +236,6 @@ export function openHeaderRowDialog(input: HeaderRowInput): Promise<HeaderRowRes
       const asColumns = el("button", { type: "button", "aria-pressed": "true" }, ["As columns"]);
       const asText = el("button", { type: "button", "aria-pressed": "false" }, ["Original text"]);
       const setView = (next: "columns" | "text"): void => {
-        view = next;
         asColumns.setAttribute("aria-pressed", String(next === "columns"));
         asText.setAttribute("aria-pressed", String(next === "text"));
         grid.classList.toggle("hidden", next === "text");
