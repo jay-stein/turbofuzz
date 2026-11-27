@@ -13952,6 +13952,16 @@ button.qp-tile:hover {
   white-space: nowrap;
 }
 
+/* Example rows ("with $, like $1,200"): the words are prose, only the value is mono. */
+.dist-group-noted .dist-row {
+  grid-template-columns: minmax(90px, 190px) 1fr auto;
+}
+
+.dist-note {
+  font-family: var(--font-sans);
+  color: var(--text-dim);
+}
+
 .dist-track {
   display: block;
   height: 10px;

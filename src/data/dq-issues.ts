@@ -7,6 +7,7 @@ import { columnScore, type ColumnScore, type DQScore, type ScoreCheck } from "./
 import { TYPE_LABELS, type ColumnType } from "../types.js";
 import type { ColumnMeta } from "../worker/protocol.js";
 import type { DateOrder } from "../parse/dates.js";
+import { parseNumber } from "../parse/numbers.js";
 
 /**
  * ONE issue list for the Quality page. Scored checks that fail become "fix"
@@ -71,6 +72,17 @@ export interface DistRow {
   label: string;
   count: number;
   cls: DistClass;
+  /** Words before the label when it is an example rather than the whole group ("plain, like" 950). */
+  note?: string;
+}
+
+/** How a symbol-bearing number is written, from one example: "with $", "with commas". */
+function symbolName(example: string): string {
+  const v = example.trim();
+  if (/^\(.*\)$/.test(v)) return "in brackets";
+  const currency = /[$€£¥₹]/.exec(v);
+  if (currency !== null) return `with ${currency[0]}`;
+  return v.includes(",") ? "with commas" : "with dots";
 }
 
 /** The NOW and AFTER CLEAN groups of a spelling or placeholder issue. */
@@ -354,30 +366,35 @@ export function buildIssues(input: IssueInputs): PageIssue[] {
       if (check.id.startsWith("validity.symbols.")) {
         const symbols = meta.numberSymbols;
         if (symbols === null || symbols === undefined) continue;
+        // Bars show real values from the column ("$1,200", "950"), not category
+        // words, so they cannot be mistaken for text found in the data.
+        const symbolWord = symbolName(symbols.example);
+        const parsed = parseNumber(symbols.example, meta.numberLocale);
+        const stripped = Number.isFinite(parsed) ? String(parsed) : "plain number";
         issues.push({
           id: `symbols.${column}`,
           severity: "fix",
           kind: "numberSymbols",
           column,
           columnName: meta.name,
-          title: `“${meta.name}” mixes plain numbers with currency or thousands formatting`,
-          evidence: `${n(symbols.withSymbol)} with a symbol or separator (e.g. “${symbols.example}”) · ${n(symbols.plain)} plain`,
+          title: `“${meta.name}” mixes plain numbers with numbers written ${symbolWord}`,
+          evidence: `${n(symbols.withSymbol)} written ${symbolWord}, like “${symbols.example}” · ${n(symbols.plain)} plain, like “${symbols.plainExample}”`,
           impact: `${n(symbols.withSymbol)} ${plural(symbols.withSymbol, "value", "values")} would stay as text in an export or a join until the symbols are removed`,
           points,
           examples: [symbols.example],
           dist: {
             now: [
-              { label: "plain number", count: symbols.plain, cls: "target" },
-              { label: "with symbol", count: symbols.withSymbol, cls: "variant" },
+              { label: symbols.plainExample, count: symbols.plain, cls: "target", note: "plain, like" },
+              { label: symbols.example, count: symbols.withSymbol, cls: "variant", note: `${symbolWord}, like` },
             ],
-            after: [{ label: "plain number", count: symbols.total, cls: "target" }],
+            after: [{ label: stripped, count: symbols.total, cls: "target", note: "all plain, like" }],
           },
           fixes: [
             {
               kind: "numberSymbols",
               column,
               locale: meta.numberLocale,
-              preview: [{ from: symbols.example, to: "plain number", count: symbols.withSymbol }],
+              preview: [{ from: symbols.example, to: stripped, count: symbols.withSymbol }],
             },
           ],
           fixLabel: "Strip symbols…",

@@ -15,6 +15,8 @@ export interface NumberSymbolSummary {
   total: number;
   /** A symbol-bearing example. */
   example: string;
+  /** A plain example from the same column, so the two styles can be shown side by side. */
+  plainExample: string;
   /** Which group is the minority (the rows that fail). */
   minorityIs: "withSymbol" | "plain";
   /** Whether thousands-grouped values count as the symbol style (see summariseNumberSymbols). */
@@ -55,6 +57,7 @@ export function summariseNumberSymbols(
   let plainLarge = 0;
   let currencyExample = "";
   let groupedExample = "";
+  let plainExample = "";
   for (let i = 0; i < raw.length; i++) {
     const value = (raw[i] ?? "").trim();
     if (value === "" || isMissing(value)) continue;
@@ -66,6 +69,7 @@ export function summariseNumberSymbols(
       if (groupedExample === "") groupedExample = value;
     } else {
       plain++;
+      if (plainExample === "") plainExample = value;
       if (/^[+-]?\d{4,}(?![\d])/.test(value)) plainLarge++;
     }
   }
@@ -79,6 +83,8 @@ export function summariseNumberSymbols(
     minority: Math.min(withSymbol, plainCount),
     total: withSymbol + plainCount,
     example: currencyExample !== "" ? currencyExample : groupedExample,
+    // When grouped values count as plain, a grouped one may be the only plain example.
+    plainExample: plainExample !== "" ? plainExample : groupedExample,
     minorityIs: withSymbol <= plainCount ? "withSymbol" : "plain",
     groupedCounts: countGrouped,
   };

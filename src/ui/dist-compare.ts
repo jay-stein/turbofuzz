@@ -10,13 +10,15 @@ function barLabel(row: DistRow, side: "now" | "after", target: string | null): s
   if (side === "after") {
     return row.cls === "placeholder" ? `${row.label}: ${rows}` : `${row.label}: ${rows} after cleaning`;
   }
+  if (row.note !== undefined) return `${row.note} ${row.label}: ${rows}${row.cls === "variant" ? ", will be made plain" : ", kept as is"}`;
   if (row.cls === "variant") return `${row.label}: ${rows}, will merge into ${target ?? "the most common spelling"}`;
   if (row.cls === "placeholder") return `${row.label}: ${rows}, will become empty`;
   return `${row.label}: ${rows}, kept as is`;
 }
 
 function group(title: string, rows: readonly DistRow[], side: "now" | "after", target: string | null): HTMLElement {
-  const root = el("div", { class: "dist-group" });
+  const noted = rows.some((row) => row.note !== undefined);
+  const root = el("div", { class: noted ? "dist-group dist-group-noted" : "dist-group" });
   root.append(el("div", { class: "dist-title" }, [title]));
   const max = Math.max(1, ...rows.map((row) => row.count));
   const shown = rows.slice(0, MAX_ROWS);
@@ -31,7 +33,8 @@ function group(title: string, rows: readonly DistRow[], side: "now" | "after", t
     }, [bar]);
     root.append(
       el("div", { class: "dist-row" }, [
-        el("span", { class: "dist-label", title: row.label }, [row.label]),
+        el("span", { class: "dist-label", title: row.note === undefined ? row.label : `${row.note} ${row.label}` },
+          row.note === undefined ? [row.label] : [el("span", { class: "dist-note" }, [row.note]), " ", row.label]),
         track,
         el("span", { class: "dist-count" }, [n(row.count)]),
       ]),
