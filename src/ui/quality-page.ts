@@ -93,6 +93,8 @@ export interface QualityPageCallbacks {
    * Resolves with what was applied and how to undo each, or null when cancelled.
    */
   onFixIssues?(issues: readonly PageIssue[]): Promise<FixOutcome | null>;
+  /** Tidy text in every column: trim stray spaces and make capitals consistent, after a full preview. */
+  onTidyText?(): void;
   /** Open the one-by-one review for an issue; resolves with what was applied, or null when cancelled. */
   onReviewIssue?(issue: PageIssue): Promise<FixOutcome | null>;
   /** Show the rows behind an issue (filters the table or runs its finding action). */
@@ -553,6 +555,7 @@ export class QualityPage {
         },
         {
           fixAllSafe: () => void this.fix(safe),
+          ...(this.callbacks.onTidyText === undefined ? {} : { tidyText: this.callbacks.onTidyText }),
           fixNext: () => void this.fix(topSafe),
           openNext: () => {
             if (top !== null) this.openStep(top.group.id);

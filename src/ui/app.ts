@@ -6,6 +6,7 @@ import { clearReviewed, getReviewed, setReviewed } from "./reviewed-issues.js";
 import { clearOptionalMark, getOptionalMarks, setOptionalMark } from "./optional-marks.js";
 import { DELIMITER_LABELS, type Delimiter } from "../parse/delimiter.js";
 import { describeHeader, preloadSplitting, renderReadNote, splitChoiceFor, splitNotes } from "./import-read.js";
+import { openTidyTextDialog } from "./tidy-text-dialog.js";
 import {
   listArchiveEntries,
   readArchiveEntry,
@@ -5462,6 +5463,7 @@ export class App {
       onScanExact: (column) => void this.scanSensitiveExact(column),
       onProtect: (card, anchor) => this.openProtectMenu(card, anchor),
       onFixIssues: (issues) => this.fixIssues(issues),
+      onTidyText: () => void this.tidyText(),
       onShowIssue: (issue) => this.showIssue(issue),
       onShowIssueSide: (issue, special) => this.showIssueSide(issue, special),
       onReviewIssue: (issue) => this.reviewIssue(issue),
@@ -5794,6 +5796,28 @@ export class App {
     if (items.length === 0) this.showToast(text);
     else this.showToast(text, () => [...items].reverse().forEach((item) => item.undo()), items.length === 1 ? "Undo" : "Undo all");
     return { items };
+  }
+
+  /** Tidy text in every column: one preview of every change, then each column's steps go in the Recipe together, with one Undo. */
+  private async tidyText(): Promise<void> {
+    const choices = await openTidyTextDialog((await this.client.previewTidyText()).columns);
+    if (choices === null || choices.length === 0) return;
+    const steps = choices.flatMap((choice) => choice.ops.map((op) => ({ column: choice.column, op })));
+    const result = await this.applyClean(() => choices.map((c) => ({ column: c.column, ops: [...(this.cleanedColumns.get(c.column) ?? []), ...c.ops] })), {
+      ordered: true,
+      record: () => {
+        for (const { column, op } of steps) {
+          this.fixOps.add(op);
+          this.cleanedColumns.set(column, [...(this.cleanedColumns.get(column) ?? []), op]);
+        }
+        this.updateStepsButton();
+      },
+    });
+    if (result !== "applied") return;
+    const cells = choices.reduce((sum, choice) => sum + choice.rows, 0);
+    const text = `Tidied text in ${choices.length} ${choices.length === 1 ? "column" : "columns"} · ${cells.toLocaleString()} cells changed`;
+    this.setAction(text);
+    this.showToast(text, () => this.removeCleanOps(steps), "Undo");
   }
 
   /** Takes these clean steps back off their columns, reading the columns when the change runs. */
